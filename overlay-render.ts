@@ -15,6 +15,7 @@ import {
 } from "./lib.js";
 import * as store from "./store.js";
 import * as crewStore from "./crew/store.js";
+import * as teamStore from "./crew/team/store.js";
 import {
   autonomousState,
   getPlanningUpdateAgeMs,
@@ -110,10 +111,15 @@ export function renderStatusBar(theme: Theme, cwd: string, width: number): strin
 
   if (!plan) {
     const liveCount = getLiveWorkers(cwd).size;
-    return truncateToWidth(`No active plan │ ⚙ ${liveCount}/${autonomousState.concurrency} workers`, width);
+    const team = teamStore.getActiveTeam(cwd);
+    const profileText = team?.profile && team.profile !== team.name ? `/${team.profile}` : "";
+    const teamText = team ? ` │ Team: ${team.name}${profileText}` : "";
+    return truncateToWidth(`No active plan │ ⚙ ${liveCount}/${autonomousState.concurrency} workers${teamText}`, width);
   }
 
   const ready = crewStore.getReadyTasks(cwd, { advisory: crewConfig.dependencies === "advisory" });
+  const team = teamStore.getActiveTeam(cwd);
+  const needsLead = teamStore.needsLeadTasks(cwd).length;
   const progress = `${plan.completed_count}/${plan.task_count}`;
   const planLabel = crewStore.getPlanLabel(plan, 40);
   let base = `📋 ${planLabel}: ${progress}`;
@@ -125,6 +131,10 @@ export function renderStatusBar(theme: Theme, cwd: string, width: number): strin
   base += ` │ ⚙ ${liveCount}/${autonomousState.concurrency} workers`;
   const coordLevel = crewConfig.coordination;
   base += ` │ ${crewConfig.dependencies} │ ${coordLevel}`;
+  if (team) {
+    const profileText = team.profile && team.profile !== team.name ? `/${team.profile}` : "";
+    base += ` │ Team: ${team.name}${profileText}${needsLead > 0 ? ` │ Needs lead: ${needsLead}` : ""}`;
+  }
 
   if (!autonomousActive) {
     return truncateToWidth(base, width);
@@ -642,8 +652,13 @@ function renderTaskLine(theme: Theme, task: Task, isSelected: boolean, width: nu
     suffix = ` [${reason}${task.blocked_reason.length > 28 ? "…" : ""}]`;
   }
 
+  const labels: string[] = [];
+  if (task.role) labels.push(`[${task.role}]`);
+  if (task.approval?.required) labels.push(`[${task.approval.status}]`);
+  const labelText = labels.length > 0 ? `${labels.join(" ")} ` : "";
+
   if (task.milestone) suffix += `${suffix ? " " : ""}· milestone`;
-  return truncateToWidth(`${select}${coloredIcon} ${task.id}  ${task.title}${theme.fg("dim", suffix)}`, width);
+  return truncateToWidth(`${select}${coloredIcon} ${task.id}  ${labelText}${task.title}${theme.fg("dim", suffix)}`, width);
 }
 
 export function navigateTask(viewState: CrewViewState, direction: 1 | -1, taskCount: number): void {

@@ -8,6 +8,8 @@
 import type { Task } from "./types.js";
 import type { CrewConfig } from "./utils/config.js";
 import type { CrewSkillInfo } from "./utils/discover.js";
+import { TEAM_MEMORY_TYPES, type TeamMemoryType, type TeamPromptContext } from "./team/types.js";
+import { isNonEditingTeamRole } from "./utils/team-roles.js";
 import * as store from "./store.js";
 import { buildDependencySection, buildCoordinationContext, buildCoordinationInstructions } from "./handlers/coordination.js";
 
@@ -18,9 +20,26 @@ export function buildWorkerPrompt(
   config: CrewConfig,
   concurrentTasks: Task[],
   skills?: CrewSkillInfo[],
+  teamContext?: TeamPromptContext,
 ): string {
   const taskSpec = store.getTaskSpec(cwd, task.id);
   const planSpec = store.getPlanSpec(cwd);
+  const isNonEditingRole = isNonEditingTeamRole(teamContext?.role?.name ?? task.role);
+  const mission = isNonEditingRole
+    ? `Inspect this task as a read-only Team role. This overrides generic implementation protocol for this assignment:
+1. Join the mesh
+2. Read task spec to understand requirements
+3. Start the task so Crew can track ownership
+4. Inspect code, docs, and context without editing files
+5. Record findings, plans, decisions, risks, or handoff notes in progress or Team memory
+6. Mark complete with a concise summary of what you found or recommend`
+    : `Implement this task following the crew-worker protocol:
+1. Join the mesh
+2. Read task spec to understand requirements
+3. Start task and reserve files
+4. Implement the feature
+5. Commit your changes
+6. Release reservations and mark complete`;
 
   let prompt = `# Task Assignment
 
@@ -31,15 +50,14 @@ ${task.attempt_count >= 1 ? `**Attempt:** ${task.attempt_count + 1} (retry after
 
 ## Your Mission
 
-Implement this task following the crew-worker protocol:
-1. Join the mesh
-2. Read task spec to understand requirements
-3. Start task and reserve files
-4. Implement the feature
-5. Commit your changes
-6. Release reservations and mark complete
+${mission}
 
 `;
+
+  const teamSection = buildTeamSection(task, teamContext);
+  if (teamSection) {
+    prompt += teamSection;
+  }
 
   if (task.last_review) {
     prompt += `## ⚠️ Previous Review Feedback
@@ -71,7 +89,7 @@ ${omitted}${truncated}
 
   if (task.depends_on.length > 0) {
     if (config.dependencies === "advisory" || config.coordination !== "none") {
-      prompt += buildDependencySection(cwd, task, config);
+      prompt += buildDependencySection(cwd, task, config, { readOnly: isNonEditingRole });
     } else {
       prompt += `## Dependencies
 
@@ -82,7 +100,7 @@ These tasks are already complete - you can reference their implementations.
     }
   }
 
-  const coordContext = buildCoordinationContext(cwd, task, config, concurrentTasks);
+  const coordContext = buildCoordinationContext(cwd, task, config, concurrentTasks, { readOnly: isNonEditingRole });
   if (coordContext) {
     prompt += coordContext;
   }
@@ -105,12 +123,12 @@ ${truncatedSpec}
 `;
   }
 
-  const coordInstructions = buildCoordinationInstructions(config);
+  const coordInstructions = buildCoordinationInstructions(config, { readOnly: isNonEditingRole });
   if (coordInstructions) {
     prompt += coordInstructions;
   }
 
-  const skillsSection = buildSkillsSection(skills, task.skills);
+  const skillsSection = buildSkillsSection(skills, task.skills, isNonEditingRole);
   if (skillsSection) {
     prompt += skillsSection;
   }
@@ -120,9 +138,82 @@ ${truncatedSpec}
 
 const WORKER_HIDDEN_SKILLS = new Set(["pi-messenger-crew"]);
 
+function buildTeamSection(task: Task, teamContext: TeamPromptContext | undefined): string | null {
+  if (!teamContext) return null;
+
+  let section = `## Team Context\n\n`;
+  if (teamContext.team) {
+    const profileText = teamContext.profile?.name && teamContext.profile.name !== teamContext.team.name
+      ? ` (profile: ${teamContext.profile.name})`
+      : "";
+    section += `Active team: ${teamContext.team.name}${profileText}\n\n`;
+  }
+
+  if (task.role || teamContext.role) {
+    section += `### Team Role\nYou are acting as the \`${task.role ?? teamContext.role?.name}\` role for this task.\n`;
+    if (teamContext.role?.description) section += `Role description: ${teamContext.role.description}\n`;
+    if (teamContext.role?.thinking) section += `Thinking default: ${teamContext.role.thinking}\n`;
+    if (teamContext.role?.skills && teamContext.role.skills.length > 0) section += `Role skills: ${teamContext.role.skills.join(", ")}\n`;
+    if (teamContext.role && isNonEditingTeamRole(teamContext.role.name)) {
+      section += "This is a non-editing Team role. Do not edit files; report findings, plans, decisions, or handoff notes instead.\n";
+    }
+    if (teamContext.role?.prompt) {
+      const prompt = teamContext.role.prompt.length > 2000
+        ? teamContext.role.prompt.slice(0, 2000) + "\n[Role prompt truncated]"
+        : teamContext.role.prompt;
+      section += `\nRole working rules:\n${prompt}\n`;
+    }
+    section += "\n";
+  }
+
+  if (teamContext.charter) {
+    const charter = teamContext.charter.length > 2500
+      ? teamContext.charter.slice(0, 2500) + "\n[Team charter truncated]"
+      : teamContext.charter;
+    section += `### Team Charter\n${charter}\n\n`;
+  }
+
+  const memoryText = formatMemory(teamContext.memory);
+  if (memoryText) section += memoryText;
+
+  if (task.risk_labels && task.risk_labels.length > 0) {
+    section += `### Risk Labels\n${task.risk_labels.join(", ")}\n\n`;
+  }
+
+  if (task.approval?.required) {
+    section += `### Approval Policy\nLead approval required. Current status: ${task.approval.status}.\n`;
+    if (task.approval.plan) section += `Approval plan: ${task.approval.plan}\n`;
+    if (task.approval.feedback) section += `Approval feedback: ${task.approval.feedback}\n`;
+    section += "\n";
+  }
+
+  return section;
+}
+
+function formatMemory(memory: TeamPromptContext["memory"]): string {
+  const labels: Record<TeamMemoryType, string> = {
+    decision: "Recent decisions",
+    interface: "Interfaces",
+    risk: "Risks",
+    handoff: "Handoffs",
+  };
+  let text = "";
+  for (const type of TEAM_MEMORY_TYPES) {
+    const entries = memory[type];
+    if (!entries || entries.length === 0) continue;
+    text += `### ${labels[type]}\n`;
+    for (const entry of entries.slice(-8)) {
+      text += `- ${entry.message}${entry.taskId ? ` (${entry.taskId})` : ""}\n`;
+    }
+    text += "\n";
+  }
+  return text ? `### Team Memory\n${text}` : "";
+}
+
 function buildSkillsSection(
   skills: CrewSkillInfo[] | undefined,
   taskSkills: string[] | undefined,
+  readOnly: boolean,
 ): string | null {
   if (!skills || skills.length === 0) return null;
 
@@ -135,7 +226,7 @@ function buildSkillsSection(
 
   let section = `## Available Skills
 
-Read any skill that matches what you're implementing.
+${readOnly ? "Read any skill that matches what you're investigating." : "Read any skill that matches what you're implementing."}
 
 `;
 

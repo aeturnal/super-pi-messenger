@@ -7,8 +7,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import type { Plan, Task, TaskEvidence } from "./types.js";
+import type { Plan, Task, TaskApproval, TaskApprovalDecisionStatus, TaskEvidence } from "./types.js";
 import { allocateTaskId } from "./id-allocator.js";
+import { normalizeRiskLabels } from "./utils/risk-labels.js";
 
 // =============================================================================
 // Directory Helpers
@@ -174,16 +175,23 @@ export function createTask(
   cwd: string,
   title: string,
   description?: string,
-  dependsOn?: string[]
+  dependsOn?: string[],
+  options?: Pick<Task, "role" | "risk_labels" | "approval" | "skills" | "model">
 ): Task {
   const id = allocateTaskId(cwd);
   const now = new Date().toISOString();
+  const riskLabels = normalizeRiskLabels(options?.risk_labels);
 
   const task: Task = {
     id,
     title,
     status: "todo",
     depends_on: dependsOn ?? [],
+    ...(options?.model ? { model: options.model } : {}),
+    ...(options?.role ? { role: options.role } : {}),
+    ...(riskLabels ? { risk_labels: riskLabels } : {}),
+    ...(options?.approval ? { approval: options.approval } : {}),
+    ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
     created_at: now,
     updated_at: now,
     attempt_count: 0,
@@ -206,10 +214,32 @@ export function createTask(
   return task;
 }
 
+function normalizeApproval(raw: unknown): TaskApproval | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Record<string, unknown>;
+  const metadata = {
+    ...(typeof value.plan === "string" ? { plan: value.plan } : {}),
+    ...(typeof value.feedback === "string" ? { feedback: value.feedback } : {}),
+    ...(typeof value.decided_by === "string" ? { decided_by: value.decided_by } : {}),
+    ...(typeof value.decided_at === "string" ? { decided_at: value.decided_at } : {}),
+  };
+  if (value.required !== true) return { required: false, status: "not_required", ...metadata };
+
+  const status: TaskApprovalDecisionStatus = value.status === "approved" || value.status === "rejected"
+    ? value.status
+    : "pending";
+  return { required: true, status, ...metadata };
+}
+
 function normalizeTask(raw: Task): Task {
+  const approval = normalizeApproval(raw.approval);
   return {
     ...raw,
     depends_on: Array.isArray(raw.depends_on) ? raw.depends_on : [],
+    skills: Array.isArray(raw.skills) ? raw.skills.filter(s => typeof s === "string") : undefined,
+    role: typeof raw.role === "string" && raw.role.trim().length > 0 ? raw.role : undefined,
+    risk_labels: normalizeRiskLabels(Array.isArray(raw.risk_labels) ? raw.risk_labels.filter(s => typeof s === "string") : undefined),
+    approval,
     attempt_count: typeof raw.attempt_count === "number" ? raw.attempt_count : 0,
   };
 }

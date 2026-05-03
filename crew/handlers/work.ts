@@ -13,12 +13,14 @@ import { resolveModel, spawnAgents } from "../agents.js";
 import { loadCrewConfig } from "../utils/config.js";
 import { discoverCrewAgents, discoverCrewSkills } from "../utils/discover.js";
 import { buildWorkerPrompt } from "../prompt.js";
+import * as teamStore from "../team/store.js";
 import { reviewImplementation } from "./review.js";
 import * as store from "../store.js";
 import { getCrewDir } from "../store.js";
 import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.js";
 import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles } from "../lobby.js";
 import { logFeedEvent } from "../../feed.js";
+import { approvalTaskSummaries } from "../utils/task-format.js";
 
 export async function execute(
   params: CrewParams,
@@ -56,8 +58,11 @@ export async function execute(
   // Get ready tasks — auto-block any that exceeded max attempts
   const allReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
   const readyTasks: typeof allReady = [];
+  const needsApproval: typeof allReady = [];
   for (const task of allReady) {
-    if (task.attempt_count >= config.work.maxAttemptsPerTask) {
+    if (teamStore.taskNeedsApproval(task)) {
+      needsApproval.push(task);
+    } else if (task.attempt_count >= config.work.maxAttemptsPerTask) {
       store.updateTask(cwd, task.id, {
         status: "blocked",
         blocked_reason: `Max attempts (${config.work.maxAttemptsPerTask}) reached`,
@@ -81,17 +86,24 @@ export async function execute(
       reason = "🎉 All tasks are done! Plan is complete.";
     } else if (inProgress.length > 0) {
       reason = `${inProgress.length} task(s) in progress: ${inProgress.map(t => t.id).join(", ")}`;
+    } else if (needsApproval.length > 0) {
+      reason = "No startable tasks; ready tasks need lead approval.";
     } else if (blocked.length > 0) {
       reason = `${blocked.length} task(s) blocked: ${blocked.map(t => `${t.id} (${t.blocked_reason})`).join(", ")}`;
     } else {
       reason = "All remaining tasks have unmet dependencies.";
     }
 
-    return result(`No ready tasks.\n\n${reason}`, {
+    const approvalText = needsApproval.length > 0
+      ? `\n\nNeeds approval:\n${needsApproval.map(t => `  - ${t.id}: ${t.title}`).join("\n")}`
+      : "";
+
+    return result(`No ready tasks.\n\n${reason}${approvalText}`, {
       mode: "work",
       prd: plan.prd,
       ready: [],
       reason,
+      needsApproval: approvalTaskSummaries(needsApproval),
       inProgress: inProgress.map(t => t.id),
       blocked: blocked.map(t => t.id)
     });
@@ -121,7 +133,7 @@ export async function execute(
     if (!task) break;
 
     const others = readyTasks.filter(t => t.id !== task.id);
-    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills);
+    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
     store.updateTask(cwd, task.id, {
       status: "in_progress",
       started_at: new Date().toISOString(),
@@ -141,14 +153,18 @@ export async function execute(
 
   // Build prompts for remaining tasks — spawnAgents throttles via autonomousState.concurrency
   const remainingTasks = readyTasks.filter(t => !lobbyAssigned.has(t.id));
+  const teamRoles = teamStore.resolveRoles(cwd);
   const workerTasks = remainingTasks.map(task => {
+    const roleName = teamStore.resolveRoleName(cwd, task.role);
+    const roleModel = roleName ? teamRoles[roleName]?.model : undefined;
     const taskModel = resolveModel(
       task.model,
       params.model,
+      roleModel,
       config.models?.worker,
     );
     const others = readyTasks.filter(t => t.id !== task.id);
-    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills);
+    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
     store.appendTaskProgress(cwd, task.id, "system", `Assigned to crew-worker (attempt ${task.attempt_count + 1})`);
 
     return {
@@ -282,7 +298,7 @@ export async function execute(
       stopAutonomous("manual");
       appendEntry("crew-state", autonomousState);
     } else {
-      const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+      const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
       const allTasks = store.getTasks(cwd);
       const allDone = allTasks.every(t => t.status === "done");
       const allBlockedOrDone = allTasks.every(t => t.status === "done" || t.status === "blocked");
@@ -321,16 +337,19 @@ export async function execute(
     ? `${updatedPlan.completed_count}/${updatedPlan.task_count}`
     : "unknown";
 
+  const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+  const actionableNextReady = nextReady.filter(t => !teamStore.taskNeedsApproval(t));
+  const finalNeedsApproval = nextReady.filter(teamStore.taskNeedsApproval);
+
   let statusText = "";
   if (succeeded.length > 0) statusText += `\n✅ Completed: ${succeeded.join(", ")}`;
   if (failed.length > 0) statusText += `\n❌ Failed: ${failed.join(", ")}`;
   if (blocked.length > 0) statusText += `\n🚫 Blocked: ${blocked.join(", ")}`;
-
-  const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
-  const nextText = nextReady.length > 0
-    ? `\n\n**Ready for next wave:** ${nextReady.map(t => t.id).join(", ")}`
+  if (finalNeedsApproval.length > 0) statusText += `\n🛑 Needs approval: ${finalNeedsApproval.map(t => t.id).join(", ")}`;
+  const nextText = actionableNextReady.length > 0
+    ? `\n\n**Ready for next wave:** ${actionableNextReady.map(t => t.id).join(", ")}`
     : "";
-  const continueText = autonomous && !signal?.aborted && nextReady.length > 0
+  const continueText = autonomous && !signal?.aborted && actionableNextReady.length > 0
     ? "Autonomous mode: Continuing to next wave..."
     : signal?.aborted && autonomous
       ? "Autonomous mode stopped (cancelled)."
@@ -357,7 +376,8 @@ ${continueText}`;
     succeeded,
     failed,
     blocked,
-    nextReady: nextReady.map(t => t.id),
+    needsApproval: approvalTaskSummaries(finalNeedsApproval),
+    nextReady: actionableNextReady.map(t => t.id),
     autonomous: !!autonomous
   });
 }

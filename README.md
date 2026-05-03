@@ -172,6 +172,58 @@ Error responses use `{ error: { code, message, details? } }` shape.
 
 Any skills you already have in `~/.pi/agent/skills/` are automatically available to crew workers — no setup needed.
 
+### Team Layer
+
+Team is an optional layer around Crew. Crew still plans and executes tasks; Team adds project-local roles, a charter, durable memory, reusable JSON profiles, and high-risk approval gates. Active Team state lives in `.pi/messenger/team/`. Reusable profiles live in `~/.pi/agent/messenger/team-profiles/`.
+
+Most users should talk to their agent in plain language:
+
+```text
+Use the review squad for this cleanup.
+Use a migration team and pause before risky database changes.
+Research this first, then plan the implementation.
+Approve the auth API task.
+Reject the migration task; it needs rollback tests.
+```
+
+The agent maps those requests to Team actions. If a task needs approval, the agent should ask in plain language and continue after you approve. The tool calls are mainly for agents and power users:
+
+```typescript
+pi_messenger({ action: "team.profile.use", name: "migration-squad" })
+pi_messenger({ action: "team.charter.create", name: "migration-squad", message: "Ship risky migrations through scout → worker → reviewer." })
+pi_messenger({ action: "team.memory.note", type: "decision", message: "Auth API changes require reviewer sign-off." })
+pi_messenger({ action: "team.roles" })
+pi_messenger({ action: "team.status" })
+```
+
+When Team is active, planner task JSON may include `role` and `riskLabels`. Tasks persist those as `role`, `risk_labels`, and `approval`; existing tasks without those fields still work. Workers receive bounded Team role, charter, memory, and approval context. `work` skips tasks that require approval but are not approved and returns them under `needsApproval`; approve or reject them with `task.approve` / `task.reject`.
+
+Team's built-in role names follow the packaged `pi-subagents` vocabulary where possible: `context-builder`, `delegate`, `oracle`, `planner`, `researcher`, `reviewer`, `scout`, and `worker`. Roles resolve from those built-in defaults, the active profile, and optional filesystem metadata from `pi-subagents` markdown files when present. `pi-messenger` only reads those files; it does not require or call the subagent extension, and Crew still uses its own Crew agents for execution.
+
+Built-in sample profiles are available immediately and are saved as editable JSON the first time you activate them:
+
+```typescript
+pi_messenger({ action: "team.profile.use", name: "migration-squad" }) // migrations with approval gates
+pi_messenger({ action: "team.profile.use", name: "review-squad" })    // scout/reviewer/worker cleanup flow
+pi_messenger({ action: "team.profile.use", name: "research-squad" })  // research-first planning flow
+```
+
+A saved profile looks like this:
+
+```json
+{
+  "name": "migration-squad",
+  "description": "Scout, implement, and review high-risk migrations with lead approval gates",
+  "roles": {
+    "scout": { "description": "Map affected schemas, APIs, and rollback paths before implementation" },
+    "worker": { "description": "Implement the approved migration in small, reversible steps" },
+    "reviewer": { "description": "Review migration safety, compatibility, rollback, and tests" }
+  },
+  "approval": { "mode": "risk-labels", "labels": ["database", "migration", "destructive", "api-contract"] },
+  "memory": { "inject": ["decision", "interface", "risk", "handoff"], "maxCharsPerType": 4000 }
+}
+```
+
 ### Crew Configuration
 
 Crew spawns multiple LLM sessions in parallel — it can burn tokens fast. Start with a cheap worker model and scale up once you've seen the workflow. Add this to `~/.pi/agent/pi-messenger.json`:
@@ -293,6 +345,8 @@ Agent definitions live in `crew/agents/` within the extension. To customize one 
 | `task.list` | List all tasks |
 | `task.show` | Show task details (`id` required) |
 | `task.start` | Start a task (`id` required) |
+| `task.approve` | Approve an approval-gated task (`id` required) |
+| `task.reject` | Reject an approval-gated task (`id` required, `reason` optional) |
 | `task.done` | Complete a task (`id` required, `summary` optional) |
 | `task.block` | Block a task (`id` + `reason` required) |
 | `task.unblock` | Unblock a task (`id` required) |
@@ -303,6 +357,23 @@ Agent definitions live in `crew/agents/` within the extension. To customize one 
 | `crew.agents` | List available crew agents |
 | `crew.install` | Show discovered crew agents and their sources |
 | `crew.uninstall` | Remove stale shared-directory crew agent copies |
+
+### Team
+
+| Action | Description |
+|--------|-------------|
+| `team.profile.list` | List built-in samples and saved reusable JSON team profiles |
+| `team.profile.use` | Activate a profile (`name` required; saves a sample/default profile if missing) |
+| `team.profile.save` | Save the active profile under `name` |
+| `team.charter.show` | Show the project team charter |
+| `team.charter.create` | Create or replace the charter (`name` + `message` required) |
+| `team.charter.update` | Append a charter update (`message` required) |
+| `team.memory.note` | Append team memory (`type`: `decision`, `interface`, `risk`, or `handoff`; `message` required) |
+| `team.memory.list` | List team memory (`type` and `limit` optional) |
+| `team.roles` | Resolve Team roles from packaged-vocabulary defaults, profile config, and optional subagent metadata |
+| `team.status` | Summarize team/profile/charter, roles, memory counts, and needs-lead tasks |
+
+Approval-gated tasks use the Crew task commands `task.approve` and `task.reject`.
 
 ### Swarm (Spec-Based)
 

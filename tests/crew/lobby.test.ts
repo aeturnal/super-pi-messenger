@@ -173,13 +173,22 @@ describe("lobby workers", () => {
   });
 
   it("assignTaskToLobbyWorker marks worker as assigned", () => {
-    const worker = lobby.spawnLobbyWorker("/test/cwd")!;
+    const cwd = createTestCwd();
+    const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    const worker = lobby.spawnLobbyWorker(cwd)!;
     expect(worker.assignedTaskId).toBeNull();
 
-    const assigned = lobby.assignTaskToLobbyWorker(worker, "task-3", "# Task 3\nDo stuff", "/tmp/test-inbox");
+    const assigned = lobby.assignTaskToLobbyWorker(worker, "task-3", "# Task 3\nDo stuff", inboxDir);
     expect(assigned).toBe(true);
     expect(worker.assignedTaskId).toBe("task-3");
-    expect(lobby.getAvailableLobbyWorkers("/test/cwd")).toHaveLength(0);
+    expect(lobby.getAvailableLobbyWorkers(cwd)).toHaveLength(0);
+
+    const inbox = path.join(inboxDir, worker.name);
+    const messageFile = fs.readdirSync(inbox).find(file => file.endsWith(".json"));
+    expect(messageFile).toBeTruthy();
+    const message = JSON.parse(fs.readFileSync(path.join(inbox, messageFile!), "utf-8")) as { text: string };
+    expect(message.text).toContain("Follow the assignment below");
+    expect(message.text).not.toContain("reserving files, implementing, testing, committing");
   });
 
   it("assignTaskToLobbyWorker rejects already-assigned worker", () => {

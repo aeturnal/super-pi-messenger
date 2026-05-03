@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildWorkerPrompt } from "../../crew/prompt.js";
+import * as teamStore from "../../crew/team/store.js";
 import type { Task } from "../../crew/types.js";
 import type { CrewSkillInfo } from "../../crew/utils/discover.js";
 import type { CrewConfig } from "../../crew/utils/config.js";
@@ -44,6 +45,10 @@ function makeSkills(): CrewSkillInfo[] {
 describe("buildWorkerPrompt - skills section", () => {
   let dirs: TempCrewDirs;
 
+  afterEach(() => {
+    delete process.env.PI_MESSENGER_TEAM_PROFILE_DIR;
+  });
+
   function setupStore(task: Task) {
     const tasksDir = path.join(dirs.cwd, ".pi", "messenger", "crew", "tasks");
     fs.mkdirSync(tasksDir, { recursive: true });
@@ -59,6 +64,56 @@ describe("buildWorkerPrompt - skills section", () => {
       completed_count: 0,
     }));
   }
+
+  it("injects bounded Team role, charter, memory, and approval context", () => {
+    dirs = createTempCrewDirs();
+    process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(dirs.cwd, "profiles");
+    teamStore.useProfile(dirs.cwd, "migration-squad");
+    teamStore.writeCharter(dirs.cwd, "migration-squad", "Review risky auth work before edits.");
+    teamStore.noteMemory(dirs.cwd, "decision", "Auth middleware owns refresh validation", "AgentOne");
+    const task = makeTask({
+      role: "worker",
+      risk_labels: ["auth"],
+      approval: { required: true, status: "pending" },
+    });
+    setupStore(task);
+
+    const prompt = buildWorkerPrompt(task, "test.md", dirs.cwd, makeConfig(), [], [], teamStore.buildTeamPromptContext(dirs.cwd, task));
+
+    expect(prompt).toContain("Team Context");
+    expect(prompt).toContain("Active team: migration-squad");
+    expect(prompt).toContain("Team Role");
+    expect(prompt).toContain("worker");
+    expect(prompt).toContain("Team Charter");
+    expect(prompt).toContain("Review risky auth work before edits.");
+    expect(prompt).toContain("Team Memory");
+    expect(prompt).toContain("Auth middleware owns refresh validation");
+    expect(prompt).toContain("Approval Policy");
+    expect(prompt).toContain("pending");
+  });
+
+  it("gives non-editing Team roles a read-only mission", () => {
+    dirs = createTempCrewDirs();
+    process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(dirs.cwd, "profiles");
+    teamStore.useProfile(dirs.cwd, "migration-squad");
+    const task = makeTask({ role: "scout", depends_on: ["task-0"], skills: ["testing"] });
+    setupStore(task);
+
+    const prompt = buildWorkerPrompt(
+      task,
+      "test.md",
+      dirs.cwd,
+      makeConfig({ dependencies: "advisory", coordination: "chatty" }),
+      [],
+      makeSkills(),
+      teamStore.buildTeamPromptContext(dirs.cwd, task),
+    );
+
+    expect(prompt).toContain("Inspect this task as a read-only Team role");
+    expect(prompt).toContain("This is a non-editing Team role. Do not edit files");
+    expect(prompt).toContain("what you're investigating");
+    expect(prompt).not.toContain("Reserve files");
+  });
 
   it("includes Available Skills section when skills are provided", () => {
     dirs = createTempCrewDirs();

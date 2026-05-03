@@ -33,12 +33,29 @@ export interface TaskEvidence {
   prs?: string[];                // PR URLs
 }
 
+export type TaskApprovalDecisionStatus = "pending" | "approved" | "rejected";
+export type TaskApprovalStatus = "not_required" | TaskApprovalDecisionStatus;
+
+interface TaskApprovalMetadata {
+  plan?: string;
+  feedback?: string;
+  decided_by?: string;
+  decided_at?: string;
+}
+
+export type TaskApproval =
+  | ({ required: false; status: "not_required" } & TaskApprovalMetadata)
+  | ({ required: true; status: TaskApprovalDecisionStatus } & TaskApprovalMetadata);
+
 export interface Task {
   id: string;                    // task-N format
   title: string;
   status: TaskStatus;
   milestone?: boolean;
   model?: string;
+  role?: string;                 // Team role assignment
+  risk_labels?: string[];        // Team risk labels for approval policy
+  approval?: TaskApproval;       // Team lead approval state
   depends_on: string[];          // Task IDs this depends on
   skills?: string[];             // Skill names from planner
   created_at: string;            // ISO timestamp
@@ -81,6 +98,9 @@ export interface CrewParams {
   // Creation
   title?: string;
   dependsOn?: string[];
+  role?: string;
+  riskLabels?: string[];
+  approval?: TaskApproval;
 
   // Completion
   summary?: string;
@@ -91,9 +111,9 @@ export interface CrewParams {
   count?: number;
   subtasks?: { title: string; content?: string }[];
 
-  // Review
+  // Review / Team memory
   target?: string;               // Task ID to review
-  type?: "plan" | "impl";
+  type?: "plan" | "impl" | "decision" | "interface" | "risk" | "handoff";
 
   // Plan options
   autoWork?: boolean;

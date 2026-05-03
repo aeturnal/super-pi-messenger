@@ -289,6 +289,21 @@ describe("buildCoordinationContext", () => {
     expect(result).not.toMatch(/Ready Tasks[\s\S]*task-3/);
   });
 
+  it("chatty ready tasks separates approval-gated tasks", () => {
+    writeTask(dirs.tasksDir, { id: "task-1", status: "done" });
+    writeTask(dirs.tasksDir, { id: "task-2", status: "todo", title: "Current", depends_on: ["task-1"] });
+    writeTask(dirs.tasksDir, { id: "task-3", status: "todo", title: "Needs approval", depends_on: ["task-1"], approval: { required: true, status: "pending" } });
+    writeTask(dirs.tasksDir, { id: "task-4", status: "todo", title: "Claimable", depends_on: ["task-1"] });
+
+    const result = buildCoordinationContext(dirs.cwd, makeTask("task-2", { depends_on: ["task-1"] }), makeConfig("chatty"), []);
+
+    const claimableSection = result.slice(0, result.indexOf("## Ready Tasks Needing Approval"));
+    expect(claimableSection).toContain("task-4: Claimable");
+    expect(claimableSection).not.toContain("task-3: Needs approval");
+    expect(result).toMatch(/Ready Tasks Needing Approval[\s\S]*task-3: Needs approval/);
+    expect(result).toContain('pi_messenger({ action: "task.approve", id: "task-3" })');
+  });
+
   it("filters out join/leave noise from recent activity", () => {
     writeFeedEvents(dirs.cwd, [
       makeEvent("2026-01-01T22:10:00Z", "join", "Worker1"),
@@ -374,6 +389,16 @@ describe("buildCoordinationInstructions", () => {
     expect(result).toContain('action: "task.ready"');
     expect(result).toContain("task.start");
     expect(result).toContain("### Questions about dependencies");
+  });
+
+  it("read-only coordination avoids edit and build wording", () => {
+    const result = buildCoordinationInstructions(makeConfig("chatty"), { readOnly: true });
+    expect(result).toContain("what you are investigating");
+    expect(result).toContain("what you found or recommend");
+    expect(result).not.toContain("will create <files>");
+    expect(result).not.toContain("what you built");
+    expect(result).not.toContain("Before editing");
+    expect(result).not.toContain("### Reservations");
   });
 });
 

@@ -62,6 +62,7 @@ import {
 } from "./crew/state.js";
 import { loadCrewConfig } from "./crew/utils/config.js";
 import * as crewStore from "./crew/store.js";
+import * as teamStore from "./crew/team/store.js";
 import { runLegacyAgentCleanupMigration } from "./crew/utils/install.js";
 import { getLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.js";
 import { shutdownAllWorkers } from "./crew/agents.js";
@@ -410,13 +411,23 @@ Usage (action-based API - preferred):
   pi_messenger({ action: "task.split", id: "task-3" })          → Inspect task for splitting
   pi_messenger({ action: "task.split", id: "task-3", subtasks: [...] }) → Execute split
   pi_messenger({ action: "task.start", id: "task-1" })          → Start task
+  pi_messenger({ action: "task.approve", id: "task-1" })        → Approve gated task
+  pi_messenger({ action: "task.reject", id: "task-1", reason: "..." }) → Reject gated task
   pi_messenger({ action: "task.done", id: "task-1", summary: "..." })
   pi_messenger({ action: "task.reset", id: "task-1" })          → Reset task
   
   // Crew: Review
-  pi_messenger({ action: "review", target: "task-1" })          → Review impl`,
+  pi_messenger({ action: "review", target: "task-1" })          → Review impl
+
+  // Team: Optional role-aware layer around Crew
+  pi_messenger({ action: "team.profile.list" })                 → List built-in and saved team profiles
+  pi_messenger({ action: "team.profile.use", name: "migration-squad" }) → Activate a team profile
+  pi_messenger({ action: "team.charter.show" })                 → Show project team charter
+  pi_messenger({ action: "team.memory.note", type: "decision", message: "..." })
+  pi_messenger({ action: "team.roles" })                        → Resolve Team roles (packaged pi-subagents vocabulary + optional metadata)
+  pi_messenger({ action: "team.status" })                       → Team summary`,
     promptSnippet:
-      "Use for multi-agent coordination and Crew workflows: join/status/feed, create plans, run work waves, manage tasks, reserve files, and message agents.",
+      "Use for multi-agent coordination and Crew workflows: join/status/feed, create plans, run work waves, manage tasks, optional Team roles/profiles, reserve files, and message agents.",
     parameters: Type.Object({
       action: Type.Optional(Type.String({
         description: "Action to perform (e.g., 'join', 'plan', 'work', 'task.start')"
@@ -431,6 +442,8 @@ Usage (action-based API - preferred):
       taskId: Type.Optional(Type.String({ description: "Swarm task ID (e.g., TASK-01) - for action-based claim/unclaim/complete" })),
       title: Type.Optional(Type.String({ description: "Title for task.create" })),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Task IDs this task depends on (for task.create)" })),
+      role: Type.Optional(Type.String({ description: "Team role for task creation/planning (built-ins follow packaged pi-subagents vocabulary; profiles may define more)" })),
+      riskLabels: Type.Optional(Type.Array(Type.String(), { description: "Team risk labels for approval policy" })),
       target: Type.Optional(Type.String({ description: "Task ID for review action" })),
       summary: Type.Optional(Type.String({ description: "Summary for task.done" })),
       evidence: Type.Optional(Type.Object({
@@ -447,7 +460,7 @@ Usage (action-based API - preferred):
         }),
         { description: "Subtask definitions for task.split (execute phase)" }
       )),
-      type: Type.Optional(StringEnum(["plan", "impl"], { description: "Review type (inferred from target if omitted)" })),
+      type: Type.Optional(StringEnum(["plan", "impl", "decision", "interface", "risk", "handoff"], { description: "Review type, or Team memory type for team.memory.*" })),
       autoWork: Type.Optional(Type.Boolean({ description: "Auto-start autonomous work after plan completes (default: true, pass false to review plan first)" })),
       autonomous: Type.Optional(Type.Boolean({ description: "Run work continuously until done/blocked" })),
       concurrency: Type.Optional(Type.Number({ description: "Override worker concurrency" })),
@@ -455,7 +468,7 @@ Usage (action-based API - preferred):
       cascade: Type.Optional(Type.Boolean({ description: "For task.reset - also reset dependent tasks" })),
       limit: Type.Optional(Type.Number({ description: "Number of events to return (for feed action, default 20)" })),
       paths: Type.Optional(Type.Array(Type.String(), { description: "Paths for reserve/release actions" })),
-      name: Type.Optional(Type.String({ description: "New name for rename action" })),
+      name: Type.Optional(Type.String({ description: "Name for rename action or Team profile/charter commands" })),
 
       // ═══════════════════════════════════════════════════════════════════════
       // MESSAGING & COORDINATION PARAMETERS
@@ -463,9 +476,9 @@ Usage (action-based API - preferred):
       spec: Type.Optional(Type.String({ description: "Path to spec/plan file" })),
       notes: Type.Optional(Type.String({ description: "Completion notes" })),
       to: Type.Optional(Type.Any({ description: "Target agent name (string) or multiple names (array)" })),
-      message: Type.Optional(Type.String({ description: "Message to send" })),
+      message: Type.Optional(Type.String({ description: "Message to send, Team charter text, or Team memory note" })),
       replyTo: Type.Optional(Type.String({ description: "Message ID if this is a reply" })),
-      reason: Type.Optional(Type.String({ description: "Reason for reservation, claim, or task block" })),
+      reason: Type.Optional(Type.String({ description: "Reason for reservation, claim, task block, or approval rejection feedback" })),
       autoRegisterPath: Type.Optional(StringEnum(["add", "remove", "list"], { description: "Manage auto-register paths: add/remove current folder, or list all" }))
     }),
 
@@ -1026,14 +1039,23 @@ Usage (action-based API - preferred):
       const cwd = autoWork.cwd;
       const crewConfig = loadCrewConfig(crewStore.getCrewDir(cwd));
       const readyTasks = crewStore.getReadyTasks(cwd, { advisory: crewConfig.dependencies === "advisory" });
-      if (readyTasks.length > 0) {
+      const startableTasks = readyTasks.filter(t => !teamStore.taskNeedsApproval(t));
+      if (startableTasks.length > 0) {
         const plan = crewStore.getPlan(cwd);
         const label = plan ? crewStore.getPlanLabel(plan) : "plan";
         pi.sendMessage({
           customType: "crew_auto_work",
-          content: `Plan complete — ${readyTasks.length} task(s) ready for ${label}. Starting autonomous work.\n\nCall: pi_messenger({ action: "work", autonomous: true })`,
+          content: `Plan complete — ${startableTasks.length} task(s) ready for ${label}. Starting autonomous work.\n\nCall: pi_messenger({ action: "work", autonomous: true })`,
           display: true,
         }, { triggerTurn: true, deliverAs: "steer" });
+        return;
+      }
+      if (readyTasks.length > 0) {
+        pi.sendMessage({
+          customType: "crew_auto_work_needs_approval",
+          content: `Plan complete — ${readyTasks.length} ready task(s) need lead approval before autonomous work can start.`,
+          display: true,
+        });
         return;
       }
     }
@@ -1067,11 +1089,13 @@ Usage (action-based API - preferred):
 
     // Check for ready tasks
     const readyTasks = crewStore.getReadyTasks(cwd, { advisory: crewConfig.dependencies === "advisory" });
+    const startableTasks = readyTasks.filter(t => !teamStore.taskNeedsApproval(t));
 
-    if (readyTasks.length === 0) {
+    if (startableTasks.length === 0) {
       // No ready tasks - check if all done or blocked
       const allTasks = crewStore.getTasks(cwd);
       const allDone = allTasks.every(t => t.status === "done");
+      const needsApproval = readyTasks.filter(teamStore.taskNeedsApproval);
 
       stopAutonomous(allDone ? "completed" : "blocked");
       pi.appendEntry("crew-state", autonomousState);
@@ -1081,6 +1105,8 @@ Usage (action-based API - preferred):
       if (ctx.hasUI) {
         if (allDone) {
           ctx.ui.notify(`✅ All tasks complete for ${plan?.prd ?? "plan"}!`, "info");
+        } else if (needsApproval.length > 0) {
+          ctx.ui.notify(`Autonomous stopped: ${needsApproval.length} task(s) need lead approval`, "warning");
         } else {
           const blocked = allTasks.filter(t => t.status === "blocked");
           ctx.ui.notify(`Autonomous stopped: ${blocked.length} task(s) blocked`, "warning");
@@ -1089,7 +1115,7 @@ Usage (action-based API - preferred):
       return;
     }
 
-    const continueSignature = `${cwd}:${autonomousState.waveNumber}:${readyTasks.map(task => task.id).sort().join(",")}`;
+    const continueSignature = `${cwd}:${autonomousState.waveNumber}:${startableTasks.map(task => task.id).sort().join(",")}`;
     const continueRepeatCount = trackAutonomousContinue(continueSignature);
     if (continueRepeatCount >= AUTONOMOUS_CONTINUE_REPEAT_LIMIT) {
       stopAutonomous("manual");
@@ -1114,7 +1140,7 @@ Usage (action-based API - preferred):
     const plan = crewStore.getPlan(cwd);
     pi.sendMessage({
       customType: "crew_continue",
-      content: `Continuing autonomous work on ${plan?.prd ?? "plan"}. Wave ${autonomousState.waveNumber} with ${readyTasks.length} ready task(s).`,
+      content: `Continuing autonomous work on ${plan?.prd ?? "plan"}. Wave ${autonomousState.waveNumber} with ${startableTasks.length} ready task(s).`,
       display: true
     }, { triggerTurn: true, deliverAs: "steer" });
 

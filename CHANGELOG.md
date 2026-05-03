@@ -4,6 +4,7 @@
 
 ### Added
 - Packaged automatic Crew authorization when the controlling Pi agent determines that official Superpowers v6 `subagent-driven-development` applies, while preserving Crew-only dispatch and child isolation.
+- Added an optional Team layer with reusable profiles, project charter/memory, role-aware tasks, approval gates, worker context, and overlay signals.
 
 ### Fixed
 - Migrated extension tool schemas from `@sinclair/typebox` to `typebox` 1.x and updated the local test/tsconfig references to the new package entry.
@@ -11,6 +12,7 @@
 - Excluded the orchestrator-only `pi-messenger-crew` skill from worker prompts to avoid irrelevant skill loading during Crew task execution.
 
 ### Changed
+- Aligned Team built-in roles and sample profiles with the packaged `pi-subagents` role vocabulary while keeping Crew as the execution engine.
 - Added `typebox` as a runtime dependency for packaged installs.
 
 ## [0.14.1] - 2026-04-04

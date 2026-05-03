@@ -41,6 +41,14 @@ export async function execute(
     });
   }
 
+  if (type && type !== "impl" && type !== "plan") {
+    return result("Error: review type must be 'impl' or 'plan'.", {
+      mode: "review",
+      error: "invalid_type",
+      type,
+    });
+  }
+
   // Determine review type: "impl" for task, "plan" for plan review
   const reviewType = type ?? (target.startsWith("task-") ? "impl" : "plan");
 

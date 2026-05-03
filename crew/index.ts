@@ -149,6 +149,20 @@ export async function executeCrewAction(
     // ═══════════════════════════════════════════════════════════════════════
     // Crew actions - Simplified PRD-based workflow
     // ═══════════════════════════════════════════════════════════════════════
+    case 'team': {
+      if (!op) {
+        return result("Error: team action requires operation (e.g., 'team.status', 'team.profile.list').",
+          { mode: "team", error: "missing_operation" });
+      }
+      try {
+        const teamHandlers = await import("./handlers/team.js");
+        return teamHandlers.execute(op, params, state, ctx);
+      } catch (e) {
+        return result(`Error: team.${op} handler failed: ${e instanceof Error ? e.message : 'unknown'}`,
+          { mode: "team", error: "handler_error", operation: op });
+      }
+    }
+
     case 'task': {
       if (!op) {
         return result("Error: task action requires operation (e.g., 'task.show', 'task.list').",

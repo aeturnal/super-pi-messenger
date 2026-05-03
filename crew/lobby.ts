@@ -236,9 +236,9 @@ export function assignTaskToLobbyWorker(
     to: worker.name,
     text: `# ⚡ TASK ASSIGNMENT — SWITCH TO WORK MODE
 
-Drop your current activity and start working on this task immediately.
+Drop your current activity and work on this task immediately.
 
-**IMPORTANT:** This task is already claimed and started for you — do NOT call \`task.start\`. Jump straight to reading the task spec, reserving files, implementing, testing, committing, and marking complete with \`task.done\`.
+**IMPORTANT:** This task is already claimed and started for you — do NOT call \`task.start\`. Follow the assignment below, including any Team role or read-only instructions, then mark complete with \`task.done\`.
 
 ${taskPrompt}`,
     timestamp: new Date().toISOString(),

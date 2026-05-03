@@ -26,6 +26,8 @@ export type FeedEventType =
   | "task.split"
   | "task.revise"
   | "task.revise-tree"
+  | "task.approve"
+  | "task.reject"
   | "plan.start"
   | "plan.pass.start"
   | "plan.pass.done"
@@ -137,6 +139,8 @@ const CREW_EVENT_TYPES = new Set<FeedEventType>([
   "task.split",
   "task.revise",
   "task.revise-tree",
+  "task.approve",
+  "task.reject",
   "plan.start",
   "plan.pass.start",
   "plan.pass.done",
@@ -192,6 +196,8 @@ export function formatFeedLine(event: FeedEvent): string {
     case "task.split": line += withPreview(` split ${target}`); break;
     case "task.revise": line += withPreview(` revised ${target}`); break;
     case "task.revise-tree": line += withPreview(` revised ${target} + dependents`); break;
+    case "task.approve": line += withPreview(` approved ${target}`); break;
+    case "task.reject": line += withPreview(` rejected ${target}`); break;
     case "plan.start": line += withPreview(" planning started"); break;
     case "plan.pass.start": line += withPreview(" planning pass started"); break;
     case "plan.pass.done": line += withPreview(" planning pass finished"); break;

@@ -4,3 +4,6 @@ npm-shrinkwrap.json
 .pi/
 
 .worktrees/
+
+# Local agent scratch
+progress.md

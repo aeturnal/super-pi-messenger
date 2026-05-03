@@ -11,12 +11,17 @@ import type { Task } from "../types.js";
 import type { CrewConfig } from "../utils/config.js";
 import { readFeedEvents, type FeedEvent } from "../../feed.js";
 import * as store from "../store.js";
+import * as teamStore from "../team/store.js";
+
+interface CoordinationPromptOptions {
+  readOnly?: boolean;
+}
 
 // =============================================================================
 // Dependency Section
 // =============================================================================
 
-export function buildDependencySection(cwd: string, task: Task, config: CrewConfig): string {
+export function buildDependencySection(cwd: string, task: Task, config: CrewConfig, options: CoordinationPromptOptions = {}): string {
   if (config.dependencies === "advisory") {
     const lines: string[] = [
       "## Dependency Status\n",
@@ -51,10 +56,12 @@ export function buildDependencySection(cwd: string, task: Task, config: CrewConf
     if (config.coordination !== "none") {
       lines.push("- DM in-progress workers for API details they're building.");
     }
+    if (!options.readOnly) lines.push("- Reserve your files before editing to prevent conflicts.");
     lines.push(
-      "- Reserve your files before editing to prevent conflicts.",
       "- Do NOT block yourself because a dependency isn't done. Work around it.",
-      "- Log any local definitions in your progress for later reconciliation.",
+      options.readOnly
+        ? "- Log findings, assumptions, and handoff notes in your progress for later reconciliation."
+        : "- Log any local definitions in your progress for later reconciliation.",
     );
 
     return lines.join("\n") + "\n\n";
@@ -130,6 +137,7 @@ export function buildCoordinationContext(
   task: Task,
   config: CrewConfig,
   concurrentTasks: Task[],
+  options: CoordinationPromptOptions = {},
 ): string {
   if (config.coordination === "none") return "";
 
@@ -164,15 +172,25 @@ These tasks are being worked on by other workers in this wave. Discover their ag
     const concurrentIds = new Set(concurrentTasks.map(t => t.id));
     const ready = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" })
       .filter(t => t.id !== task.id && !concurrentIds.has(t.id));
-    if (ready.length > 0) {
+    const claimable = ready.filter(t => !teamStore.taskNeedsApproval(t));
+    const needsApproval = ready.filter(teamStore.taskNeedsApproval);
+    if (claimable.length > 0) {
       out += `## Ready Tasks
 
-After completing your current task, you can claim one of these:
+${options.readOnly ? "After completing your current task, only claim one of these if it fits your read-only assignment:" : "After completing your current task, you can claim one of these:"}
 `;
-      for (const t of ready) {
+      for (const t of claimable) {
         const deps = t.depends_on.length > 0 ? ` (deps: ${t.depends_on.join(", ")})` : "";
         out += `- ${t.id}: ${t.title}${deps}\n`;
       }
+      out += "\n";
+    }
+    if (needsApproval.length > 0) {
+      out += `## Ready Tasks Needing Approval
+
+These tasks are ready but require lead approval before anyone can claim them:
+`;
+      for (const t of needsApproval) out += `- ${t.id}: ${t.title} — approve with \`pi_messenger({ action: "task.approve", id: "${t.id}" })\`\n`;
       out += "\n";
     }
   }
@@ -184,13 +202,23 @@ After completing your current task, you can claim one of these:
 // Coordination Instructions
 // =============================================================================
 
-export function buildCoordinationInstructions(config: CrewConfig): string {
+export function buildCoordinationInstructions(config: CrewConfig, options: CoordinationPromptOptions = {}): string {
   const level = config.coordination;
   if (level === "none") return "";
 
   const budget = config.messageBudgets?.[level] ?? (level === "chatty" ? 10 : 5);
 
   if (level === "minimal") {
+    if (options.readOnly) {
+      return `## Coordination
+
+**Message budget: ${budget} messages this session.** The system enforces this.
+
+Use \`pi_messenger({ action: "list" })\` to see active workers if your investigation overlaps with their work. Message a worker only when you need concrete context or a handoff detail.
+
+`;
+    }
+
     return `## Coordination
 
 **Message budget: ${budget} messages this session.** The system enforces this.
@@ -220,7 +248,16 @@ Do NOT edit files reserved by another worker without coordinating first.
 
 `;
 
-  out += `### Announce yourself
+  out += options.readOnly
+    ? `### Announce yourself
+After joining the mesh and starting your task, announce what you are investigating:
+
+\`\`\`typescript
+pi_messenger({ action: "broadcast", message: "Starting <task-id> (<title>) — investigating <scope>" })
+\`\`\`
+
+`
+    : `### Announce yourself
 After joining the mesh and starting your task, announce what you're working on:
 
 \`\`\`typescript
@@ -243,7 +280,16 @@ If a peer asks you a direct question, reply briefly. Ignore messages that don't 
 `;
   }
 
-  out += `### On completion
+  out += options.readOnly
+    ? `### On completion
+Announce what you found or recommend:
+
+\`\`\`typescript
+pi_messenger({ action: "broadcast", message: "Completed <task-id>: found <summary>" })
+\`\`\`
+
+`
+    : `### On completion
 Announce what you built:
 
 \`\`\`typescript
@@ -253,7 +299,9 @@ pi_messenger({ action: "broadcast", message: "Completed <task-id>: <file> export
 ### Reservations
 Before editing files, check if another worker has reserved them via \`pi_messenger({ action: "list" })\`. If a file you need is reserved, message the owner to coordinate. Do NOT edit reserved files without coordinating first.
 
-### Questions about dependencies
+`;
+
+  out += `### Questions about dependencies
 If your task depends on a completed task and something about its implementation is unclear, read the code and the task's progress log at \`.pi/messenger/crew/tasks/<task-id>.progress.md\`. Dependency authors are from previous waves and are no longer in the mesh.
 
 `;
@@ -266,7 +314,7 @@ After completing your assigned task, check if there are ready tasks you can pick
 pi_messenger({ action: "task.ready" })
 \`\`\`
 
-If a task is ready, claim and implement it. If \`task.start\` fails (another worker claimed it first), check for other ready tasks. Only claim if your current task completed cleanly and quickly.
+If a task is ready, claim it only if it matches your assignment mode. If \`task.start\` fails (another worker claimed it first or the task needs approval), check for other ready tasks. Only claim if your current task completed cleanly and quickly.
 
 `;
   }

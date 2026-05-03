@@ -27,6 +27,9 @@ import {
 } from "../state.js";
 import { getLiveWorkers } from "../live-progress.js";
 import * as store from "../store.js";
+import * as teamStore from "../team/store.js";
+import type { TeamProfile, TeamRoleDefinition } from "../team/types.js";
+import { taskMetadataMarkers } from "../utils/task-format.js";
 
 const PRD_PATTERNS = [
   "PRD.md", "prd.md",
@@ -299,6 +302,10 @@ export async function execute(
   const maxPasses = Math.max(1, config.planning.maxPasses);
   const hasReviewer = availableAgents.some(a => a.name === "crew-reviewer");
   const skills = discoverCrewSkills(cwd);
+  const activeTeam = teamStore.getActiveTeam(cwd);
+  const activeProfile = activeTeam ? teamStore.loadActiveProfile(cwd) : null;
+  const teamRoles = activeTeam ? teamStore.resolveRoles(cwd) : {};
+  const approvalLabels = activeTeam ? teamStore.activeApprovalLabels(cwd) : [];
 
   const existingProgress = readProgressForPrompt(cwd);
 
@@ -328,8 +335,8 @@ export async function execute(
     notify(ctx, `Planning pass ${pass}/${maxPasses} in progress`, "info");
 
     const plannerPrompt = pass === 1
-      ? buildFirstPassPrompt(prdPath, prdContent, existingProgress, isPromptBased, skills)
-      : buildRefinementPrompt(prdPath, prdContent, readProgressForPrompt(cwd), isPromptBased, skills);
+      ? buildFirstPassPrompt(prdPath, prdContent, existingProgress, isPromptBased, skills, activeTeam?.name, activeProfile, teamRoles, approvalLabels)
+      : buildRefinementPrompt(prdPath, prdContent, readProgressForPrompt(cwd), isPromptBased, skills, activeTeam?.name, activeProfile, teamRoles, approvalLabels);
 
     const [plannerResult] = await spawnAgents([{
       agent: PLANNER_AGENT,
@@ -420,7 +427,7 @@ export async function execute(
   const outlineContent = sections
     ? `# Planning Outline\n\n## 1. PRD Understanding Summary\n${sections.prdSummary}\n\n## 2. Relevant Code/Docs/Resources Reviewed\n${sections.resourcesReviewed}\n\n## 3. Sequential Implementation Steps\n${sections.sequentialSteps}\n\n## 4. Parallelized Task Graph\n${sections.parallelTaskGraph}\n`
     : `# Planning Outline\n\nStructured sections were not detected. Full planner output is included below.\n\n${lastPlannerOutput}`;
-  try { setPlanningOutline(cwd, outlineContent); } catch {}
+  setPlanningOutline(cwd, outlineContent);
 
   if (tasks.length === 0) {
     store.setPlanSpec(cwd, lastPlannerOutput);
@@ -436,13 +443,21 @@ export async function execute(
     });
   }
 
-  const createdTasks: { id: string; title: string; dependsOn: string[]; skills?: string[] }[] = [];
+  const createdTasks: { id: string; title: string; dependsOn: string[] }[] = [];
   const titleToId = new Map<string, string>();
 
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
-    const created = store.createTask(cwd, task.title, task.description);
-    createdTasks.push({ id: created.id, title: task.title, dependsOn: task.dependsOn, skills: task.skills });
+    const role = teamStore.canonicalRoleForTask(cwd, task.role);
+    const riskLabels = teamStore.normalizeRiskLabels(task.riskLabels);
+    const approval = teamStore.approvalForTask(cwd, role, riskLabels);
+    const created = store.createTask(cwd, task.title, task.description, undefined, {
+      ...(role ? { role } : {}),
+      ...(riskLabels && riskLabels.length > 0 ? { risk_labels: riskLabels } : {}),
+      ...(approval ? { approval } : {}),
+      ...(task.skills && task.skills.length > 0 ? { skills: task.skills } : {}),
+    });
+    createdTasks.push({ id: created.id, title: task.title, dependsOn: task.dependsOn });
     titleToId.set(task.title.toLowerCase(), created.id);
     titleToId.set(`task ${i + 1}`, created.id);
     titleToId.set(`task-${i + 1}`, created.id);
@@ -462,9 +477,6 @@ export async function execute(
       }
     }
 
-    if (task.skills && task.skills.length > 0) {
-      store.updateTask(cwd, task.id, { skills: task.skills });
-    }
   }
 
   pruneTransitiveDeps(cwd, createdTasks.map(t => t.id));
@@ -474,7 +486,8 @@ export async function execute(
   const taskList = createdTasks.map(t => {
     const task = store.getTask(cwd, t.id);
     const deps = task?.depends_on.length ? ` → deps: ${task.depends_on.join(", ")}` : "";
-    return `  - ${t.id}: ${t.title}${deps}`;
+    const markers = task ? taskMetadataMarkers(task) : "";
+    return `  - ${t.id}: ${t.title}${markers}${deps}`;
   }).join("\n");
 
   const passLabel = passesCompleted === 1 ? "pass" : "passes";
@@ -503,12 +516,20 @@ export async function execute(
 
   const successLabel = isPromptBased ? `"${runLabel}"` : `**${prdPath}**`;
   const shouldAutoWork = params.autoWork !== false;
-  const nextSteps = shouldAutoWork
-    ? `Workers will start automatically.`
-    : `**Next steps:**
+  let nextSteps = `**Next steps:**
 - Review tasks: \`pi_messenger({ action: "task.list" })\`
 - Start work: \`pi_messenger({ action: "work" })\`
 - Autonomous: \`pi_messenger({ action: "work", autonomous: true })\``;
+  if (shouldAutoWork) {
+    const ready = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+    const startable = ready.filter(t => !teamStore.taskNeedsApproval(t));
+    const needsApproval = ready.filter(teamStore.taskNeedsApproval);
+    nextSteps = startable.length > 0
+      ? `Workers will start automatically.`
+      : needsApproval.length > 0
+        ? `Ready tasks need lead approval before workers can start:\n${needsApproval.map(t => `- \`pi_messenger({ action: "task.approve", id: "${t.id}" })\` — ${t.title}`).join("\n")}`
+        : `No tasks are startable yet. Review dependencies with \`pi_messenger({ action: "task.ready" })\`.`;
+  }
 
   const text = `✅ Plan created from ${successLabel}
 
@@ -558,26 +579,60 @@ ${lines.join("\n")}
 `;
 }
 
-function tasksJsonFormatHint(skills: CrewSkillInfo[]): string {
-  return skills.length > 0
-    ? "title, description, dependsOn, and optionally skills (array of skill names from the Available Skills list that are relevant to the task)"
-    : "title, description, and dependsOn";
+function formatTeamForPlanner(teamName: string | undefined, profile: TeamProfile | null, roles: Record<string, TeamRoleDefinition>, approvalLabels: string[]): string {
+  if (!teamName) return "";
+  const roleLines = Object.values(roles)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(role => `  ${role.name}${role.description ? ` — ${role.description}` : ""}${role.model ? ` (model: ${role.model})` : ""}`);
+  const approvalLine = approvalLabels.length > 0
+    ? `\nHigh-risk labels requiring lead approval for editing roles: ${approvalLabels.join(", ")}\n`
+    : "";
+
+  return `
+## Active Team
+
+Team: ${teamName}${profile?.name ? `\nProfile: ${profile.name}` : ""}
+
+Available roles for task assignment:
+${roleLines.join("\n")}${approvalLine}
+These are Team role labels and prompt context; Crew still runs tasks through Crew agents and does not launch pi-subagents.
+When creating tasks, include optional \`role\` and \`riskLabels\` fields where useful. Use non-editing roles such as scout, researcher, reviewer, planner, oracle, and context-builder for investigation, planning, decision, or review tasks.
+
+`;
 }
 
-function buildFirstPassPrompt(prdPath: string, prdContent: string, existingProgress: string, isPromptBased: boolean, skills: CrewSkillInfo[]): string {
+function tasksJsonFormatHint(skills: CrewSkillInfo[], teamActive: boolean): string {
+  const fields = ["title", "description", "dependsOn"];
+  if (skills.length > 0) fields.push("optionally skills (array of skill names from the Available Skills list that are relevant to the task)");
+  if (teamActive) fields.push("role", "riskLabels (array of high-risk labels such as auth or api-contract)");
+  return `${fields.slice(0, -1).join(", ")}${fields.length > 1 ? ", and " : ""}${fields[fields.length - 1]}`;
+}
+
+function buildFirstPassPrompt(
+  prdPath: string,
+  prdContent: string,
+  existingProgress: string,
+  isPromptBased: boolean,
+  skills: CrewSkillInfo[],
+  teamName?: string,
+  profile: TeamProfile | null = null,
+  roles: Record<string, TeamRoleDefinition> = {},
+  approvalLabels: string[] = [],
+): string {
   const specType = isPromptBased ? "request" : "PRD";
   const specLabel = isPromptBased ? "Request" : `PRD: ${prdPath}`;
   const progressSection = existingProgress
     ? `\n## Previous Planning Context\n${existingProgress}\n`
     : "";
   const skillsSection = formatSkillsForPlanner(skills);
+  const teamSection = formatTeamForPlanner(teamName, profile, roles, approvalLabels);
 
   return `Create a task breakdown for implementing this ${specType}.
 
 ## ${specLabel}
 
 ${prdContent}
-${progressSection}${skillsSection}
+${progressSection}${skillsSection}${teamSection}
 You must follow this sequence strictly:
 1) Understand the ${specType}
 2) Review relevant code/docs/reference resources
@@ -592,7 +647,7 @@ Return output in this exact section order and headings:
 
 In section 4, include both:
 - markdown task breakdown
-- a \`tasks-json\` fenced block with task objects containing ${tasksJsonFormatHint(skills)}.`;
+- a \`tasks-json\` fenced block with task objects containing ${tasksJsonFormatHint(skills, !!teamName)}.`;
 }
 
 function buildRefinementPrompt(
@@ -601,14 +656,19 @@ function buildRefinementPrompt(
   progressFileContent: string,
   isPromptBased: boolean,
   skills: CrewSkillInfo[],
+  teamName?: string,
+  profile: TeamProfile | null = null,
+  roles: Record<string, TeamRoleDefinition> = {},
+  approvalLabels: string[] = [],
 ): string {
   const specLabel = isPromptBased ? "Request" : `PRD: ${prdPath}`;
   const skillsSection = formatSkillsForPlanner(skills);
+  const teamSection = formatTeamForPlanner(teamName, profile, roles, approvalLabels);
   return `Refine your task breakdown based on review feedback.
 
 ## ${specLabel}
 ${prdContent}
-${skillsSection}
+${skillsSection}${teamSection}
 ## Planning Progress
 ${progressFileContent}
 
@@ -624,7 +684,7 @@ Return output in this exact section order and headings:
 
 In section 4, include both:
 - markdown task breakdown
-- a \`tasks-json\` fenced block with task objects containing ${tasksJsonFormatHint(skills)}.`;
+- a \`tasks-json\` fenced block with task objects containing ${tasksJsonFormatHint(skills, !!teamName)}.`;
 }
 
 function buildPlanReviewPrompt(
@@ -681,6 +741,8 @@ interface ParsedTask {
   description: string;
   dependsOn: string[];
   skills?: string[];
+  role?: string;
+  riskLabels?: string[];
 }
 
 function extractPlanSections(output: string): PlanSections | null {
@@ -726,12 +788,15 @@ function parseJsonTaskBlock(output: string): ParsedTask[] | null {
     const parsed = JSON.parse(match[1]);
     if (!Array.isArray(parsed)) return null;
     const tasks = parsed
-      .filter((t: Record<string, unknown>) => typeof t.title === "string" && t.title.trim().length > 0)
-      .map((t: Record<string, unknown>) => ({
+      .filter((t: unknown): t is Record<string, unknown> => !!t && typeof t === "object" && !Array.isArray(t))
+      .filter(t => typeof t.title === "string" && t.title.trim().length > 0)
+      .map(t => ({
         title: (t.title as string).trim(),
         description: typeof t.description === "string" ? t.description : "",
         dependsOn: Array.isArray(t.dependsOn) ? t.dependsOn.filter((d: unknown) => typeof d === "string") : [],
         skills: Array.isArray(t.skills) ? t.skills.filter((s: unknown) => typeof s === "string") : undefined,
+        role: typeof t.role === "string" && t.role.trim().length > 0 ? t.role.trim() : undefined,
+        riskLabels: Array.isArray(t.riskLabels) ? t.riskLabels.filter((s: unknown) => typeof s === "string") : undefined,
       }));
     return tasks.length > 0 ? tasks : null;
   } catch {
