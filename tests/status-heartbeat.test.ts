@@ -139,6 +139,70 @@ describe("status heartbeat", () => {
     expect(freshCtxReads).toBeGreaterThan(0);
   });
 
+  it("does not render an unchanged status on heartbeat ticks", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-cwd-"));
+    tempCwds.push(cwd);
+    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, ".pi", "pi-messenger.json"), JSON.stringify({ autoRegister: true }));
+
+    const pi = await loadExtension();
+    const sessionStart = pi.handlers.get("session_start")?.[0];
+    expect(sessionStart).toBeTruthy();
+
+    const ctx = createEventContext(cwd, () => true);
+    await sessionStart?.({}, ctx);
+    expect(ctx.ui.setStatus).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(45_000);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders when the formatted status changes", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-cwd-"));
+    tempCwds.push(cwd);
+    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, ".pi", "pi-messenger.json"), JSON.stringify({ autoRegister: true }));
+
+    const pi = await loadExtension();
+    const sessionStart = pi.handlers.get("session_start")?.[0];
+    const ctx = createEventContext(cwd, () => true);
+    let themePrefix = "";
+    ctx.ui.theme.fg = vi.fn((_color: string, text: string) => `${themePrefix}${text}`);
+
+    await sessionStart?.({}, ctx);
+    expect(ctx.ui.setStatus).toHaveBeenCalledTimes(1);
+
+    themePrefix = "changed:";
+    vi.advanceTimersByTime(15_000);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledTimes(2);
+    expect(ctx.ui.setStatus.mock.calls[1]?.[1]).toContain("changed:");
+  });
+
+  it("renders again after leave clears the status cache and the session rejoins", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-cwd-"));
+    tempCwds.push(cwd);
+    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, ".pi", "pi-messenger.json"), JSON.stringify({ autoRegister: true }));
+
+    const pi = await loadExtension();
+    const sessionStart = pi.handlers.get("session_start")?.[0];
+    const tool = pi.tools.find(tool => tool.name === "pi_messenger");
+    const ctx = createEventContext(cwd, () => true);
+
+    await sessionStart?.({}, ctx);
+    expect(ctx.ui.setStatus).toHaveBeenCalledTimes(1);
+
+    await tool.execute("leave-call", { action: "leave" }, new AbortController().signal, undefined, ctx);
+    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("messenger", undefined);
+
+    await tool.execute("join-call", { action: "join" }, new AbortController().signal, undefined, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledTimes(3);
+    expect(ctx.ui.setStatus.mock.calls[2]?.[1]).toMatch(/^msg: /);
+  });
+
   it("does not swallow non-stale status update errors", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-cwd-"));
     tempCwds.push(cwd);

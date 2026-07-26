@@ -227,6 +227,8 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
   // Status
   // ===========================================================================
 
+  let lastRenderedStatus: string | undefined;
+
   function updateStatus(ctx: ExtensionContext): void {
     try {
       if (!ctx.hasUI || !state.registered) return;
@@ -284,7 +286,11 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
         }
       }
 
-      ctx.ui.setStatus("messenger", `msg: ${nameStr}${countStr}${unreadStr}${planningStr}${activityStr}${crewStr}`);
+      const nextStatus = `msg: ${nameStr}${countStr}${unreadStr}${planningStr}${activityStr}${crewStr}`;
+      if (nextStatus !== lastRenderedStatus) {
+        ctx.ui.setStatus("messenger", nextStatus);
+        lastRenderedStatus = nextStatus;
+      }
 
       maybeAutoOpenCrewOverlay(ctx);
     } catch (error) {
@@ -487,6 +493,7 @@ Usage (action-based API - preferred):
       }
 
       if (action === "leave" && !state.registered) {
+        lastRenderedStatus = undefined;
         overlayHandle?.hide();
         overlayHandle = null;
         overlayTui = null;
@@ -1087,6 +1094,7 @@ Usage (action-based API - preferred):
 
   pi.on("session_shutdown", async () => {
     latestCtx = null;
+    lastRenderedStatus = undefined;
     shutdownLobbyWorkers(process.cwd());
     shutdownAllWorkers();
     stopStatusHeartbeat();
