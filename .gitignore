@@ -3,3 +3,5 @@ package-lock.json
 npm-shrinkwrap.json
 *.DS_Store
 .pi/
+
+.worktrees/
