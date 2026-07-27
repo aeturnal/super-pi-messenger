@@ -624,7 +624,7 @@ git commit -m 'docs: record fork initialization progress' -- \
 
 Expected: one plan-only progress commit.
 
-- [ ] **Step 6: Push only to the verified authoritative origin**
+- [x] **Step 6: Push only to the verified authoritative origin**
 
 Run:
 
@@ -648,7 +648,7 @@ Expected: fast-forward push succeeds and local `main` now tracks `origin/main`.
 - Consumes: Pushed `origin/main` from Task 6.
 - Produces: Final clean local state and remote completion evidence.
 
-- [ ] **Step 1: Verify local branch tracking and exact remote commit**
+- [x] **Step 1: Verify local branch tracking and exact remote commit**
 
 Run:
 
@@ -663,7 +663,7 @@ echo 'Branch tracking and remote commit: PASS'
 
 Expected: `Branch tracking and remote commit: PASS`.
 
-- [ ] **Step 2: Verify GitHub identity, parent, visibility, description, and topics**
+- [x] **Step 2: Verify GitHub identity, parent, visibility, description, and topics**
 
 Run:
 
@@ -686,7 +686,7 @@ PY
 
 Expected: `GitHub repository acceptance: PASS`.
 
-- [ ] **Step 3: Verify required documents are present on `origin/main`**
+- [x] **Step 3: Verify required documents are present on `origin/main`**
 
 Run:
 
@@ -708,7 +708,7 @@ echo 'Required origin/main documents: PASS'
 
 Expected: `Required origin/main documents: PASS`.
 
-- [ ] **Step 4: Run fresh post-push tests**
+- [x] **Step 4: Run fresh post-push tests**
 
 Run:
 
@@ -719,7 +719,7 @@ npm test
 
 Expected: every Vitest test passes from the pushed tree.
 
-- [ ] **Step 5: Mark the plan complete, commit the completion record, and push it to origin**
+- [x] **Step 5: Mark the plan complete, commit the completion record, and push it to origin**
 
 Mark every remaining checkbox in this plan complete, then run:
 
@@ -740,7 +740,7 @@ git push origin main
 
 Expected: a plan-only completion commit is pushed to `origin/main`.
 
-- [ ] **Step 6: Perform final read-only safety and cleanliness verification**
+- [x] **Step 6: Perform final read-only safety and cleanliness verification**
 
 Run:
 
