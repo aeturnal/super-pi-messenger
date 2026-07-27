@@ -1,22 +1,29 @@
 <p>
-  <img src="https://raw.githubusercontent.com/nicobailon/pi-messenger/main/banner.png" alt="pi-messenger" width="1100">
+  <img src="https://raw.githubusercontent.com/aeturnal/pi-super-messenger/main/banner.png" alt="Pi Super Messenger" width="1100">
 </p>
 
-# Pi Messenger
+# Pi Super Messenger
 
-**What if multiple agents in different terminals sharing a folder could talk to each other like they're in a chat room?** Join, see who's online and what they're doing. Claim tasks, reserve files, send messages. An extension for [Pi coding agent](https://pi.dev/) — install it and go. No daemon, no server, just files.
+**Multi-agent orchestration for Pi, powered by Superpowers.**
 
-[![npm version](https://img.shields.io/npm/v/pi-messenger?style=for-the-badge)](https://www.npmjs.com/package/pi-messenger)
+> **Prerelease:** Pi Super Messenger is an independently maintained prerelease fork of [`nicobailon/pi-messenger`](https://github.com/nicobailon/pi-messenger). It is being developed to combine pi-messenger's multi-agent coordination foundation with the separately installed stock Obra Superpowers methodology. Pi Super Messenger is not affiliated with or endorsed by Obra.
+
+Join agents across terminals, see who is online, reserve files, exchange messages, and orchestrate Crew work through planning, dependency-aware execution, review, and repair. No daemon or server is required; coordination remains file-based.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-blue?style=for-the-badge)]()
 
-## Installation
+## Development Installation
+
+Pi Super Messenger is not yet published as an npm package. Install the current development version directly from its GitHub fork:
 
 ```bash
-pi install npm:pi-messenger
+pi install git:github.com/aeturnal/pi-super-messenger
 ```
 
-Crew agents ship with the extension (`crew/agents/*.md`) and are discovered automatically. The `pi-messenger-crew` skill is auto-loaded from the extension. Workers can load domain-specific [crew skills](#crew-skills) on demand during task execution.
+Superpowers remains a separate stock installation and source of truth. The packaged integration described by the product requirements is still under development.
+
+Crew agents ship with the extension (`crew/agents/*.md`) and are discovered automatically. The existing `pi-messenger-crew` skill and technical command names remain available during the compatibility period.
 
 To show available crew agents:
 
@@ -331,7 +338,7 @@ Config priority: project `.pi/pi-messenger.json` > user `~/.pi/agent/pi-messenge
 
 ## How It Works
 
-Pi-messenger is a [pi extension](https://github.com/badlogic/pi-mono) that hooks into the agent lifecycle. It uses `pi.on("tool_call")` and `pi.on("tool_result")` to track activity — every edit, commit, and test run gets logged. `pi.on("session_start")` handles auto-registration, `pi.on("session_shutdown")` cleans up, and `pi.on("agent_end")` drives autonomous crew mode by checking for ready tasks after each agent turn.
+Pi Super Messenger inherits pi-messenger's file-based [Pi extension](https://github.com/badlogic/pi-mono) architecture and compatibility-sensitive technical names. It hooks into the agent lifecycle. It uses `pi.on("tool_call")` and `pi.on("tool_result")` to track activity — every edit, commit, and test run gets logged. `pi.on("session_start")` handles auto-registration, `pi.on("session_shutdown")` cleans up, and `pi.on("agent_end")` drives autonomous crew mode by checking for ready tasks after each agent turn.
 
 Incoming messages wake the receiving agent via `pi.sendMessage()` with `triggerTurn: true` and `deliverAs: "steer"`, which injects the message as a steering prompt that resumes the agent. File reservations are enforced by returning `{ block: true }` from a `tool_call` hook on write/edit operations. The `/messenger` overlay uses `ctx.ui.custom()` for the chat TUI, and `ctx.ui.setStatus()` keeps the status bar updated with peer count and unread messages.
 
@@ -341,6 +348,8 @@ All coordination is file-based, no daemon required. Shared state (registry, inbo
 
 ## Credits
 
+- **[pi-messenger](https://github.com/nicobailon/pi-messenger)** by [Nico Bailon](https://github.com/nicobailon) — Upstream project and multi-agent coordination foundation
+- **[Obra Superpowers](https://github.com/obra/superpowers)** — Separately installed stock engineering-methodology source; Pi Super Messenger is independently maintained and is not affiliated with or endorsed by Obra
 - **[mcp_agent_mail](https://github.com/Dicklesworthstone/mcp_agent_mail)** by [@doodlestein](https://x.com/doodlestein) — Inspiration for agent-to-agent messaging
 - **[Pi coding agent](https://github.com/badlogic/pi-mono/)** by [@badlogicgames](https://x.com/badlogicgames)
 
