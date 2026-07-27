@@ -361,7 +361,7 @@ Expected: one commit containing only this implementation plan. Later checkbox up
 - Consumes: Approved naming and staged-rename designs.
 - Produces: Branded prerelease README and a Vitest guard against product/package identity regression.
 
-- [ ] **Step 1: Write the failing branding-boundary test**
+- [x] **Step 1: Write the failing branding-boundary test**
 
 Create `tests/readme-branding.test.ts` with:
 
@@ -408,7 +408,7 @@ describe("Pi Super Messenger public identity", () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -419,7 +419,7 @@ npx vitest run tests/readme-branding.test.ts
 
 Expected: FAIL because the current README starts with `# Pi Messenger`, lacks the approved independence text, and still recommends `pi install npm:pi-messenger`.
 
-- [ ] **Step 3: Replace the README product header and installation section**
+- [x] **Step 3: Replace the README product header and installation section**
 
 Replace README lines 1 through the paragraph immediately before “To show available crew agents” with:
 
@@ -454,7 +454,7 @@ Crew agents ship with the extension (`crew/agents/*.md`) and are discovered auto
 
 Do not change the subsequent `npx pi-messenger` command examples or `.pi/messenger` paths.
 
-- [ ] **Step 4: Update the implementation description and credits without renaming internals**
+- [x] **Step 4: Update the implementation description and credits without renaming internals**
 
 Change the first sentence under `## How It Works` to:
 
@@ -471,7 +471,7 @@ Add these two entries at the start of the Credits list:
 
 Keep all existing credit entries.
 
-- [ ] **Step 5: Run the focused test and verify GREEN**
+- [x] **Step 5: Run the focused test and verify GREEN**
 
 Run:
 
@@ -482,7 +482,7 @@ npx vitest run tests/readme-branding.test.ts
 
 Expected: 3 tests pass.
 
-- [ ] **Step 6: Verify the package manifest is untouched and commit the README boundary**
+- [x] **Step 6: Verify the package manifest is untouched and commit the README boundary**
 
 Run:
 
@@ -498,7 +498,7 @@ git commit -m 'docs: establish Pi Super Messenger repository identity' -- \
 
 Expected: `package.json` has no diff and the commit contains only README and its branding test.
 
-- [ ] **Step 7: Apply and verify public GitHub repository metadata**
+- [x] **Step 7: Apply and verify public GitHub repository metadata**
 
 Run:
 
@@ -537,7 +537,7 @@ Expected: correct full name and description, public visibility, `fork: true`, pa
 - Consumes: Local documentation and README commits plus verified remotes.
 - Produces: Verified `origin/main` tracking relationship and the first pushed Pi Super Messenger history.
 
-- [ ] **Step 1: Run the complete test suite**
+- [x] **Step 1: Run the complete test suite**
 
 Run:
 
@@ -548,7 +548,7 @@ npm test
 
 Expected: every Vitest test, including the three README branding tests, passes.
 
-- [ ] **Step 2: Verify npm packaging remains structurally valid without publishing**
+- [x] **Step 2: Verify npm packaging remains structurally valid without publishing**
 
 Run:
 
@@ -559,7 +559,7 @@ npm pack --dry-run
 
 Expected: command exits 0, reports package `pi-messenger@0.14.1`, and does not publish anything.
 
-- [ ] **Step 3: Run document, naming, and compatibility integrity checks**
+- [x] **Step 3: Run document, naming, and compatibility integrity checks**
 
 Run:
 
@@ -592,7 +592,7 @@ PY
 
 Expected: `Document naming and compatibility boundary: PASS`.
 
-- [ ] **Step 4: Reverify remotes and fork relationship immediately before push**
+- [x] **Step 4: Reverify remotes and fork relationship immediately before push**
 
 Run:
 
@@ -609,7 +609,7 @@ echo 'Pre-push repository safety: PASS'
 
 Expected: `Pre-push repository safety: PASS`.
 
-- [ ] **Step 5: Commit accumulated implementation-plan progress before pushing**
+- [x] **Step 5: Commit accumulated implementation-plan progress before pushing**
 
 After marking Tasks 1 through 5 and Task 6 Steps 1 through 4 complete, run:
 
