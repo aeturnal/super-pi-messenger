@@ -77,11 +77,18 @@ if (process.argv[2] === "--list-models") {
     const capturePath = path.join(test.root, "launch-argv.json");
     const bin = path.join(test.root, "bin");
     fs.mkdirSync(bin);
-    fs.writeFileSync(path.join(bin, "pi"), `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(capturePath)}\n`);
+    fs.writeFileSync(path.join(bin, "pi"), `#!/usr/bin/env node
+import fs from "node:fs";
+fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({ argv: process.argv.slice(2), root: process.env.PI_CODING_AGENT_DIR, cwd: process.cwd() }));
+`);
     fs.chmodSync(path.join(bin, "pi"), 0o755);
     expect(spawnSync("sh", ["-n", "-c", result.launchCommand], { encoding: "utf8" }).status).toBe(0);
     expect(spawnSync("sh", ["-c", result.launchCommand], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, encoding: "utf8" }).status).toBe(0);
-    expect(fs.readFileSync(capturePath, "utf8").trim().split("\n")).toEqual(["--model", "openai-codex/gpt-5.6-sol"]);
+    expect(JSON.parse(fs.readFileSync(capturePath, "utf8"))).toEqual({
+      argv: ["--model", "openai-codex/gpt-5.6-sol"],
+      root: path.join(runtimeRoot, "stock-pi-messenger-0.14.1"),
+      cwd: worktree,
+    });
   });
 
   it.each(["runtime root", "an existing runtime-root ancestor"])("rejects a symlinked %s before creating credentials or a marker", (kind) => {
@@ -91,8 +98,11 @@ if (process.argv[2] === "--list-models") {
     const runtimeRoot = kind === "runtime root" ? path.join(test.root, "runtime-link") : path.join(test.root, "ancestor-link", "runtime");
     fs.symlinkSync(target, kind === "runtime root" ? runtimeRoot : path.dirname(runtimeRoot));
     expect(() => prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot, piCommand: test.piCommand })).toThrow(/symbolic link/i);
-    expect(fs.existsSync(path.join(target, "stock-pi-messenger-0.14.1", "auth.json"))).toBe(false);
-    expect(fs.existsSync(path.join(target, "stock-pi-messenger-0.14.1", ".pi-super-messenger-stock-runtime.json"))).toBe(false);
+    const escapedRuntimeDir = kind === "runtime root"
+      ? path.join(target, "stock-pi-messenger-0.14.1")
+      : path.join(target, "runtime", "stock-pi-messenger-0.14.1");
+    expect(fs.existsSync(path.join(escapedRuntimeDir, "auth.json"))).toBe(false);
+    expect(fs.existsSync(path.join(escapedRuntimeDir, ".pi-super-messenger-stock-runtime.json"))).toBe(false);
   });
 
   it("rejects missing authentication before creating the runtime", () => {
@@ -103,8 +113,30 @@ if (process.argv[2] === "--list-models") {
 
   it.each([
     ["install process failure", { failInstall: true }, /install failed/],
-    ["malformed isolated settings", { malformedSettings: true }, /Invalid isolated settings/],
     ["model-list process failure", { failModels: true }, /model listing failed/],
+  ])("retains an exactly marked runtime and its credential-bearing path after %s", (_name, options, error) => {
+    const test = setup(options);
+    const runtimeDir = path.join(test.runtimeRoot, "stock-pi-messenger-0.14.1");
+    let thrown: unknown;
+    try {
+      prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot: test.runtimeRoot, piCommand: test.piCommand });
+    } catch (caught) {
+      thrown = caught;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toMatch(error);
+    expect((thrown as Error).message).toContain(runtimeDir);
+    expect(JSON.parse(fs.readFileSync(path.join(runtimeDir, ".pi-super-messenger-stock-runtime.json"), "utf8"))).toEqual({
+      schemaVersion: 1,
+      kind: "pi-super-messenger-stock-runtime",
+      package: packageName,
+      runtimeRoot: path.resolve(test.runtimeRoot),
+    });
+    expect(fs.statSync(runtimeDir).isDirectory()).toBe(true);
+  });
+
+  it.each([
+    ["malformed isolated settings", { malformedSettings: true }, /Invalid isolated settings/],
     ["unexpected installed package", { packages: [packageName, "npm:superpowers@1.0.0"] }, /exactly the pinned/],
     ["unavailable pinned model", { models: ["openai-codex/gpt-5.6-sol"] }, /Pinned model is unavailable/],
   ])("retains a marked cleanable runtime after %s", (_name, options, error) => {
