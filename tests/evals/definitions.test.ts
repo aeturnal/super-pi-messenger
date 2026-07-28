@@ -121,7 +121,7 @@ describe("Phase 0 eval definitions", () => {
     const readme = read("evals/README.md");
     for (const command of [
       "node evals/scripts/reset-independent-parallel.mjs [destination-under-evals/runs/independent-parallel]",
-      "node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH] [--runtime-root PATH]",
+      "node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH]",
       "node evals/scripts/verify-independent-parallel.mjs [worktree]",
       "node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH [--evidence PATH]",
     ]) expect(readme).toContain(command);
@@ -129,6 +129,19 @@ describe("Phase 0 eval definitions", () => {
     expect(readme).toContain("printed Pi command begins provider usage");
     for (const step of ["1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10."])
       expect(readme).toContain(step);
+  });
+
+  it("records the post-security-review runtime-root trust boundary", () => {
+    const readme = read("evals/README.md");
+    const plan = read("docs/superpowers/plans/2026-07-27-phase-0-eval-foundation.md");
+
+    expect(readme).not.toContain("--runtime-root");
+    expect(plan).not.toContain("--runtime-root");
+    for (const document of [readme, plan]) {
+      expect(document).toContain("`runtimeRoot` injection exists only in the exported test API");
+      expect(document).toContain("UID-scoped OS temporary root");
+      expect(document).toContain("supersedes the original example after security review");
+    }
   });
 
   it("documents fetch-only selective upstream intake", () => {

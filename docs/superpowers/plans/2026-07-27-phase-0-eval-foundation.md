@@ -557,6 +557,7 @@ git commit -m "feat: verify independent eval deterministically"
 - Produces: `cleanupStockRuntime(options): { removed, evidencePath? }`.
 - Cleanup options: `{ repositoryRoot, runtimeRoot, runtimeDir, evidenceDestination? }`.
 - Runtime marker: `.pi-super-messenger-stock-runtime.json`.
+- Production preparation and cleanup derive their runtime root from a UID-scoped OS temporary root. `runtimeRoot` injection exists only in the exported test API; this fixed trust boundary supersedes the original example after security review.
 
 - [ ] **Step 1: Write failing preparation and cleanup tests with a fake Pi executable**
 
@@ -627,8 +628,7 @@ Add CLI parsing:
 
 ```text
 node evals/scripts/prepare-stock-runtime.mjs --source-agent-dir /home/dominic/.pi/agent
-node evals/scripts/prepare-stock-runtime.mjs --source-agent-dir /home/dominic/.pi/agent --runtime-root /tmp/pi-super-messenger-evals-1000
-node evals/scripts/cleanup-stock-runtime.mjs --runtime /tmp/pi-super-messenger-evals-1000/stock-pi-messenger-0.14.1
+node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH"
 node evals/scripts/cleanup-stock-runtime.mjs --runtime /tmp/pi-super-messenger-evals-1000/stock-pi-messenger-0.14.1 --evidence evals/runs/independent-parallel/evidence/stock-0.14.1-baseline
 ```
 

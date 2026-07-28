@@ -9,6 +9,7 @@ This kit creates reproducible, supervised comparisons. It defines three evals, i
 - Stock runtime preparation copies only required credentials into a marked, isolated temporary agent directory outside this repository. Cleanup removes that directory and copied authentication.
 - Superpowers stays separately installed. Do not copy its skills, prompts, extensions, or compatibility content into the stock runtime.
 - Scripts validate paths and markers before destructive operations. Stop on an unsafe-path, fixture-hash, package, profile, or exact-model mismatch.
+- Production preparation and cleanup derive their runtime root from a UID-scoped OS temporary root. `runtimeRoot` injection exists only in the exported test API; this fixed trust boundary supersedes the original example after security review.
 
 ## Fixed profile
 
@@ -22,7 +23,7 @@ Run commands explicitly from the repository root:
 
 ```sh
 node evals/scripts/reset-independent-parallel.mjs [destination-under-evals/runs/independent-parallel]
-node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH] [--runtime-root PATH]
+node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH]
 # Human checkpoint: inspect the printed runtime, fixture, profile identity, and launch command.
 # The human, not this tooling, starts the printed Pi command and supervises it.
 node evals/scripts/verify-independent-parallel.mjs [worktree]
