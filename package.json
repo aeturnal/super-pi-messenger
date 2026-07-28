@@ -57,5 +57,9 @@
     "skills": [
       "./skills"
     ]
-  }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "npm@11.18.0"
 }
