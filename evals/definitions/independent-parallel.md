@@ -2,25 +2,29 @@
 
 ## Purpose
 
-Measure whether Crew decomposes, dispatches, implements, and reviews three genuinely independent tasks in one wave, without artificial file overlap or nested orchestration.
+Measure whether Crew decomposes, dispatches, implements, and reviews three genuinely independent tasks in one wave without artificial file overlap or nested orchestration.
 
-## Fixed fixture and task ownership
+## Fixed task
 
-The dependency-free Node ESM fixture has exactly three task-owned source files:
+The dependency-free Node ESM fixture has exactly three tasks:
 
 1. Implement `parseDuration(input)` in `src/duration.mjs`.
 2. Implement `formatBytes(bytes)` in `src/format-bytes.mjs`.
 3. Implement `parseRetryAfter(value, nowMs)` in `src/retry-after.mjs`.
 
-Each task owns only its listed source file. Built-in `node:test` acceptance files are immutable inputs, are not task-owned, and no dependency additions are allowed.
+## Fixture boundary
 
-`parseDuration(input)` accepts one nonnegative decimal plus `ms`, `s`, `m`, or `h` (with permitted surrounding/intervening whitespace), returns milliseconds, and throws `TypeError` for empty, negative, compound, unsupported, or non-string input. `formatBytes(bytes)` accepts a finite nonnegative integer, uses `B`, `KiB`, `MiB`, `GiB`, and `TiB`, formats larger units to at most one decimal, and throws `TypeError` otherwise. `parseRetryAfter(value, nowMs)` accepts an HTTP `Retry-After` string and finite epoch milliseconds, returns a nonnegative delay for digit seconds or valid HTTP dates (past dates clamp to zero), returns `null` for empty/invalid headers, and throws `TypeError` for invalid `nowMs`.
+Each task owns only its listed source path. Built-in `node:test` acceptance files are immutable inputs, are not task-owned, and no dependency additions are allowed. `parseDuration(input)` accepts one nonnegative decimal plus `ms`, `s`, `m`, or `h`, with surrounding or intervening whitespace, and returns milliseconds. `formatBytes(bytes)` accepts a finite nonnegative integer and formats `B`, `KiB`, `MiB`, `GiB`, or `TiB` to at most one decimal. `parseRetryAfter(value, nowMs)` accepts digit seconds or valid HTTP dates, clamps past dates to zero, returns `null` for empty or invalid headers, and requires finite epoch milliseconds. Invalid contract inputs throw `TypeError`.
 
-## Controlled procedure
+## Procedure
 
-Use the checked stock profile: worker concurrency is exactly three; planning is reviewed at most once; normal stock task review applies; artifacts are disabled. The operator inspects the generated plan before work. A materially different decomposition is recorded, never silently rewritten. The tooling resets and verifies deterministically but never launches a model; the human separately runs the printed command.
+- Worker concurrency: `3`.
+- Planning is reviewed at most once; normal stock task review applies.
+- Artifacts are disabled.
+- The operator inspects the generated plan before work and records, rather than silently rewrites, a materially different decomposition.
+- Tooling resets and verifies deterministically but never launches a model; the human separately runs the printed command.
 
-## Acceptance
+## Deterministic acceptance
 
 - The fixture has exactly these three no-dependency tasks and disjoint task-owned source files.
 - All three immutable test hashes match the seed; no acceptance test is changed, removed, renamed, or added.
@@ -28,6 +32,10 @@ Use the checked stock profile: worker concurrency is exactly three; planning is 
 - The worktree is a Git repository at the recorded seed commit and its manifest identifies fixture and profile hashes.
 - Any integrity mismatch fails before model work is judged successful.
 
-## Observations to record
+## Supervised observations
 
-Record whether all three tasks dispatch in the same wave, worker execution overlaps, a reservation conflict occurs, and every task receives review. Also record nested orchestration (agents, controllers, worktrees, or orchestration), sessions by role, retries, review cycles, human interventions, duration, and available provider usage metadata. A stock failure is still a valid baseline when accurately recorded.
+Record same-wave dispatch, worker overlap, reservation conflicts, and whether every task receives review. Also record nested orchestration (agents, controllers, worktrees, or orchestration), sessions by role, retries, review cycles, human interventions, duration, and available provider usage metadata.
+
+## Product target versus stock baseline
+
+A stock failure is still a valid baseline when accurately recorded. It does not establish future product behavior and must not be emulated through undocumented manual intervention.

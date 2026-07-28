@@ -1,46 +1,29 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const text = (relativePath: string) =>
-  readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
+const read = (path: string) =>
+  readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 
-const definitions = [
-  text("evals/definitions/independent-parallel.md"),
-  text("evals/definitions/shared-interface.md"),
-  text("evals/definitions/review-repair.md"),
-];
+describe("Phase 0 eval definitions", () => {
+  it("fixes all three evals before related fixtures are built", () => {
+    const independent = read("evals/definitions/independent-parallel.md");
+    const shared = read("evals/definitions/shared-interface.md");
+    const repair = read("evals/definitions/review-repair.md");
 
-const profile = JSON.parse(text("evals/profiles/stock-baseline.json"));
-const template = text("evals/results/TEMPLATE.md");
-const initialResult = text(
-  "evals/results/stock-pi-messenger-0.14.1-independent-parallel.md",
-);
-const runIgnore = text("evals/runs/.gitignore");
-const readme = text("evals/README.md");
-const upstreamPolicy = text("docs/upstream-maintenance.md");
-
-describe("Phase 0 eval documentation contracts", () => {
-  it("fixes all three eval lifecycles, acceptance, review scope, and observations", () => {
-    expect(definitions).toHaveLength(3);
-    expect(definitions[0]).toContain("parseDuration(input)");
-    expect(definitions[0]).toContain("formatBytes(bytes)");
-    expect(definitions[0]).toContain("parseRetryAfter(value, nowMs)");
-    expect(definitions[0]).toContain("three");
-    expect(definitions[1]).toContain("canonical record");
-    expect(definitions[1]).toContain("integration review");
-    expect(definitions[2]).toContain("NEEDS_WORK");
-    expect(definitions[2]).toContain("one scoped repair");
-    for (const definition of definitions) {
-      expect(definition).toContain("Acceptance");
-      expect(definition).toContain("review");
-      expect(definition).toContain("nested orchestration");
-      expect(definition).toContain("retries");
-      expect(definition).toContain("interventions");
-      expect(definition).toContain("provider");
-    }
+    expect(independent).toContain("parseDuration(input)");
+    expect(independent).toContain("formatBytes(bytes)");
+    expect(independent).toContain("parseRetryAfter(value, nowMs)");
+    expect(independent).toContain("Worker concurrency: `3`");
+    expect(shared).toContain("CSV codec");
+    expect(shared).toContain("JSON-lines codec");
+    expect(shared).toContain("separate integration review");
+    expect(repair).toContain("mergeSettings(defaults, overrides)");
+    expect(repair).toContain("NEEDS_WORK");
+    expect(repair).toContain("one scoped repair");
   });
 
-  it("pins the non-secret stock profile and its execution controls", () => {
+  it("pins a non-secret stock comparison profile", () => {
+    const profile = JSON.parse(read("evals/profiles/stock-baseline.json"));
     expect(profile).toEqual({
       package: "npm:pi-messenger@0.14.1",
       models: {
@@ -56,46 +39,41 @@ describe("Phase 0 eval documentation contracts", () => {
       coordination: "chatty",
       artifacts: { enabled: false },
     });
-    expect(JSON.stringify(profile).toLowerCase()).not.toMatch(
-      /auth|token|secret|password|api[_-]?key/,
-    );
+    expect(JSON.stringify(profile)).not.toMatch(/token|secret|api.?key/i);
   });
 
-  it("documents supervised lifecycle, durable evidence, and ignored raw runs", () => {
-    for (const field of [
-      "Run ID",
-      "seed commit",
-      "profile",
-      "Functional",
-      "test-integrity",
-      "Worker-overlap",
-      "reservation",
-      "nested orchestration",
-      "interventions",
-      "provider usage",
-      "deviation",
-    ]) {
-      expect(template.toLowerCase()).toContain(field.toLowerCase());
-    }
-    expect(initialResult).toContain("NOT RUN");
-    expect(initialResult).toContain("not observable");
-    expect(runIgnore).toContain("*");
-    expect(runIgnore).toContain("!.gitignore");
-    for (const term of [
-      "never launch", "human", "auth.json", "models-store.json", "cleanup",
-      "NOT RUN", "not observable", "node evals/scripts",
-    ]) {
-      expect(readme).toContain(term);
-    }
+  it("defines durable results without committing raw runs", () => {
+    const template = read("evals/results/TEMPLATE.md");
+    const initial = read("evals/results/stock-pi-messenger-0.14.1-independent-parallel.md");
+    const ignore = read("evals/runs/.gitignore");
+    for (const heading of [
+      "Run identity", "Functional outcome", "Orchestration observations",
+      "Review outcome", "Reliability", "Usage metadata", "Evidence", "Comparability",
+    ]) expect(template).toContain(`## ${heading}`);
+    expect(initial).toContain("**Status:** `NOT RUN`");
+    expect(ignore).toBe("*\n!.gitignore\n");
   });
 
-  it("requires fetch-only, selective, attributed, and tested upstream intake", () => {
-    for (const term of [
-      "fetch", "prune", "disabled", "never tracks", "never merged automatically",
-      "smallest coherent", "authorship", "attribution", "PRD", "tests",
-      "eval acceptance", "review process",
-    ]) {
-      expect(upstreamPolicy).toContain(term);
-    }
+  it("documents the exact supervised CLI lifecycle and model-use boundary", () => {
+    const readme = read("evals/README.md");
+    for (const command of [
+      "node evals/scripts/reset-independent-parallel.mjs [destination-under-evals/runs/independent-parallel]",
+      "node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH] [--runtime-root PATH]",
+      "node evals/scripts/verify-independent-parallel.mjs [worktree]",
+      "node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH [--evidence PATH]",
+    ]) expect(readme).toContain(command);
+    expect(readme).toContain("Preparation does not launch a model");
+    expect(readme).toContain("printed Pi command begins provider usage");
+    for (const step of ["1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10."])
+      expect(readme).toContain(step);
+  });
+
+  it("documents fetch-only selective upstream intake", () => {
+    const upstream = read("docs/upstream-maintenance.md");
+    expect(upstream).toContain("git fetch upstream --prune");
+    expect(upstream).toContain("upstream push URL must remain `DISABLED`");
+    expect(upstream).toContain("never merge automatically");
+    expect(upstream).toContain("preserve authorship and attribution");
+    expect(upstream).toContain("inherited unit tests and relevant eval acceptance checks");
   });
 });

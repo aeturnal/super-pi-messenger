@@ -1,3 +1,2 @@
-# Keep this directory while ignoring every generated run worktree and raw artifact.
 *
 !.gitignore

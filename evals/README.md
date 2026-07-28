@@ -16,7 +16,7 @@ This kit creates reproducible, supervised comparisons. It defines three evals, i
 
 Never silently substitute a model. A deliberate replacement requires a separately named profile and starts a different comparison series.
 
-## Supervised stock baseline
+## Ten-step supervised lifecycle
 
 Run commands explicitly from the repository root:
 
@@ -26,12 +26,23 @@ node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH] [--runtim
 # Human checkpoint: inspect the printed runtime, fixture, profile identity, and launch command.
 # The human, not this tooling, starts the printed Pi command and supervises it.
 node evals/scripts/verify-independent-parallel.mjs [worktree]
-node evals/scripts/cleanup-stock-runtime.mjs [--runtime-dir PATH] [--evidence-destination PATH]
+node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH [--evidence PATH]
 ```
 
-The reset command creates a marked Git worktree and manifest. The verifier runs explicit fixture tests and records deterministic test or integrity outcomes. Preparation prints but does not execute a safely quoted launch command. Do not continue past the human checkpoint until the operator separately confirms that the supervised run ended.
+1. Reset the immutable fixture into ignored run storage.
+2. Prepare the isolated stock runtime with the checked profile.
+3. Confirm the printed runtime path, package version, profile hash, exact available models, and absence of Superpowers.
+4. Launch Pi interactively using the printed command from the reset fixture worktree.
+5. Ask the control agent to plan from fixture `PRD.md` with automatic work disabled.
+6. Inspect and record the generated three-task decomposition and any deviation.
+7. Start autonomous work at concurrency three.
+8. Observe task waves, worker overlap, reservations, reviews, retries, interventions, and provider metadata.
+9. Run deterministic fixture verification and retain only reviewed non-secret ignored evidence when useful.
+10. Complete the durable result, then clean the isolated runtime and confirm copied authentication is removed.
 
-The operator asks the control agent to plan from fixture `PRD.md` with automatic work disabled, inspects the decomposition, then starts autonomous work at concurrency three. Record waves, worker overlap, reservations, reviews, retries, interventions, duration, available provider metadata, and every comparison-affecting deviation. A blocked, quota-limited, interrupted, or failed run is recorded accurately; missing facts are `not observable`.
+Preparation does not launch a model. It only validates and prints a safely quoted launch command. The printed Pi command begins provider usage, so it is executed only by the human operator after the checkpoint. Do not continue past that checkpoint until the operator separately confirms that the supervised run ended.
+
+The reset command creates a marked Git worktree and manifest. The verifier runs explicit fixture tests and records deterministic test or integrity outcomes. A blocked, quota-limited, interrupted, or failed run is recorded accurately; missing facts are `not observable`.
 
 ## Evidence and results
 
