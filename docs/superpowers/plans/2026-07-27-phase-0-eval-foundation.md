@@ -20,7 +20,7 @@
 - Default destructive paths must be under the designated eval run root or operating-system temporary runtime root; reject symlink escapes and missing markers.
 - Pin the stock package to `npm:pi-messenger@0.14.1` and never substitute a model silently.
 - Disable stock artifacts for this baseline to avoid known raw snapshot amplification.
-- Raw runtime evidence is inspectable only before cleanup; cleanup never retains or copies it. An operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/` before cleanup.
+- Raw runtime evidence is inspectable only before cleanup. Cleanup never retains or copies raw runtime evidence. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`.
 - Use dependency-free fixture code and built-in Node test tooling.
 - Use explicit Git paths in every commit.
 - Stop after Task 7 Step 2 and ask the user to run the printed supervised command; do not launch Pi or spend model credits automatically.
@@ -622,7 +622,7 @@ On partial failure, retain the marked runtime and print its credential-bearing p
 
 - [ ] **Step 4: Implement safe cleanup**
 
-Cleanup must validate runtime root/path/marker, recursively remove only the exact marked runtime, and confirm it no longer exists. It never copies runtime evidence or creates paths under `evals/runs`; raw runtime evidence is inspectable only before cleanup, when an operator may manually create a deliberately reviewed and sanitized ignored excerpt.
+Cleanup must validate runtime root/path/marker, recursively remove only the exact marked runtime, and confirm it no longer exists. Cleanup never retains or copies raw runtime evidence or creates paths under `evals/runs/`. Raw runtime evidence is inspectable only before cleanup, when an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`.
 
 Add CLI parsing:
 
@@ -786,7 +786,7 @@ Expected for a functionally successful baseline: verifier exits 0, immutable tes
 
 - [ ] **Step 3: Complete the durable baseline record**
 
-Replace `Status: NOT RUN` with `Status: COMPLETE` or `Status: INCOMPLETE/FAILED`. Fill every template field using manifest, verifier, Crew state, provider metadata, and supervised observations. Record exact deviations and mark non-observable items explicitly. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`; review it for secrets before committing. Cleanup never retains or copies raw runtime evidence.
+Replace `Status: NOT RUN` with `Status: COMPLETE` or `Status: INCOMPLETE/FAILED`. Fill every template field using manifest, verifier, Crew state, provider metadata, and supervised observations. Record exact deviations and mark non-observable items explicitly. Raw runtime evidence is inspectable only before cleanup. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`; review it for secrets before committing. Cleanup never retains or copies raw runtime evidence.
 
 - [ ] **Step 4: Clean the credential-bearing runtime**
 

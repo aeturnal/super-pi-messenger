@@ -277,7 +277,7 @@ If a pinned model is unavailable, preparation or the supervised launch stops. Th
 
 - Resolves and validates the runtime against the designated temporary root.
 - Is deletion-only and never copies runtime evidence into repository storage.
-- Leaves raw runtime evidence inspectable only until cleanup; an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/` before deletion.
+- Raw runtime evidence is inspectable only before cleanup. Cleanup never retains or copies raw runtime evidence. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`.
 - Removes the complete isolated runtime, including copied authentication.
 - Refuses deletion outside the designated root or when its runtime marker is missing.
 
@@ -324,7 +324,7 @@ The Markdown result template and completed baseline record include:
 
 `evals/runs/.gitignore` excludes reset worktrees, operator-created sanitized excerpts, Crew state, and generated manifests. The `.gitignore` file keeps the otherwise ignored directory tracked.
 
-Authentication is never stored under `evals/runs/`, even temporarily. Full raw runtime evidence is inspectable only until cleanup and cleanup never retains or copies it.
+Authentication is never stored under `evals/runs/`, even temporarily. Raw runtime evidence is inspectable only before cleanup. Cleanup never retains or copies raw runtime evidence.
 
 Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`. Selected excerpts may be copied into a durable result only after review and secret removal.
 
@@ -383,7 +383,7 @@ Phase 0 is complete when:
 6. The supervised procedure isolates stock `pi-messenger@0.14.1` from Superpowers and the temporary compatibility extension.
 7. One supervised stock independent-parallel baseline is completed and committed.
 8. The result records exact models, deviations, outcomes, review behavior, retries, interventions, duration, and readily available provider usage metadata.
-9. Raw runtime evidence is inspectable only before deletion-only cleanup, which removes copied authentication and never retains or copies that evidence.
+9. Raw runtime evidence is inspectable only before cleanup. Deletion-only cleanup removes copied authentication and never retains or copies raw runtime evidence.
 10. Upstream monitoring and selective intake rules are documented.
 11. Existing inherited tests and new deterministic eval-tooling tests pass.
 12. No Superpowers content is copied or modified.

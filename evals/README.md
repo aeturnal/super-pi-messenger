@@ -49,7 +49,7 @@ The reset command creates a marked Git worktree and manifest. The verifier runs 
 
 Use `results/TEMPLATE.md` for durable compact evidence. Record deliberately reviewed and sanitized excerpts only after secret review; never record credential contents. The initial stock result is `NOT RUN` until the human-supervised baseline completes.
 
-Cleanup is deletion-only. Cleanup never retains or copies raw runtime evidence. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/` before cleanup. If cleanup fails, treat the reported temporary runtime as credential-bearing until it is removed.
+Cleanup is deletion-only. Cleanup never retains or copies raw runtime evidence. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`. If cleanup fails, treat the reported temporary runtime as credential-bearing until it is removed.
 
 ## Eval definitions
 

@@ -109,6 +109,17 @@ describe("cleanupStockRuntime", () => {
     expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toThrow(test.runtimeDir);
   });
 
+  it("reports the credential-bearing path when an already-removed marked runtime is cleaned again", () => {
+    const test = setup();
+    const sibling = path.join(test.runtimeRoot, "unrelated-runtime");
+    fs.mkdirSync(sibling);
+
+    expect(cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toEqual({ removed: true });
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toThrow(`Cleanup failed for runtime ${test.runtimeDir}: Runtime does not exist: ${test.runtimeDir}`);
+    expect(fs.existsSync(test.runtimeDir)).toBe(false);
+    expect(fs.existsSync(sibling)).toBe(true);
+  });
+
   it("CLI uses an isolated default UID-scoped runtime root for an exact stock child", () => {
     const test = setup();
     const cli = setupCliRuntimeRoot(test);

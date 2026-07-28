@@ -120,6 +120,8 @@ describe("Phase 0 eval definitions", () => {
 
   it("documents the exact supervised CLI lifecycle and model-use boundary", () => {
     const readme = read("evals/README.md");
+    const design = read("docs/superpowers/specs/2026-07-27-phase-0-eval-foundation-design.md");
+    const plan = read("docs/superpowers/plans/2026-07-27-phase-0-eval-foundation.md");
     for (const command of [
       "node evals/scripts/reset-independent-parallel.mjs [destination-under-evals/runs/independent-parallel]",
       "node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH]",
@@ -130,8 +132,13 @@ describe("Phase 0 eval definitions", () => {
     expect(readme).toContain("printed Pi command begins provider usage");
     expect(readme).toContain("Raw runtime evidence is inspectable only before cleanup");
     expect(readme).toContain("Cleanup never retains or copies raw runtime evidence");
-    expect(readme).toContain("deliberately reviewed and sanitized excerpt under ignored `evals/runs/` before cleanup");
+    expect(readme).toContain("Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`");
     expect(readme).not.toContain("Retain raw sessions or terminal captures");
+    for (const document of [design, plan]) {
+      expect(document).toContain("Raw runtime evidence is inspectable only before cleanup");
+      expect(document).toContain("Cleanup never retains or copies raw runtime evidence");
+      expect(document).toContain("deliberately reviewed and sanitized excerpt under ignored `evals/runs/`");
+    }
     for (const step of ["1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10."])
       expect(readme).toContain(step);
   });
