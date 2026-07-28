@@ -554,8 +554,8 @@ git commit -m "feat: verify independent eval deterministically"
 - Produces: `prepareStockRuntime(options): PreparedRuntime`.
 - `options`: `{ repositoryRoot, sourceAgentDir, runtimeRoot, piCommand?: string }`.
 - `PreparedRuntime`: `{ runtimeDir, packageSource, profileHash, launchCommand }`.
-- Produces: `cleanupStockRuntime(options): { removed, evidencePath? }`.
-- Cleanup options: `{ repositoryRoot, runtimeRoot, runtimeDir, evidenceDestination? }`.
+- Produces: `cleanupStockRuntime(options): { removed }`.
+- Cleanup options: `{ runtimeRoot, runtimeDir }`; cleanup is deletion-only.
 - Runtime marker: `.pi-super-messenger-stock-runtime.json`.
 - Production preparation and cleanup derive their runtime root from a UID-scoped OS temporary root. `runtimeRoot` injection exists only in the exported test API; this fixed trust boundary supersedes the original example after security review.
 
@@ -593,7 +593,7 @@ Set mode `0755` before passing its path as `piCommand`. Tests must prove:
 - Preparation rejects missing auth, pre-existing unmarked runtime, any installed Superpowers package, and missing pinned models.
 - Cleanup removes a marked runtime.
 - Cleanup refuses outside-root paths and missing markers.
-- Evidence copying includes only session/terminal paths and never auth/settings files.
+- Cleanup never copies runtime evidence or creates paths under `evals/runs`.
 
 - [ ] **Step 2: Run runtime tests and verify RED**
 
@@ -622,7 +622,7 @@ On partial failure, retain the marked runtime and print its credential-bearing p
 
 - [ ] **Step 4: Implement safe cleanup**
 
-Cleanup must validate runtime root/path/marker, optionally copy only `sessions/` and explicitly named terminal capture files to an `evals/runs/` descendant after symlink checks, reject any requested evidence selection named `auth.json`, `settings.json`, `pi-messenger.json`, or `models-store.json`, recursively remove the runtime, and confirm it no longer exists.
+Cleanup must validate runtime root/path/marker, recursively remove only the exact marked runtime, and confirm it no longer exists. It never copies runtime evidence or creates paths under `evals/runs`; raw runtime evidence is inspectable only before cleanup, when an operator may manually create a deliberately reviewed and sanitized ignored excerpt.
 
 Add CLI parsing:
 
@@ -630,7 +630,6 @@ Add CLI parsing:
 node evals/scripts/prepare-stock-runtime.mjs --source-agent-dir /home/dominic/.pi/agent
 RUNTIME_PATH=$(node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("evals/runs/independent-parallel/prepared-runtime.json", "utf8")); process.stdout.write(p.runtimeDir)')
 node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH"
-node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH" --evidence evals/runs/independent-parallel/evidence/stock-0.14.1-baseline
 ```
 
 Unknown or repeated flags fail before mutation.
@@ -641,7 +640,7 @@ Unknown or repeated flags fail before mutation.
 npx vitest run tests/evals/stock-runtime.test.ts
 ```
 
-Expected: all preparation, isolation, model-list, evidence, and cleanup tests pass without real credentials, network calls, or model calls.
+Expected: all preparation, isolation, model-list, and deletion-only cleanup tests pass without real credentials, network calls, or model calls.
 
 - [ ] **Step 6: Commit isolated runtime tooling**
 

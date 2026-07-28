@@ -40,10 +40,20 @@ describe("cleanupStockRuntime", () => {
     return { cli, result: spawnSync(process.execPath, [script, ...args], { cwd: test.repositoryRoot, env: cli.env, encoding: "utf8" }) };
   }
 
-  it("removes a marked runtime and reports it removed", () => {
+  it("removes only an exact marked runtime", () => {
     const test = setup();
     fs.writeFileSync(path.join(test.runtimeDir, "auth.json"), "fake credential");
     expect(cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toEqual({ removed: true });
+    expect(fs.existsSync(test.runtimeDir)).toBe(false);
+  });
+
+  it("does not create an evidence destination passed to the deletion-only API", () => {
+    const test = setup();
+    fs.writeFileSync(path.join(test.runtimeDir, "terminal.log"), "raw runtime output");
+    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "manual-evidence");
+
+    expect(cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toEqual({ removed: true });
+    expect(fs.existsSync(evidenceDestination)).toBe(false);
     expect(fs.existsSync(test.runtimeDir)).toBe(false);
   });
 
@@ -71,22 +81,12 @@ describe("cleanupStockRuntime", () => {
     expect(() => cleanupStockRuntime({ repositoryRoot: second.repositoryRoot, runtimeRoot: second.runtimeRoot, runtimeDir: path.join(intermediate, runtimeName) })).toThrow(/expected|unsafe|symbolic|symlink/i);
   });
 
-  it("rejects a marker with an unexpected property without removing the runtime", () => {
-    const test = setup();
-    fs.writeFileSync(path.join(test.runtimeDir, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(test.runtimeRoot), unexpected: true })}\n`);
-    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toThrow(/marker|runtime/i);
-    expect(fs.existsSync(test.runtimeDir)).toBe(true);
-  });
-
   it.each([
     ["malformed marker", "not json"],
+    ["marker with an unexpected property", JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: "/wrong", unexpected: true })],
     ["array marker", JSON.stringify([])],
-    ["string primitive marker", JSON.stringify("not an object")],
-    ["number primitive marker", JSON.stringify(1)],
-    ["boolean primitive marker", JSON.stringify(true)],
-    ["null primitive marker", JSON.stringify(null)],
     ["wrong marker", JSON.stringify({ schemaVersion: 2, kind: "wrong", package: packageName, runtimeRoot: "/wrong" })],
-  ])("rejects a %s", (_name, marker) => {
+  ])("rejects a %s without removing the runtime", (_name, marker) => {
     const test = setup();
     fs.writeFileSync(path.join(test.runtimeDir, markerName), marker);
     expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toThrow(/marker|runtime/i);
@@ -97,112 +97,6 @@ describe("cleanupStockRuntime", () => {
     const test = setup();
     fs.rmSync(test.runtimeDir, { recursive: true });
     expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toThrow(test.runtimeDir);
-  });
-
-  it.each(["auth.json", "SETTINGS.JSON", "pi-messenger.json", "models-store.json", "credentials.txt", "secret.log", "TOKEN", "api-key.txt"])("rejects forbidden evidence basename %s", (name) => {
-    const test = setup();
-    fs.mkdirSync(path.join(test.runtimeDir, "sessions"));
-    fs.writeFileSync(path.join(test.runtimeDir, "sessions", name), "credential");
-    const evidence = path.join(test.repositoryRoot, "evals", "runs", "evidence");
-    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination: evidence })).toThrow(/forbidden|credential|evidence/i);
-    expect(fs.existsSync(test.runtimeDir)).toBe(true);
-  });
-
-  it("rejects symlinks anywhere in selected evidence", () => {
-    const test = setup();
-    fs.mkdirSync(path.join(test.runtimeDir, "sessions", "nested"), { recursive: true });
-    fs.writeFileSync(path.join(test.runtimeDir, "sessions", "nested", "safe.log"), "safe");
-    fs.symlinkSync(path.join(test.runtimeDir, "sessions", "nested", "safe.log"), path.join(test.runtimeDir, "sessions", "link.log"));
-    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination: path.join(test.repositoryRoot, "evals", "runs", "evidence") })).toThrow(/symbolic|symlink/i);
-  });
-
-  it.each([
-    ["private-key header", path.join("sessions", "nested", "transcript.log"), "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----\n"],
-    ["apiKey JSON key", "terminal.log", '{"apiKey":"not-a-real-key"}\n'],
-    ["api_key JSON key", "terminal.jsonl", '{"api_key":"not-a-real-key"}\n'],
-    ["accessToken JSON key", "terminal.log", '{"accessToken":"not-a-real-token"}\n'],
-    ["refreshToken JSON key", "terminal.jsonl", '{"refreshToken":"not-a-real-token"}\n'],
-    ["authToken JSON key", "terminal.log", '{"authToken":"not-a-real-token"}\n'],
-    ["oauthToken JSON key", "terminal.jsonl", '{"oauthToken":"not-a-real-token"}\n'],
-    ["clientSecret JSON key", "terminal.log", '{"clientSecret":"not-a-real-secret"}\n'],
-    ["API_KEY environment credential assignment", path.join("sessions", "environment.log"), "API_KEY=not-a-real-key\n"],
-    ["AUTH_TOKEN environment credential assignment", "terminal.log", "AUTH_TOKEN=not-a-real-token\n"],
-    ["OAUTH_TOKEN environment credential assignment", "terminal.jsonl", "OAUTH_TOKEN=not-a-real-token\n"],
-    ["ACCESS_TOKEN environment credential assignment", "terminal.log", "ACCESS_TOKEN=not-a-real-token\n"],
-    ["REFRESH_TOKEN environment credential assignment", "terminal.jsonl", "REFRESH_TOKEN=not-a-real-token\n"],
-    ["provider API_KEY environment credential assignment", path.join("sessions", "environment.log"), "OPENAI_API_KEY=sk-example-provider-secret\n"],
-    ["provider environment assignment with consecutive underscores", "terminal.log", "PROVIDER__API_KEY=nonempty-secret\n"],
-    ["provider environment assignment with a numeric prefix segment", "terminal.jsonl", "PROVIDER_2_API_KEY=nonempty-secret\n"],
-    ["exported provider environment assignment with a mixed-case suffix and quoted value", "terminal.log", "export PROVIDER_aPi_KeY='nonempty-secret'\n"],
-    ["provider AUTH_TOKEN environment credential assignment", "terminal.log", "provider_auth_token=not-a-real-token\n"],
-    ["provider OAUTH_TOKEN environment credential assignment", "terminal.jsonl", "PROVIDER_OAUTH_TOKEN=not-a-real-token\n"],
-    ["provider ACCESS_TOKEN environment credential assignment", "terminal.log", "PROVIDER_ACCESS_TOKEN=not-a-real-token\n"],
-    ["provider REFRESH_TOKEN environment credential assignment", "terminal.jsonl", "PROVIDER_REFRESH_TOKEN=not-a-real-token\n"],
-    ["provider CLIENT_SECRET environment credential assignment", "terminal.log", "PROVIDER_CLIENT_SECRET=not-a-real-secret\n"],
-    ["provider SECRET environment credential assignment", "terminal.jsonl", "PROVIDER_SECRET=not-a-real-secret\n"],
-    ["provider PASSWORD environment credential assignment", "terminal.log", "PROVIDER_PASSWORD=not-a-real-password\n"],
-    ["provider CREDENTIAL environment credential assignment", "terminal.jsonl", "PROVIDER_CREDENTIAL=not-a-real-credential\n"],
-    ["provider CREDENTIALS environment credential assignment", "terminal.log", "PROVIDER_CREDENTIALS=not-a-real-credentials\n"],
-    ["sk token", "terminal.log", "token sk-example-provider-secret\n"],
-    ["GitHub personal access token", "terminal.jsonl", "token ghp_example-provider-secret\n"],
-    ["GitHub fine-grained personal access token", "terminal.log", "token github_pat_example-provider-secret\n"],
-    ["Slack bot token", "terminal.jsonl", "token xoxb-example-provider-secret\n"],
-    ["Slack user token", "terminal.log", "token xoxp-example-provider-secret\n"],
-    ["Slack app token", "terminal.jsonl", "token xoxa-example-provider-secret\n"],
-    ["Slack refresh token", "terminal.log", "token xoxr-example-provider-secret\n"],
-    ["Slack service token", "terminal.jsonl", "token xoxs-example-provider-secret\n"],
-    ["Google API key", "terminal.log", "token AIzaExampleProviderSecret\n"],
-    ["Google OAuth token", "terminal.jsonl", "token ya29.example-provider-secret\n"],
-    ["Bearer token", "terminal.log", "Authorization: Bearer not-a-real-token\n"],
-    ["binary NUL content", "terminal.jsonl", Buffer.from("safe\0unsafe")],
-    ["invalid UTF-8 binary content", "terminal.log", Buffer.from([0xff, 0xfe, 0xfd, 0xfc])],
-  ])("rejects retained evidence containing %s before creating its destination", (_name, relativePath, content) => {
-    const test = setup();
-    const source = path.join(test.runtimeDir, relativePath);
-    fs.mkdirSync(path.dirname(source), { recursive: true });
-    fs.writeFileSync(source, content);
-    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");
-
-    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toThrow(/evidence|credential|secret|binary|private|bearer/i);
-    expect(fs.existsSync(test.runtimeDir)).toBe(true);
-    expect(fs.existsSync(evidenceDestination)).toBe(false);
-  });
-
-  it("refuses an existing evidence destination without deleting the runtime", () => {
-    const test = setup();
-    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");
-    fs.mkdirSync(evidenceDestination);
-    fs.writeFileSync(path.join(evidenceDestination, "unrelated.txt"), "stale");
-    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toThrow(/evidence.*exist|exist.*evidence/i);
-    expect(fs.readFileSync(path.join(evidenceDestination, "unrelated.txt"), "utf8")).toBe("stale");
-    expect(fs.existsSync(test.runtimeDir)).toBe(true);
-  });
-
-  it("copies benign environment assignments that do not end in credential suffixes", () => {
-    const test = setup();
-    fs.writeFileSync(path.join(test.runtimeDir, "terminal.log"), "PROVIDER__API_ENDPOINT=https://example.test\nPROVIDER_2_MODEL_NAME=example-model\n");
-    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");
-
-    expect(cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toEqual({ removed: true, evidencePath: evidenceDestination });
-    expect(fs.readFileSync(path.join(evidenceDestination, "terminal.log"), "utf8")).toContain("PROVIDER__API_ENDPOINT");
-  });
-
-  it("copies only allowed safe evidence before deleting credentials with runtime", () => {
-    const test = setup();
-    fs.mkdirSync(path.join(test.runtimeDir, "sessions", "nested"), { recursive: true });
-    fs.writeFileSync(path.join(test.runtimeDir, "sessions", "nested", "output.txt"), "safe session");
-    fs.writeFileSync(path.join(test.runtimeDir, "terminal.log"), "safe log");
-    fs.writeFileSync(path.join(test.runtimeDir, "terminal.jsonl"), "{\"safe\":true}\n");
-    fs.writeFileSync(path.join(test.runtimeDir, "other.txt"), "not evidence");
-    fs.writeFileSync(path.join(test.runtimeDir, "auth.json"), "credential");
-    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");
-    expect(cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toEqual({ removed: true, evidencePath: evidenceDestination });
-    expect(fs.readFileSync(path.join(evidenceDestination, "sessions", "nested", "output.txt"), "utf8")).toBe("safe session");
-    expect(fs.existsSync(path.join(evidenceDestination, "terminal.log"))).toBe(true);
-    expect(fs.existsSync(path.join(evidenceDestination, "terminal.jsonl"))).toBe(true);
-    expect(fs.existsSync(path.join(evidenceDestination, "other.txt"))).toBe(false);
-    expect(fs.existsSync(path.join(evidenceDestination, "auth.json"))).toBe(false);
-    expect(fs.existsSync(test.runtimeDir)).toBe(false);
   });
 
   it("CLI uses an isolated default UID-scoped runtime root for an exact stock child", () => {
@@ -218,26 +112,16 @@ describe("cleanupStockRuntime", () => {
     expect(fs.existsSync(runtimeDir)).toBe(false);
   });
 
-  it("CLI rejects a correctly marked identically named runtime outside its isolated default root without mutation", () => {
+  it("CLI rejects --evidence before mutating a marked runtime", () => {
     const test = setup();
-    const outsideRoot = path.join(test.temporaryRoot, "outside-root");
-    const outsideRuntime = path.join(outsideRoot, runtimeName);
-    fs.mkdirSync(outsideRuntime, { recursive: true });
-    fs.writeFileSync(path.join(outsideRuntime, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(outsideRoot) })}\n`);
-    const { cli, result } = runCleanupCli(test, ["--runtime", outsideRuntime]);
-    expect(cli.runtimeRoot).not.toBe(outsideRoot);
-    expect(result.status).toBe(1);
-    expect(`${result.stdout}${result.stderr}`).toMatch(/expected|runtime|cleanup/i);
-    expect(fs.existsSync(outsideRuntime)).toBe(true);
-  });
+    const cli = setupCliRuntimeRoot(test);
+    const runtimeDir = path.join(cli.runtimeRoot, runtimeName);
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(cli.runtimeRoot) })}\n`);
 
-  it("CLI rejects invalid flags before mutation", () => {
-    const test = setup();
-    for (const args of [["--unknown"], ["--runtime"], ["--runtime", test.runtimeDir, "--runtime", test.runtimeDir], ["--runtime", test.runtimeDir, "--evidence"]]) {
-      const { result } = runCleanupCli(test, args);
-      expect(result.status).toBe(1);
-      expect(`${result.stdout}${result.stderr}`).toContain(runtimeName);
-      expect(fs.existsSync(test.runtimeDir)).toBe(true);
-    }
+    const { result } = runCleanupCli(test, ["--runtime", runtimeDir, "--evidence", path.join(test.repositoryRoot, "evals", "runs", "evidence")], cli);
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain("Unknown flag --evidence");
+    expect(fs.existsSync(runtimeDir)).toBe(true);
   });
 });

@@ -123,7 +123,7 @@ describe("Phase 0 eval definitions", () => {
       "node evals/scripts/reset-independent-parallel.mjs [destination-under-evals/runs/independent-parallel]",
       "node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH]",
       "node evals/scripts/verify-independent-parallel.mjs [worktree]",
-      "node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH [--evidence PATH]",
+      "node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH",
     ]) expect(readme).toContain(command);
     expect(readme).toContain("Preparation does not launch a model");
     expect(readme).toContain("printed Pi command begins provider usage");

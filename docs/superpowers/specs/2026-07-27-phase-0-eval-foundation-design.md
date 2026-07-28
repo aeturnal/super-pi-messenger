@@ -276,8 +276,8 @@ If a pinned model is unavailable, preparation or the supervised launch stops. Th
 `cleanup-stock-runtime.mjs`:
 
 - Resolves and validates the runtime against the designated temporary root.
-- Optionally copies selected non-secret session or terminal evidence to a named ignored run directory.
-- Never copies `auth.json`, settings containing credentials, or provider secrets.
+- Is deletion-only and never copies runtime evidence into repository storage.
+- Leaves raw runtime evidence inspectable only until cleanup; an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/` before deletion.
 - Removes the complete isolated runtime, including copied authentication.
 - Refuses deletion outside the designated root or when its runtime marker is missing.
 
@@ -297,8 +297,8 @@ The operator follows this sequence:
 8. Observe task waves, worker overlap, reservations, reviews, retries, and interventions.
 9. Run the deterministic verifier.
 10. Complete the stock baseline result from the run manifest and observations.
-11. Retain only selected ignored non-secret raw evidence when useful.
-12. Run isolated-runtime cleanup and confirm authentication was removed.
+11. Before cleanup, manually retain only deliberately reviewed and sanitized ignored excerpts when useful.
+12. Run deletion-only isolated-runtime cleanup and confirm authentication was removed.
 
 The scripts never launch a model automatically. Model and credit use begins only when the operator deliberately executes the printed Pi command.
 
@@ -324,9 +324,9 @@ The Markdown result template and completed baseline record include:
 
 `evals/runs/.gitignore` excludes reset worktrees, raw Pi sessions, terminal captures, Crew state, and generated manifests. The `.gitignore` file keeps the otherwise ignored directory tracked.
 
-Authentication is never stored under `evals/runs/`, even temporarily. Full raw evidence remains available during active investigation but is not promoted into committed artifacts by default.
+Authentication is never stored under `evals/runs/`, even temporarily. Full raw runtime evidence is inspectable only until cleanup and is never copied there automatically.
 
-Selected excerpts may be copied into a durable result only after review and secret removal.
+Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`. Selected excerpts may be copied into a durable result only after review and secret removal.
 
 ## 11. Deterministic tooling tests
 
@@ -341,7 +341,7 @@ Vitest tests exercise tooling without model calls or real credentials:
 - Runtime preparation copies fake credentials with restrictive permissions into a temporary root.
 - Runtime preparation uses a fake `pi` executable to prove the pinned install request and generated configuration.
 - Runtime preparation rejects missing authentication, unexpected pre-existing runtime content, and settings containing Superpowers.
-- Cleanup removes the marked fake runtime and refuses unsafe paths or missing markers.
+- Cleanup deletes only the marked fake runtime, creates no evidence path, and refuses unsafe paths or missing markers.
 
 The normal `npm test` suite remains deterministic. Actual supervised model evals are never invoked by `npm test` or CI.
 
@@ -369,7 +369,7 @@ The normal `npm test` suite remains deterministic. Actual supervised model evals
 - Partial runtime preparation remains marked and is removed through the cleanup command.
 - Model quota, authentication, or provider failures are recorded as run outcomes and are not retried by eval tooling.
 - A supervised run interrupted before completion remains an incomplete result; it is never presented as a passing baseline.
-- Raw evidence or cleanup failures never cause credentials to be committed.
+- Raw evidence or cleanup failures never cause credentials to be committed; cleanup never copies raw runtime evidence.
 
 ## 14. Phase 0 acceptance
 

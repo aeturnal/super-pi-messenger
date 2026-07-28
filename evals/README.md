@@ -27,7 +27,7 @@ node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH]
 # Human checkpoint: inspect the printed runtime, fixture, profile identity, and launch command.
 # The human, not this tooling, starts the printed Pi command and supervises it.
 node evals/scripts/verify-independent-parallel.mjs [worktree]
-node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH [--evidence PATH]
+node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH
 ```
 
 1. Reset the immutable fixture into ignored run storage.
@@ -38,7 +38,7 @@ node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH [--evidence PATH]
 6. Inspect and record the generated three-task decomposition and any deviation.
 7. Start autonomous work at concurrency three.
 8. Observe task waves, worker overlap, reservations, reviews, retries, interventions, and provider metadata.
-9. Run deterministic fixture verification and retain only reviewed non-secret ignored evidence when useful.
+9. Run deterministic fixture verification; inspect raw runtime evidence only before cleanup.
 10. Complete the durable result, then clean the isolated runtime and confirm copied authentication is removed.
 
 Preparation does not launch a model. It only validates and prints a safely quoted launch command. The printed Pi command begins provider usage, so it is executed only by the human operator after the checkpoint. Do not continue past that checkpoint until the operator separately confirms that the supervised run ended.
@@ -49,7 +49,7 @@ The reset command creates a marked Git worktree and manifest. The verifier runs 
 
 Use `results/TEMPLATE.md` for durable compact evidence. Retain raw sessions or terminal captures only in ignored storage when useful, and copy excerpts into a committed result only after secret review. Record paths to retained evidence, not credential contents. The initial stock result is `NOT RUN` until the human-supervised baseline completes.
 
-Cleanup can retain only documented allowlisted non-secret evidence; it rejects symlinks and configuration or credential names. If cleanup fails, treat the reported temporary runtime as credential-bearing until it is removed.
+Cleanup is deletion-only and never copies runtime evidence into the repository. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`. If cleanup fails, treat the reported temporary runtime as credential-bearing until it is removed.
 
 ## Eval definitions
 

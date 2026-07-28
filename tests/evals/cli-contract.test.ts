@@ -49,7 +49,8 @@ describe("documented stock-runtime CLI contract", () => {
 
     expect(readme).not.toContain("--runtime-root");
     expect(readme).toContain("node evals/scripts/prepare-stock-runtime.mjs [--source-agent-dir PATH]");
-    expect(readme).toContain("node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH [--evidence PATH]");
+    expect(readme).toContain("node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH");
+    expect(readme).not.toContain("cleanup-stock-runtime.mjs --runtime PATH [--evidence PATH]");
 
     for (const args of [[], ["--source-agent-dir", missingAgentDirectory]]) {
       const result = runCli(prepareScript, args, environment);
@@ -64,20 +65,14 @@ describe("documented stock-runtime CLI contract", () => {
 
     expect(plan).toContain('RUNTIME_PATH=$(node -e \'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("evals/runs/independent-parallel/prepared-runtime.json", "utf8")); process.stdout.write(p.runtimeDir)\')');
     expect(plan).toContain('node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH"');
-    expect(plan).toContain('node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH" --evidence evals/runs/independent-parallel/evidence/stock-0.14.1-baseline');
+    expect(plan).not.toContain("cleanup-stock-runtime.mjs --runtime \"$RUNTIME_PATH\" --evidence");
     expect(plan).not.toContain("/tmp/pi-super-messenger-evals-1000");
     expect(plan).toContain("UID-scoped OS temporary root");
   });
 
-  it.each([
-    ["--runtime", false],
-    ["--runtime ... --evidence ...", true],
-  ])("passes parser validation for documented cleanup shape %s", (_shape, includesEvidence) => {
-    const { temporaryRoot, runtimeDirectory, environment } = missingRuntimeContext();
-    const args = ["--runtime", runtimeDirectory];
-    if (includesEvidence) args.push("--evidence", path.join(temporaryRoot, "evidence"));
-
-    const result = runCli(cleanupScript, args, environment);
+  it("passes parser validation for the documented cleanup shape", () => {
+    const { runtimeDirectory, environment } = missingRuntimeContext();
+    const result = runCli(cleanupScript, ["--runtime", runtimeDirectory], environment);
     const combinedOutput = `${result.stdout}${result.stderr}`;
     const expectedMessage = `Runtime does not exist: ${runtimeDirectory}`;
 
@@ -87,6 +82,15 @@ describe("documented stock-runtime CLI contract", () => {
       expect(combinedOutput).not.toContain(parserFailure);
     }
     expect(combinedOutput).not.toMatch(/^Cleanup failed\s*$/);
+    expect(fs.existsSync(runtimeDirectory)).toBe(false);
+  });
+
+  it("rejects the retired --evidence flag before cleanup", () => {
+    const { runtimeDirectory, environment } = missingRuntimeContext();
+    const result = runCli(cleanupScript, ["--runtime", runtimeDirectory, "--evidence", "ignored"], environment);
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain("Unknown flag --evidence");
     expect(fs.existsSync(runtimeDirectory)).toBe(false);
   });
 });
