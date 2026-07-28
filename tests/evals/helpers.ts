@@ -55,6 +55,7 @@ export function parseRetryAfter(value, nowMs) {
   if (typeof value !== "string" || value.trim() === "") return null;
   const header = value.trim();
   if (/^\\d+$/.test(header)) return Number(header) * 1000;
+  if (!/^[A-Z][a-z]{2}, \\d{2} [A-Z][a-z]{2} \\d{4} \\d{2}:\\d{2}:\\d{2} GMT$/.test(header)) return null;
   const target = Date.parse(header);
   return Number.isNaN(target) ? null : Math.max(0, target - nowMs);
 }

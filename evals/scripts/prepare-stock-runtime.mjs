@@ -95,11 +95,19 @@ export function prepareStockRuntime({ repositoryRoot, sourceAgentDir, runtimeRoo
 }
 
 function parseCli(arguments_) {
-  if (arguments_.length === 0) return {};
-  if (arguments_.length !== 2 || arguments_[0] !== "--source-agent-dir" || !arguments_[1] || arguments_[1].startsWith("--")) {
-    throw new Error("Usage: prepare-stock-runtime.mjs [--source-agent-dir <directory>]");
+  const values = {};
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const flag = arguments_[index];
+    if (flag !== "--source-agent-dir" && flag !== "--runtime-root") {
+      throw new Error("Usage: prepare-stock-runtime.mjs [--source-agent-dir <directory>] [--runtime-root <directory>]");
+    }
+    if (Object.hasOwn(values, flag)) throw new Error(`Repeated flag ${flag}`);
+    const value = arguments_[index + 1];
+    if (!value || value.startsWith("--")) throw new Error(`Missing value for ${flag}`);
+    values[flag] = value;
+    index += 1;
   }
-  return { sourceAgentDir: arguments_[1] };
+  return { sourceAgentDir: values["--source-agent-dir"], runtimeRoot: values["--runtime-root"] };
 }
 
 function isMain() {

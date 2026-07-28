@@ -83,6 +83,14 @@ if (process.argv[2] === "--list-models") process.stdout.write(process.env.FAKE_M
     expect(() => prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot: test.runtimeRoot, piCommand: test.piCommand })).toThrow(/already exists/i);
   });
 
+  it("CLI accepts the documented runtime-root flag before validating credentials", () => {
+    const test = setup({ auth: false });
+    const result = spawnSync(process.execPath, [script, "--source-agent-dir", test.sourceAgentDir, "--runtime-root", test.runtimeRoot], { cwd: test.repositoryRoot, encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Missing required auth.json");
+    expect(fs.existsSync(test.runtimeRoot)).toBe(false);
+  });
+
   it("CLI rejects invalid source flags before mutation", () => {
     const test = setup();
     for (const args of [["--unknown"], ["--source-agent-dir"], ["--source-agent-dir", test.sourceAgentDir, "--source-agent-dir", test.sourceAgentDir]]) {

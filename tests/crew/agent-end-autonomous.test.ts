@@ -82,6 +82,8 @@ describe("agent_end autonomous continuation guards", () => {
     tempHomes.push(home);
     vi.stubEnv("HOME", home);
     vi.stubEnv("PI_MESSENGER_DIR", path.join(home, ".pi", "agent", "messenger"));
+    vi.stubEnv("PI_CREW_WORKER", undefined);
+    vi.stubEnv("PI_LOBBY_ID", undefined);
   });
 
   afterEach(() => {
