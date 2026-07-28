@@ -1,10 +1,9 @@
 /**
- * Pi Messenger - Config Overlay Component
+ * Super Pi Messenger - Config Overlay Component
  */
 
-import type { Component, Focusable, TUI } from "@mariozechner/pi-tui";
-import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import { matchesKey, truncateToWidth, type Component, type Focusable, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { getAutoRegisterPaths, saveAutoRegisterPaths, matchesAutoRegisterPath } from "./config.js";
 
 export class MessengerConfigOverlay implements Component, Focusable {

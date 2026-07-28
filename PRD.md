@@ -1,6 +1,6 @@
-# Product Requirements Document: Pi Super Messenger
+# Product Requirements Document: Super Pi Messenger
 
-**Product name:** Pi Super Messenger  
+**Product name:** Super Pi Messenger
 **Repository:** Focused fork of `nicobailon/pi-messenger`  
 **Date:** 2026-07-27  
 **Status:** Approved through section-by-section review  
@@ -8,7 +8,7 @@
 
 ## 1. Product Summary
 
-Pi Super Messenger is an independently maintained, focused fork of `nicobailon/pi-messenger` that combines pi-messenger's multi-agent execution machinery with engineering methodologies supplied by the separately installed stock Obra Superpowers package. Pi Super Messenger is not affiliated with or endorsed by Obra.
+Super Pi Messenger is an independently maintained, focused fork of `nicobailon/pi-messenger` that combines pi-messenger's multi-agent execution machinery with engineering methodologies supplied by the separately installed stock Obra Superpowers package. Super Pi Messenger is not affiliated with or endorsed by Obra.
 
 The product will preserve pi-messenger's defining capabilities:
 
@@ -1121,7 +1121,7 @@ Use these rules when requirements compete:
 
 ## 20. Launch Criteria
 
-Pi Super Messenger may be called an initial usable release when:
+Super Pi Messenger may be called an initial usable release when:
 
 - Artifact storage and memory growth are bounded.
 - Explicit role/task/attempt metadata is used.
@@ -1166,6 +1166,6 @@ Relevant upstream report:
 
 ## 23. Final Product Statement
 
-Pi Super Messenger will not attempt to merge two complete orchestration systems. It will preserve pi-messenger as the multi-agent execution substrate, preserve Superpowers as an independently updated methodology source, and connect them through an always-active compatibility layer backed by deterministic review, repair, and failure handling.
+Super Pi Messenger will not attempt to merge two complete orchestration systems. It will preserve pi-messenger as the multi-agent execution substrate, preserve Superpowers as an independently updated methodology source, and connect them through an always-active compatibility layer backed by deterministic review, repair, and failure handling.
 
 The product is successful if both installed add-ons behave as one coherent system: pi-messenger owns Crew orchestration, Superpowers supplies engineering discipline, and agents retain the freedom to communicate when they judge it useful.

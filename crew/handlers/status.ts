@@ -4,7 +4,7 @@
  * Shows plan progress and task status.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { result } from "../utils/result.js";
 import { discoverCrewAgents } from "../utils/discover.js";
 import { uninstallAgents } from "../utils/install.js";

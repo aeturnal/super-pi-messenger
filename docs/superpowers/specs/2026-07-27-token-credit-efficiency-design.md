@@ -1,4 +1,4 @@
-# Pi Super Messenger Token and Credit Efficiency Design
+# Super Pi Messenger Token and Credit Efficiency Design
 
 **Date:** 2026-07-27  
 **Status:** Proposal for review  
@@ -6,7 +6,7 @@
 
 ## 1. Executive Summary
 
-Pi Super Messenger's defining value is not merely code generation. It coordinates multiple agents through planning, dependency-aware parallel work, file reservations, messaging, progress tracking, review, and autonomous execution. Any cost optimization that simply removes planners, workers, reviewers, or coordination would reduce spend by weakening the product's original purpose.
+Super Pi Messenger's defining value is not merely code generation. It coordinates multiple agents through planning, dependency-aware parallel work, file reservations, messaging, progress tracking, review, and autonomous execution. Any cost optimization that simply removes planners, workers, reviewers, or coordination would reduce spend by weakening the product's original purpose.
 
 The recommended strategy is therefore:
 
@@ -922,7 +922,7 @@ After measuring those changes, propose adaptive reviewer routing, scoped repair 
 
 ## 12. Decision Summary
 
-The balanced optimization strategy preserves Pi Super Messenger's identity:
+The balanced optimization strategy preserves Super Pi Messenger's identity:
 
 - Multiple specialized agents remain.
 - Independent workers remain fresh by default.

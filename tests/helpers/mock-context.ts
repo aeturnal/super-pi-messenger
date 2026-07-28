@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { vi } from "vitest";
 
 export function createMockContext(cwd: string = process.cwd()): ExtensionContext {
@@ -12,11 +12,11 @@ export function createMockContext(cwd: string = process.cwd()): ExtensionContext
       notify: vi.fn(),
       setStatus: vi.fn(),
       custom: vi.fn(),
-    } as ExtensionContext["ui"],
+    } as unknown as ExtensionContext["ui"],
     sessionManager: {
       getEntries: () => [],
       getSessionId: () => "test-session",
-    } as ExtensionContext["sessionManager"],
+    } as unknown as ExtensionContext["sessionManager"],
     model: "test-model",
   } as unknown as ExtensionContext;
 }

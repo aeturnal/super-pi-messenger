@@ -1,17 +1,17 @@
-# Pi Super Messenger Document Rename Implementation Plan
+# Super Pi Messenger Document Rename Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Apply the approved Pi Super Messenger naming hierarchy to the PRD and supporting efficiency design without renaming Crew or technical upstream pi-messenger references.
+**Goal:** Apply the approved Super Pi Messenger naming hierarchy to the PRD and supporting efficiency design without renaming Crew or technical upstream pi-messenger references.
 
-**Architecture:** Make narrowly targeted prose replacements in the two existing untracked documents. Treat Pi Super Messenger as the product, Super Messenger as an optional contextual short name, Crew as the orchestration feature, and `pi-messenger` as the upstream/package/source term. Validate each document immediately after editing and finish with a cross-document naming and structural scan.
+**Architecture:** Make narrowly targeted prose replacements in the two existing untracked documents. Treat Super Pi Messenger as the product, Super Messenger as an optional contextual short name, Crew as the orchestration feature, and `pi-messenger` as the upstream/package/source term. Validate each document immediately after editing and finish with a cross-document naming and structural scan.
 
 **Tech Stack:** Markdown, ripgrep, Python 3 structural checks, Git status inspection.
 
 ## Global Constraints
 
-- Follow `docs/superpowers/specs/2026-07-27-pi-super-messenger-naming-design.md` exactly.
-- Use **Pi Super Messenger** for the formal product name.
+- Follow `docs/superpowers/specs/2026-07-27-super-pi-messenger-naming-design.md` exactly.
+- Use **Super Pi Messenger** for the formal product name.
 - Keep **Crew** as the orchestration feature name.
 - Keep `pi-messenger` for upstream lineage, package/configuration/API names, inherited behavior, and source paths.
 - State that the product is independently maintained and is not affiliated with or endorsed by Obra.
@@ -27,11 +27,11 @@
 
 **Files:**
 - Modify: `PRD.md`
-- Reference: `docs/superpowers/specs/2026-07-27-pi-super-messenger-naming-design.md`
+- Reference: `docs/superpowers/specs/2026-07-27-super-pi-messenger-naming-design.md`
 
 **Interfaces:**
 - Consumes: Approved naming hierarchy and the existing PRD structure.
-- Produces: A PRD whose formal product identity is Pi Super Messenger while Crew and upstream pi-messenger terminology remain intact.
+- Produces: A PRD whose formal product identity is Super Pi Messenger while Crew and upstream pi-messenger terminology remain intact.
 
 - [x] **Step 1: Capture the pre-edit PRD structure**
 
@@ -57,27 +57,27 @@ Expected: `sections=23 first=1 last=23`, `requirements=100 unique=100`, and `cod
 Make these exact semantic changes:
 
 ```markdown
-# Product Requirements Document: Pi Super Messenger
+# Product Requirements Document: Super Pi Messenger
 
-**Product name:** Pi Super Messenger  
+**Product name:** Super Pi Messenger
 ```
 
 Replace the opening product sentence with:
 
 ```markdown
-Pi Super Messenger is an independently maintained, focused fork of `nicobailon/pi-messenger` that combines pi-messenger's multi-agent execution machinery with engineering methodologies supplied by the separately installed stock Obra Superpowers package. Pi Super Messenger is not affiliated with or endorsed by Obra.
+Super Pi Messenger is an independently maintained, focused fork of `nicobailon/pi-messenger` that combines pi-messenger's multi-agent execution machinery with engineering methodologies supplied by the separately installed stock Obra Superpowers package. Super Pi Messenger is not affiliated with or endorsed by Obra.
 ```
 
 Change the release-readiness sentence to:
 
 ```markdown
-Pi Super Messenger may be called an initial usable release when:
+Super Pi Messenger may be called an initial usable release when:
 ```
 
 Change the conclusion opening to:
 
 ```markdown
-Pi Super Messenger will not attempt to merge two complete orchestration systems. It will preserve pi-messenger as the multi-agent execution substrate, preserve Superpowers as an independently updated methodology source, and connect them through an always-active compatibility layer backed by deterministic review, repair, and failure handling.
+Super Pi Messenger will not attempt to merge two complete orchestration systems. It will preserve pi-messenger as the multi-agent execution substrate, preserve Superpowers as an independently updated methodology source, and connect them through an always-active compatibility layer backed by deterministic review, repair, and failure handling.
 ```
 
 Do not replace any other use of Crew or pi-messenger.
@@ -87,7 +87,7 @@ Do not replace any other use of Crew or pi-messenger.
 Run:
 
 ```bash
-rg -n -i 'policy-aware|working name|pi super messenger crew' PRD.md
+rg -n -i 'policy-aware|working name|super pi messenger crew' PRD.md
 ```
 
 Expected: no matches.
@@ -95,7 +95,7 @@ Expected: no matches.
 Run:
 
 ```bash
-rg -n 'Pi Super Messenger|\bCrew\b|nicobailon/pi-messenger|not affiliated with or endorsed by Obra' PRD.md
+rg -n 'Super Pi Messenger|\bCrew\b|nicobailon/pi-messenger|not affiliated with or endorsed by Obra' PRD.md
 ```
 
 Expected: the formal product name appears at all product-level locations, Crew remains present as the feature name, upstream lineage remains explicit, and the non-affiliation statement appears in the summary.
@@ -110,8 +110,8 @@ from pathlib import Path
 import re
 text = Path('PRD.md').read_text()
 assert not re.search(r'policy-aware', text, re.I)
-assert '# Product Requirements Document: Pi Super Messenger' in text
-assert '**Product name:** Pi Super Messenger' in text
+assert '# Product Requirements Document: Super Pi Messenger' in text
+assert '**Product name:** Super Pi Messenger' in text
 assert 'not affiliated with or endorsed by Obra' in text
 assert text.count('```') % 2 == 0
 assert not re.search(r'\b(TBD|TODO|FIXME|PLACEHOLDER)\b', text, re.I)
@@ -127,30 +127,30 @@ Expected: `PRD naming and integrity: PASS`.
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-07-27-token-credit-efficiency-design.md`
-- Reference: `docs/superpowers/specs/2026-07-27-pi-super-messenger-naming-design.md`
+- Reference: `docs/superpowers/specs/2026-07-27-super-pi-messenger-naming-design.md`
 
 **Interfaces:**
 - Consumes: Approved naming hierarchy and the existing efficiency design.
-- Produces: A supporting design that names the product Pi Super Messenger without changing its technical decisions.
+- Produces: A supporting design that names the product Super Pi Messenger without changing its technical decisions.
 
 - [x] **Step 1: Replace only the three product-level pi-messenger references**
 
 Apply these changes:
 
 ```markdown
-# Pi Super Messenger Token and Credit Efficiency Design
+# Super Pi Messenger Token and Credit Efficiency Design
 ```
 
 Change the executive-summary opening from “Pi-messenger's defining value” to:
 
 ```markdown
-Pi Super Messenger's defining value is not merely code generation.
+Super Pi Messenger's defining value is not merely code generation.
 ```
 
 Change the decision-summary opening from “The balanced optimization strategy preserves pi-messenger's identity” to:
 
 ```markdown
-The balanced optimization strategy preserves Pi Super Messenger's identity:
+The balanced optimization strategy preserves Super Pi Messenger's identity:
 ```
 
 Keep every technical reference to Crew and inherited pi-messenger behavior unchanged.
@@ -165,9 +165,9 @@ from pathlib import Path
 import re
 path = Path('docs/superpowers/specs/2026-07-27-token-credit-efficiency-design.md')
 text = path.read_text()
-assert text.startswith('# Pi Super Messenger Token and Credit Efficiency Design\n')
-assert "Pi Super Messenger's defining value" in text
-assert "preserves Pi Super Messenger's identity" in text
+assert text.startswith('# Super Pi Messenger Token and Credit Efficiency Design\n')
+assert "Super Pi Messenger's defining value" in text
+assert "preserves Super Pi Messenger's identity" in text
 assert text.count('```') % 2 == 0
 assert not re.search(r'\b(TBD|TODO|FIXME|PLACEHOLDER)\b', text, re.I)
 print('Supporting design naming and integrity: PASS')
@@ -179,7 +179,7 @@ Expected: `Supporting design naming and integrity: PASS`.
 Run:
 
 ```bash
-rg -n -i 'policy-aware|pi super messenger crew' \
+rg -n -i 'policy-aware|super pi messenger crew' \
   docs/superpowers/specs/2026-07-27-token-credit-efficiency-design.md
 ```
 
@@ -192,7 +192,7 @@ Expected: no matches.
 **Files:**
 - Verify: `PRD.md`
 - Verify: `docs/superpowers/specs/2026-07-27-token-credit-efficiency-design.md`
-- Verify: `docs/superpowers/specs/2026-07-27-pi-super-messenger-naming-design.md`
+- Verify: `docs/superpowers/specs/2026-07-27-super-pi-messenger-naming-design.md`
 
 **Interfaces:**
 - Consumes: Both renamed documents.
@@ -203,7 +203,7 @@ Expected: no matches.
 Run:
 
 ```bash
-rg -n -i 'policy-aware crew|policy-aware pi-messenger crew|pi super messenger crew' \
+rg -n -i 'policy-aware crew|policy-aware pi-messenger crew|super pi messenger crew' \
   PRD.md docs/superpowers/specs
 ```
 
@@ -234,7 +234,7 @@ Expected: `Protected terminology: PASS`.
 Because both target documents were untracked before this change, use targeted occurrence output rather than a Git diff:
 
 ```bash
-rg -n 'Pi Super Messenger|Product name|not affiliated with or endorsed by Obra' \
+rg -n 'Super Pi Messenger|Product name|not affiliated with or endorsed by Obra' \
   PRD.md docs/superpowers/specs/2026-07-27-token-credit-efficiency-design.md
 ```
 

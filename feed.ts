@@ -1,5 +1,5 @@
 /**
- * Pi Messenger - Activity Feed
+ * Super Pi Messenger - Activity Feed
  *
  * Append-only JSONL feed stored at <cwd>/.pi/messenger/feed.jsonl
  */

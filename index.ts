@@ -1,5 +1,5 @@
 /**
- * Pi Messenger Extension
+ * Super Pi Messenger Extension
  *
  * Enables pi agents to discover and communicate with each other across terminal sessions.
  * Uses file-based coordination - no daemon required.
@@ -8,9 +8,9 @@
 import { homedir } from "node:os";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { OverlayHandle, TUI } from "@mariozechner/pi-tui";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type, type TUnsafe } from "typebox";
 
 function StringEnum<T extends readonly string[]>(
@@ -375,7 +375,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "pi_messenger",
-    label: "Pi Messenger",
+    label: "Super Pi Messenger",
     description: `Multi-agent coordination and task orchestration.
 
 Usage (action-based API - preferred):
