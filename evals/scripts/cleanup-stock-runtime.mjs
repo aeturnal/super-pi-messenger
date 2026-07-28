@@ -12,7 +12,7 @@ const credentialJsonKey = /"(?:apiKey|api_key|accessToken|refreshToken|authToken
 const bearerToken = /\bBearer\s+\S+/i;
 const commonProviderToken = /\b(?:sk-[a-z0-9_-]+|ghp_[a-z0-9]+|github_pat_[a-z0-9_]+|xox[abprs]-[a-z0-9-]+|AIza[a-z0-9_-]+|ya29\.[a-z0-9_-]+)/i;
 const environmentAssignment = /(?:^|\r?\n)\s*(?:export\s+)?(?:API_KEY|AUTH_TOKEN|OAUTH_TOKEN|ACCESS_TOKEN|REFRESH_TOKEN)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/gi;
-const providerEnvironmentAssignment = /(?:^|\r?\n)\s*(?:export\s+)?(?:[a-z][a-z0-9]*_)+(?:api_key|auth_token|oauth_token|access_token|refresh_token|client_secret|secret|password|credentials?)\s*=\s*(?:"[^"]+"|'[^']+'|[^\s#]+)/i;
+const providerEnvironmentAssignment = /(?:^|\r?\n)\s*(?:export\s+)?[a-z_][a-z0-9_]*_(?:api_key|auth_token|oauth_token|access_token|refresh_token|client_secret|secret|password|credentials?)\s*=\s*(?:"[^"]+"|'[^']+'|[^\s#]+)/i;
 
 export function defaultRuntimeRoot() {
   return path.join(os.tmpdir(), `pi-super-messenger-evals-${process.getuid?.() ?? process.pid}`);

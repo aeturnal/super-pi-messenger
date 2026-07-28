@@ -131,6 +131,9 @@ describe("cleanupStockRuntime", () => {
     ["ACCESS_TOKEN environment credential assignment", "terminal.log", "ACCESS_TOKEN=not-a-real-token\n"],
     ["REFRESH_TOKEN environment credential assignment", "terminal.jsonl", "REFRESH_TOKEN=not-a-real-token\n"],
     ["provider API_KEY environment credential assignment", path.join("sessions", "environment.log"), "OPENAI_API_KEY=sk-example-provider-secret\n"],
+    ["provider environment assignment with consecutive underscores", "terminal.log", "PROVIDER__API_KEY=nonempty-secret\n"],
+    ["provider environment assignment with a numeric prefix segment", "terminal.jsonl", "PROVIDER_2_API_KEY=nonempty-secret\n"],
+    ["exported provider environment assignment with a mixed-case suffix and quoted value", "terminal.log", "export PROVIDER_aPi_KeY='nonempty-secret'\n"],
     ["provider AUTH_TOKEN environment credential assignment", "terminal.log", "provider_auth_token=not-a-real-token\n"],
     ["provider OAUTH_TOKEN environment credential assignment", "terminal.jsonl", "PROVIDER_OAUTH_TOKEN=not-a-real-token\n"],
     ["provider ACCESS_TOKEN environment credential assignment", "terminal.log", "PROVIDER_ACCESS_TOKEN=not-a-real-token\n"],
@@ -173,6 +176,15 @@ describe("cleanupStockRuntime", () => {
     expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toThrow(/evidence.*exist|exist.*evidence/i);
     expect(fs.readFileSync(path.join(evidenceDestination, "unrelated.txt"), "utf8")).toBe("stale");
     expect(fs.existsSync(test.runtimeDir)).toBe(true);
+  });
+
+  it("copies benign environment assignments that do not end in credential suffixes", () => {
+    const test = setup();
+    fs.writeFileSync(path.join(test.runtimeDir, "terminal.log"), "PROVIDER__API_ENDPOINT=https://example.test\nPROVIDER_2_MODEL_NAME=example-model\n");
+    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");
+
+    expect(cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toEqual({ removed: true, evidencePath: evidenceDestination });
+    expect(fs.readFileSync(path.join(evidenceDestination, "terminal.log"), "utf8")).toContain("PROVIDER__API_ENDPOINT");
   });
 
   it("copies only allowed safe evidence before deleting credentials with runtime", () => {
