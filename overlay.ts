@@ -1,5 +1,5 @@
 /**
- * Pi Messenger - Chat Overlay Component
+ * Super Pi Messenger - Chat Overlay Component
  */
 
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";

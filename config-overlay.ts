@@ -1,5 +1,5 @@
 /**
- * Pi Messenger - Config Overlay Component
+ * Super Pi Messenger - Config Overlay Component
  */
 
 import { matchesKey, truncateToWidth, type Component, type Focusable, type TUI, visibleWidth } from "@earendil-works/pi-tui";

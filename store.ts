@@ -1,5 +1,5 @@
 /**
- * Pi Messenger - File Storage Operations
+ * Super Pi Messenger - File Storage Operations
  */
 
 import * as fs from "node:fs";

@@ -1,11 +1,11 @@
-# Pi Super Messenger Fork Initialization Design
+# Super Pi Messenger Fork Initialization Design
 
 **Date:** 2026-07-27  
 **Status:** Approved
 
 ## 1. Purpose
 
-Establish Pi Super Messenger as an independently maintained public GitHub fork of `nicobailon/pi-messenger` before product implementation begins.
+Establish Super Pi Messenger as an independently maintained public GitHub fork of `nicobailon/pi-messenger` before product implementation begins.
 
 The initialization must create a safe repository boundary, preserve visible upstream lineage, apply the approved public product identity, and avoid premature changes to compatibility-sensitive runtime names.
 
@@ -16,23 +16,23 @@ The public repository will be a real GitHub fork:
 ```text
 nicobailon/pi-messenger
         ↓ GitHub fork relationship
-aeturnal/pi-super-messenger
+aeturnal/super-pi-messenger
 ```
 
 The repository will be public and owned initially by the personal GitHub account `aeturnal`. It may be transferred to an organization later without changing the initial architecture.
 
-Pi Super Messenger is independently maintained. The GitHub fork relationship records its source lineage but does not make upstream authoritative for product decisions, releases, or scheduling.
+Super Pi Messenger is independently maintained. The GitHub fork relationship records its source lineage but does not make upstream authoritative for product decisions, releases, or scheduling.
 
 ## 3. Repository authority and remotes
 
 The local repository will use this remote layout:
 
 ```text
-origin    https://github.com/aeturnal/pi-super-messenger.git
+origin    https://github.com/aeturnal/super-pi-messenger.git
 upstream  https://github.com/nicobailon/pi-messenger.git
 ```
 
-`origin` is authoritative for Pi Super Messenger development. Product branches, issues, reviews, tags, and releases belong to the new repository.
+`origin` is authoritative for Super Pi Messenger development. Product branches, issues, reviews, tags, and releases belong to the new repository.
 
 `upstream` exists only for fetching and comparing later upstream changes. Its push URL must be disabled locally so an accidental push cannot target `nicobailon/pi-messenger`.
 
@@ -44,20 +44,19 @@ The current local history remains intact, including the approved naming-design c
 
 The initial repository setup will change public repository and product identity:
 
-- GitHub repository name to `pi-super-messenger`
-- README title and product description to Pi Super Messenger
+- GitHub repository name to `super-pi-messenger`
+- README title and product description to Super Pi Messenger
 - GitHub repository metadata plus README and documentation repository, issue, badge, and source links
-
-The `repository`, `homepage`, and `bugs` fields inside `package.json` are excluded from this phase because they are npm package metadata and must change with the package identity in the later packaging phase.
+- The `package.json` package name and its `repository`, `homepage`, and `bugs` identity metadata
 - Product-level documentation references
 - Independent-maintenance, upstream-lineage, and non-affiliation notices
 
-The README must identify the repository as an independently maintained prerelease fork. It must not imply that the existing `npm:pi-messenger` package installs Pi Super Messenger.
+The README must identify the repository as an independently maintained prerelease fork. It must not imply that the existing `npm:pi-messenger` package installs Super Pi Messenger.
 
 Before npm publication, development installation will use the GitHub repository source:
 
 ```bash
-pi install git:github.com/aeturnal/pi-super-messenger
+pi install git:github.com/aeturnal/super-pi-messenger
 ```
 
 ### 4.2 Preserve during initialization
@@ -70,25 +69,25 @@ The following compatibility-sensitive technical names remain unchanged:
 - Existing configuration keys
 - Source directory names
 - TypeScript symbols and APIs
-- Existing npm package identity, executable, and installer behavior
+- The existing `pi-messenger` executable and installer behavior
 
-The initial setup must not partially rename `package.json`. Package name, executable, installation command, package URLs, migration behavior, and compatibility documentation will change together in a later packaging phase with dedicated tests.
+The initial setup renames the package and repository identity metadata together while retaining the compatibility executable. Any future executable, state-path, command, API, or migration changes require a dedicated compatibility phase and tests.
 
 ## 5. Initialization sequence
 
 The setup must execute in this order:
 
 1. Verify GitHub authentication is active for `aeturnal`.
-2. Check whether `aeturnal/pi-messenger` or `aeturnal/pi-super-messenger` already exists.
+2. Check whether `aeturnal/pi-messenger` or `aeturnal/super-pi-messenger` already exists.
 3. Stop for inspection if either repository name would conflict with the operation.
 4. Create a real GitHub fork of `nicobailon/pi-messenger` under `aeturnal`.
-5. Rename the GitHub fork to `pi-super-messenger`.
+5. Rename the GitHub fork to `super-pi-messenger`.
 6. Verify that GitHub still reports `nicobailon/pi-messenger` as its parent.
 7. Rename the current local `origin` remote to `upstream`.
 8. Disable the `upstream` push URL while retaining its fetch URL.
-9. Add `https://github.com/aeturnal/pi-super-messenger.git` as the new `origin`.
+9. Add `https://github.com/aeturnal/super-pi-messenger.git` as the new `origin`.
 10. Verify the remote names and URLs before any push.
-11. Commit the approved currently untracked `PRD.md`, `docs/superpowers/specs/2026-07-27-token-credit-efficiency-design.md`, and `docs/superpowers/plans/2026-07-27-pi-super-messenger-document-rename.md` using explicit paths.
+11. Commit the approved currently untracked `PRD.md`, `docs/superpowers/specs/2026-07-27-token-credit-efficiency-design.md`, and `docs/superpowers/plans/2026-07-27-super-pi-messenger-document-rename.md` using explicit paths.
 12. Commit the fork-initialization implementation plan generated from this design using its explicit path.
 13. Apply, verify, and commit the approved public README and GitHub repository-metadata changes.
 14. Run the existing test suite and documentation integrity checks.
@@ -123,9 +122,9 @@ When an upstream change is useful:
 
 1. Fetch it from `upstream`.
 2. Integrate it on a dedicated branch.
-3. Review its effect on Pi Super Messenger requirements and Superpowers compatibility.
+3. Review its effect on Super Pi Messenger requirements and Superpowers compatibility.
 4. Run the complete relevant test suite.
-5. Merge it through the Pi Super Messenger review process.
+5. Merge it through the Super Pi Messenger review process.
 
 `main` must never automatically track or pull from `upstream/main`.
 
@@ -133,13 +132,13 @@ When an upstream change is useful:
 
 After initialization:
 
-- `aeturnal/pi-super-messenger` is the authoritative project.
+- `aeturnal/super-pi-messenger` is the authoritative project.
 - The temporary global Crew–Superpowers compatibility extension remains in use during early development.
 - Fork implementation follows the approved PRD milestones.
 - Initial development installations use the GitHub source.
-- The future npm package name is `pi-super-messenger`.
+- The future npm package name is `super-pi-messenger`.
 - npm publication requires a separate packaging and migration design with installation, upgrade, removal, state-compatibility, and command-compatibility tests.
-- The temporary global compatibility extension is retired only after the packaged adapter inside Pi Super Messenger is verified.
+- The temporary global compatibility extension is retired only after the packaged adapter inside Super Pi Messenger is verified.
 
 ## 9. Non-goals
 
@@ -159,14 +158,14 @@ Fork initialization does not:
 
 Initialization is complete when all of the following are true:
 
-1. `aeturnal/pi-super-messenger` exists publicly as a GitHub fork of `nicobailon/pi-messenger`.
-2. Local `origin` fetches from and pushes to `aeturnal/pi-super-messenger`.
+1. `aeturnal/super-pi-messenger` exists publicly as a GitHub fork of `nicobailon/pi-messenger`.
+2. Local `origin` fetches from and pushes to `aeturnal/super-pi-messenger`.
 3. Local `upstream` fetches from `nicobailon/pi-messenger` and has a disabled push URL.
 4. Local `main` tracks `origin/main`, not `upstream/main`.
 5. The existing naming-design commit and approved product documents exist on `origin/main`.
-6. The README uses Pi Super Messenger branding, states independent maintenance and upstream lineage, and disclaims Obra affiliation or endorsement.
-7. The README does not claim that `npm:pi-messenger` installs Pi Super Messenger.
-8. Git-source installation instructions point to `aeturnal/pi-super-messenger`.
+6. The README uses Super Pi Messenger branding, states independent maintenance and upstream lineage, and disclaims Obra affiliation or endorsement.
+7. The README does not claim that `npm:pi-messenger` installs Super Pi Messenger.
+8. Git-source installation instructions point to `aeturnal/super-pi-messenger`.
 9. Compatibility-sensitive technical names remain unchanged.
 10. Existing tests and document integrity checks pass.
 11. No force push or upstream push occurred.

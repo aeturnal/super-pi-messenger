@@ -1,5 +1,5 @@
 /**
- * Pi Messenger - Configuration
+ * Super Pi Messenger - Configuration
  * 
  * Priority (highest to lowest):
  * 1. Project: .pi/pi-messenger.json

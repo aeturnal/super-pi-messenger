@@ -10,9 +10,9 @@ const packageJson = JSON.parse(
   repository: { url: string };
 };
 
-describe("Pi Super Messenger public identity", () => {
+describe("Super Pi Messenger public identity", () => {
   it("states the product, lineage, prerelease status, and independence", () => {
-    expect(readme).toContain("# Pi Super Messenger");
+    expect(readme).toContain("# Super Pi Messenger");
     expect(readme).toContain("independently maintained prerelease fork");
     expect(readme).toContain("nicobailon/pi-messenger");
     expect(readme).toContain("separately installed stock Obra Superpowers");
@@ -21,20 +21,20 @@ describe("Pi Super Messenger public identity", () => {
 
   it("installs the development product from its GitHub fork, not upstream npm", () => {
     expect(readme).toContain(
-      "pi install git:github.com/aeturnal/pi-super-messenger",
+      "pi install git:github.com/aeturnal/super-pi-messenger",
     );
     expect(readme).not.toContain("pi install npm:pi-messenger");
     expect(readme).not.toContain("shields.io/npm/v/pi-messenger");
   });
 
-  it("preserves compatibility-sensitive technical names", () => {
+  it("uses the renamed package and repository while preserving technical runtime names", () => {
     expect(readme).toContain("pi_messenger");
     expect(readme).toContain("npx pi-messenger --crew-install");
     expect(readme).toContain(".pi/messenger");
-    expect(packageJson.name).toBe("pi-messenger");
+    expect(packageJson.name).toBe("super-pi-messenger");
     expect(packageJson.bin).toEqual({ "pi-messenger": "install.mjs" });
     expect(packageJson.repository.url).toBe(
-      "git+https://github.com/nicobailon/pi-messenger.git",
+      "git+https://github.com/aeturnal/super-pi-messenger.git",
     );
   });
 });

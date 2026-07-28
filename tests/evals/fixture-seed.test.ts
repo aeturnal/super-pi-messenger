@@ -50,7 +50,7 @@ describe("independent-parallel seed", () => {
       },
     ]);
     expect(JSON.parse(readFileSync(resolve(seed, "package.json"), "utf8"))).toEqual({
-      name: "pi-super-messenger-independent-parallel-eval",
+      name: "super-pi-messenger-independent-parallel-eval",
       private: true,
       type: "module",
       scripts: { test: "node --test test/*.test.mjs" },

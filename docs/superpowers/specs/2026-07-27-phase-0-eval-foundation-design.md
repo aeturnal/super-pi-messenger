@@ -5,7 +5,7 @@
 
 ## 1. Purpose
 
-Complete the remaining Phase 0 baseline and fork-hygiene work before changing Pi Super Messenger runtime behavior.
+Complete the remaining Phase 0 baseline and fork-hygiene work before changing Super Pi Messenger runtime behavior.
 
 This phase fixes three representative eval definitions, implements only the independent-parallel fixture, records a supervised stock `pi-messenger@0.14.1` baseline, and documents selective upstream maintenance. It creates evidence for later reliability, review, and repair changes without becoming a benchmark platform or product telemetry subsystem.
 
@@ -158,7 +158,7 @@ The results record must state:
 - Whether nested agents, controllers, worktrees, or orchestration were observed.
 - Sessions by role, retries, review cycles, interventions, duration, and available provider usage metadata.
 
-Stock behavior may fail future Pi Super Messenger orchestration criteria. The baseline is valid when it records the behavior accurately; it need not pretend that stock supports future integration review or scoped repair.
+Stock behavior may fail future Super Pi Messenger orchestration criteria. The baseline is valid when it records the behavior accurately; it need not pretend that stock supports future integration review or scoped repair.
 
 ## 5. Eval 2: shared exported interface
 
@@ -352,12 +352,12 @@ The normal `npm test` suite remains deterministic. Actual supervised model evals
 
 1. Fetch and prune the disabled-push `upstream` remote on demand.
 2. Inspect new commits and releases without assuming they should be imported.
-3. Record a candidate only when it addresses a Pi Super Messenger need or useful inherited maintenance.
-4. Create a dedicated integration branch from current Pi Super Messenger `main`.
+3. Record a candidate only when it addresses a Super Pi Messenger need or useful inherited maintenance.
+4. Create a dedicated integration branch from current Super Pi Messenger `main`.
 5. Import the smallest coherent upstream commit range while preserving authorship and attribution.
 6. Review conflicts against the PRD, Superpowers compatibility boundary, and fork-specific behavior.
 7. Run inherited unit tests and the relevant eval acceptance checks.
-8. Merge only through the Pi Super Messenger review process.
+8. Merge only through the Super Pi Messenger review process.
 
 `main` never tracks `upstream/main`, upstream changes are never merged automatically, and product progress never depends on upstream releases or acceptance.
 

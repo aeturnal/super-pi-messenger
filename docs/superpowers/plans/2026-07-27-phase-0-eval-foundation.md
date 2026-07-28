@@ -266,7 +266,7 @@ Create `package.json`:
 
 ```json
 {
-  "name": "pi-super-messenger-independent-parallel-eval",
+  "name": "super-pi-messenger-independent-parallel-eval",
   "private": true,
   "type": "module",
   "scripts": { "test": "node --test test/*.test.mjs" }

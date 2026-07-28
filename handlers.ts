@@ -1,5 +1,5 @@
 /**
- * Pi Messenger - Tool and Command Handlers
+ * Super Pi Messenger - Tool and Command Handlers
  */
 
 import { existsSync } from "node:fs";

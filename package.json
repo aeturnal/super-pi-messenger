@@ -1,17 +1,17 @@
 {
-  "name": "pi-messenger",
+  "name": "super-pi-messenger",
   "version": "0.14.1",
-  "description": "Inter-agent messaging and file reservation system for pi coding agent",
+  "description": "Multi-agent orchestration for Pi, powered by independently installed Superpowers methodology",
   "type": "module",
-  "author": "Nico Bailon",
+  "author": "aeturnal",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nicobailon/pi-messenger.git"
+    "url": "git+https://github.com/aeturnal/super-pi-messenger.git"
   },
-  "homepage": "https://github.com/nicobailon/pi-messenger#readme",
+  "homepage": "https://github.com/aeturnal/super-pi-messenger#readme",
   "bugs": {
-    "url": "https://github.com/nicobailon/pi-messenger/issues"
+    "url": "https://github.com/aeturnal/super-pi-messenger/issues"
   },
   "keywords": [
     "pi-package",

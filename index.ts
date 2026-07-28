@@ -1,5 +1,5 @@
 /**
- * Pi Messenger Extension
+ * Super Pi Messenger Extension
  *
  * Enables pi agents to discover and communicate with each other across terminal sessions.
  * Uses file-based coordination - no daemon required.
@@ -375,7 +375,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "pi_messenger",
-    label: "Pi Messenger",
+    label: "Super Pi Messenger",
     description: `Multi-agent coordination and task orchestration.
 
 Usage (action-based API - preferred):

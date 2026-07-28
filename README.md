@@ -1,12 +1,8 @@
-<p>
-  <img src="https://raw.githubusercontent.com/aeturnal/pi-super-messenger/main/banner.png" alt="Pi Super Messenger" width="1100">
-</p>
-
-# Pi Super Messenger
+# Super Pi Messenger
 
 **Multi-agent orchestration for Pi, powered by Superpowers.**
 
-> **Prerelease:** Pi Super Messenger is an independently maintained prerelease fork of [`nicobailon/pi-messenger`](https://github.com/nicobailon/pi-messenger). It is being developed to combine pi-messenger's multi-agent coordination foundation with the separately installed stock Obra Superpowers methodology. Pi Super Messenger is not affiliated with or endorsed by Obra.
+> **Prerelease:** Super Pi Messenger is an independently maintained prerelease fork of [`nicobailon/pi-messenger`](https://github.com/nicobailon/pi-messenger). It is being developed to combine pi-messenger's multi-agent coordination foundation with the separately installed stock Obra Superpowers methodology. Super Pi Messenger is not affiliated with or endorsed by Obra.
 
 Join agents across terminals, see who is online, reserve files, exchange messages, and orchestrate Crew work through planning, dependency-aware execution, review, and repair. No daemon or server is required; coordination remains file-based.
 
@@ -15,10 +11,10 @@ Join agents across terminals, see who is online, reserve files, exchange message
 
 ## Development Installation
 
-Pi Super Messenger is not yet published as an npm package. Install the current development version directly from its GitHub fork:
+Super Pi Messenger is not yet published as an npm package. Install the current development version directly from its GitHub fork:
 
 ```bash
-pi install git:github.com/aeturnal/pi-super-messenger
+pi install git:github.com/aeturnal/super-pi-messenger
 ```
 
 Superpowers remains a separate stock installation and source of truth. The packaged integration described by the product requirements is still under development.
@@ -83,9 +79,7 @@ pi_messenger({ action: "review", target: "task-1" })    // Reviewer checks imple
 
 ## Chat Overlay
 
-`/messenger` opens an interactive overlay with agent presence, activity feed, and chat:
-
-<img width="1198" height="1020" alt="pi-messenger crew overlay" src="https://github.com/user-attachments/assets/d66e5d71-5ed9-4702-9f56-9ca3f0e9c584" />
+`/messenger` opens an interactive overlay with agent presence, activity feed, and chat.
 
 Chat input supports `@Name msg` for DMs and `@all msg` for broadcasts. Text without `@` broadcasts from the Agents tab or DMs the selected agent tab.
 
@@ -338,7 +332,7 @@ Config priority: project `.pi/pi-messenger.json` > user `~/.pi/agent/pi-messenge
 
 ## How It Works
 
-Pi Super Messenger inherits pi-messenger's file-based [Pi extension](https://github.com/badlogic/pi-mono) architecture and compatibility-sensitive technical names. It hooks into the agent lifecycle. It uses `pi.on("tool_call")` and `pi.on("tool_result")` to track activity — every edit, commit, and test run gets logged. `pi.on("session_start")` handles auto-registration, `pi.on("session_shutdown")` cleans up, and `pi.on("agent_end")` drives autonomous crew mode by checking for ready tasks after each agent turn.
+Super Pi Messenger inherits pi-messenger's file-based [Pi extension](https://github.com/badlogic/pi-mono) architecture and compatibility-sensitive technical names. It hooks into the agent lifecycle. It uses `pi.on("tool_call")` and `pi.on("tool_result")` to track activity — every edit, commit, and test run gets logged. `pi.on("session_start")` handles auto-registration, `pi.on("session_shutdown")` cleans up, and `pi.on("agent_end")` drives autonomous crew mode by checking for ready tasks after each agent turn.
 
 Incoming messages wake the receiving agent via `pi.sendMessage()` with `triggerTurn: true` and `deliverAs: "steer"`, which injects the message as a steering prompt that resumes the agent. File reservations are enforced by returning `{ block: true }` from a `tool_call` hook on write/edit operations. The `/messenger` overlay uses `ctx.ui.custom()` for the chat TUI, and `ctx.ui.setStatus()` keeps the status bar updated with peer count and unread messages.
 
@@ -349,7 +343,7 @@ All coordination is file-based, no daemon required. Shared state (registry, inbo
 ## Credits
 
 - **[pi-messenger](https://github.com/nicobailon/pi-messenger)** by [Nico Bailon](https://github.com/nicobailon) — Upstream project and multi-agent coordination foundation
-- **[Obra Superpowers](https://github.com/obra/superpowers)** — Separately installed stock engineering-methodology source; Pi Super Messenger is independently maintained and is not affiliated with or endorsed by Obra
+- **[Obra Superpowers](https://github.com/obra/superpowers)** — Separately installed stock engineering-methodology source; Super Pi Messenger is independently maintained and is not affiliated with or endorsed by Obra
 - **[mcp_agent_mail](https://github.com/Dicklesworthstone/mcp_agent_mail)** by [@doodlestein](https://x.com/doodlestein) — Inspiration for agent-to-agent messaging
 - **[Pi coding agent](https://github.com/badlogic/pi-mono/)** by [@badlogicgames](https://x.com/badlogicgames)
 

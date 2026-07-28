@@ -13,7 +13,7 @@ This kit creates reproducible, supervised comparisons. It defines three evals, i
 
 ## Fixed profile
 
-`profiles/stock-baseline.json` pins `npm:pi-messenger@0.14.1`, four named role models, three workers, one planning pass, one review iteration, normal retry controls, chatty coordination, and disabled artifacts. It is an eval manifest, not directly a Pi Messenger config: preparation writes its runtime fields below the required `crew` key.
+`profiles/stock-baseline.json` pins `npm:pi-messenger@0.14.1`, four named role models, three workers, one planning pass, one review iteration, normal retry controls, chatty coordination, and disabled artifacts. It is an eval manifest, not directly a `pi-messenger` config: preparation writes its runtime fields below the required `crew` key.
 
 Never silently substitute a model. A deliberate replacement requires a separately named profile and starts a different comparison series.
 
