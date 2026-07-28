@@ -13,7 +13,7 @@ describe("prepareStockRuntime", () => {
   const cleanups: (() => void)[] = [];
   afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
 
-  function setup(options: { auth?: boolean; packages?: string[]; models?: string[]; failInstall?: boolean; failModels?: boolean; malformedSettings?: boolean } = {}) {
+  function setup(options: { auth?: boolean; packages?: string[]; models?: string[]; modelOutput?: string; failInstall?: boolean; failModels?: boolean; malformedSettings?: boolean } = {}) {
     const repository = createEvalTestRepository();
     cleanups.push(repository.cleanup);
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-stock-test-"));
@@ -37,7 +37,7 @@ if (process.argv[2] === "install") {
 }
 if (process.argv[2] === "--list-models") {
   if (${Boolean(options.failModels)}) { process.stderr.write("model listing failed"); process.exit(8); }
-  process.stdout.write(process.env.FAKE_MODELS || ${JSON.stringify((options.models ?? ["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-terra", "openai-codex/gpt-5.6-luna"]).join("\n"))});
+  process.stdout.write(process.env.FAKE_MODELS || ${JSON.stringify(options.modelOutput ?? (options.models ?? ["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-terra", "openai-codex/gpt-5.6-luna"]).join("\n"))});
 }
 `);
     fs.chmodSync(piCommand, 0o755);
@@ -108,6 +108,26 @@ if (process.argv[2] === "--list-models") {
     expect(result.launchCommand).toContain("PI_CODING_AGENT_DIR=");
     expect(result.launchCommand).toContain(`'${worktree}'`);
     expect(result.launchCommand).not.toContain("--no-extensions");
+  });
+
+  it("accepts Pi's tabular model-list output using exact provider/model pairs", () => {
+    const test = setup({
+      modelOutput: [
+        "provider      model          context  max-out  thinking  images",
+        "openai-codex  gpt-5.6-sol    272K     128K     yes       yes",
+        "openai-codex  gpt-5.6-terra  272K     128K     yes       yes",
+        "openai-codex  gpt-5.6-luna   272K     128K     yes       yes",
+      ].join("\n"),
+    });
+
+    const result = prepareStockRuntime({
+      repositoryRoot: test.repositoryRoot,
+      sourceAgentDir: test.sourceAgentDir,
+      runtimeRoot: test.runtimeRoot,
+      piCommand: test.piCommand,
+    });
+
+    expect(result.packageSource).toBe(packageName);
   });
 
   it("shell-quotes apostrophes in runtime and worktree paths", () => {

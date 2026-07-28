@@ -50,6 +50,21 @@ function quoteShell(value) {
   return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
 
+function parseAvailableModels(output) {
+  const models = new Set();
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const columns = line.split(/\s+/);
+    if (columns.length === 1 && /^[^/\s]+\/[^/\s]+$/.test(columns[0])) {
+      models.add(columns[0]);
+    } else if (columns.length >= 2 && columns[0] !== "provider" && columns[1] !== "model") {
+      models.add(`${columns[0]}/${columns[1]}`);
+    }
+  }
+  return models;
+}
+
 function copyCredential(source, target) {
   fs.copyFileSync(source, target);
   fs.chmodSync(target, 0o600);
@@ -100,10 +115,10 @@ export function prepareStockRuntime({ repositoryRoot, sourceAgentDir, runtimeRoo
 
     const { package: _package, ...crew } = profile;
     fs.writeFileSync(path.join(runtimeDir, "pi-messenger.json"), `${JSON.stringify({ crew }, null, 2)}\n`, { mode: 0o600 });
-    const available = run(piCommand, ["--list-models"], { cwd: repository, env }).stdout.split(/\r?\n/).filter((line) => line !== "");
+    const available = parseAvailableModels(run(piCommand, ["--list-models"], { cwd: repository, env }).stdout);
     const exactModels = [...new Set(Object.values(profile.models))];
     for (const model of exactModels) {
-      if (!available.includes(model)) throw new Error(`Pinned model is unavailable: ${model}`);
+      if (!available.has(model)) throw new Error(`Pinned model is unavailable: ${model}`);
     }
     const preparation = { schemaVersion: 1, package: PACKAGE, profileHash, createdAt: new Date().toISOString(), exactModels, worktree: targetWorktree };
     fs.writeFileSync(path.join(runtimeDir, PREPARATION), `${JSON.stringify(preparation, null, 2)}\n`, { mode: 0o600 });
