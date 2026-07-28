@@ -46,6 +46,31 @@ function fixtureEntries(root, directory = root) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (directory === root && entry.name === ".git") continue;
     const filePath = path.join(directory, entry.name);
+    if (directory === root && entry.name === ".pi") {
+      if (entry.isSymbolicLink()) throw new Error("Unsafe .pi directory: symbolic link");
+      if (!entry.isDirectory()) {
+        entries[entry.name] = entry.isFile() ? "file" : "unsupported";
+        continue;
+      }
+      const piEntries = fs.readdirSync(filePath, { withFileTypes: true });
+      const messenger = piEntries.find((piEntry) => piEntry.name === "messenger");
+      if (messenger?.isSymbolicLink()) throw new Error("Unsafe .pi/messenger directory: symbolic link");
+      if (messenger?.isDirectory() && piEntries.length === 1) continue;
+      entries[entry.name] = "directory";
+      for (const piEntry of piEntries) {
+        const piPath = path.join(filePath, piEntry.name);
+        const piRelativePath = path.relative(root, piPath).split(path.sep).join("/");
+        if (piEntry.isDirectory()) {
+          entries[piRelativePath] = "directory";
+          Object.assign(entries, fixtureEntries(root, piPath));
+        } else if (piEntry.isFile()) {
+          entries[piRelativePath] = "file";
+        } else {
+          entries[piRelativePath] = "unsupported";
+        }
+      }
+      continue;
+    }
     const relativePath = path.relative(root, filePath).split(path.sep).join("/");
     if (entry.isDirectory()) {
       entries[relativePath] = "directory";

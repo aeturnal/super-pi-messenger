@@ -39,6 +39,19 @@ describe("verifyIndependentParallel", () => {
     expect(JSON.parse(fs.readFileSync(path.join(worktree, ".git", "pi-super-messenger-eval-verification.json"), "utf8"))).toMatchObject({ passed: true, testExitCode: 0 });
   });
 
+  it("ignores completed Messenger runtime state while preserving seed boundaries", () => {
+    const { repositoryRoot, worktree } = reset();
+    writeKnownCorrectImplementations(worktree);
+    fs.mkdirSync(path.join(worktree, ".pi", "messenger", "crew", "tasks"), { recursive: true });
+    fs.writeFileSync(path.join(worktree, ".pi", "messenger", "crew", "plan.json"), "{}");
+    fs.writeFileSync(path.join(worktree, ".pi", "messenger", "crew", "tasks", "task-1.json"), "{}");
+    fs.writeFileSync(path.join(worktree, ".pi", "messenger", "feed.jsonl"), "{\"event\":\"completed\"}\n");
+    fs.mkdirSync(path.join(worktree, ".pi", "messenger", "artifacts"));
+    fs.writeFileSync(path.join(worktree, ".pi", "messenger", "artifacts", "result.txt"), "bounded runtime artifact");
+
+    expect(verifyIndependentParallel({ repositoryRoot, worktree })).toMatchObject({ passed: true, testExitCode: 0 });
+  });
+
   it.each([
     ["modified", (worktree: string) => fs.appendFileSync(path.join(worktree, "test", "duration.test.mjs"), "\n// changed\n")],
     ["deleted", (worktree: string) => fs.rmSync(path.join(worktree, "test", "duration.test.mjs"))],
@@ -74,6 +87,10 @@ describe("verifyIndependentParallel", () => {
     ["deleted immutable PRD", (worktree: string) => fs.rmSync(path.join(worktree, "PRD.md"))],
     ["unexpected worktree file", (worktree: string) => fs.writeFileSync(path.join(worktree, "unexpected.txt"), "unexpected")],
     ["unexpected worktree directory", (worktree: string) => fs.mkdirSync(path.join(worktree, "unexpected-directory"))],
+    ["unexpected file outside Messenger runtime", (worktree: string) => {
+      fs.mkdirSync(path.join(worktree, ".pi", "messenger"), { recursive: true });
+      fs.writeFileSync(path.join(worktree, ".pi", "unexpected.txt"), "unexpected");
+    }],
   ])("rejects %s before test execution", (_name, alter) => {
     const { repositoryRoot, worktree } = reset();
     writeKnownCorrectImplementations(worktree);
@@ -128,6 +145,17 @@ describe("verifyIndependentParallel", () => {
   });
 
   it.each([
+    [".pi directory", (worktree: string) => {
+      fs.mkdirSync(path.join(worktree, ".pi", "messenger"), { recursive: true });
+      fs.renameSync(path.join(worktree, ".pi"), path.join(worktree, ".pi-real"));
+      fs.symlinkSync(".pi-real", path.join(worktree, ".pi"));
+    }],
+    [".pi/messenger directory", (worktree: string) => {
+      const piDir = path.join(worktree, ".pi");
+      fs.mkdirSync(path.join(piDir, "messenger"), { recursive: true });
+      fs.renameSync(path.join(piDir, "messenger"), path.join(piDir, "messenger-real"));
+      fs.symlinkSync("messenger-real", path.join(piDir, "messenger"));
+    }],
     [".git directory", (worktree: string) => {
       fs.renameSync(path.join(worktree, ".git"), path.join(worktree, ".git-real"));
       fs.symlinkSync(".git-real", path.join(worktree, ".git"));
