@@ -57,6 +57,32 @@ describe("verifyIndependentParallel", () => {
   });
 
   it.each([
+    ["modified PRD", (worktree: string) => fs.appendFileSync(path.join(worktree, "PRD.md"), "\nmodified\n")],
+    ["modified package", (worktree: string) => fs.appendFileSync(path.join(worktree, "package.json"), "\n")],
+    ["added package dependency", (worktree: string) => {
+      const packagePath = path.join(worktree, "package.json");
+      const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+      pkg.dependencies = { added: "1.0.0" };
+      fs.writeFileSync(packagePath, JSON.stringify(pkg));
+    }],
+    ["added package script", (worktree: string) => {
+      const packagePath = path.join(worktree, "package.json");
+      const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+      pkg.scripts.added = "echo added";
+      fs.writeFileSync(packagePath, JSON.stringify(pkg));
+    }],
+    ["deleted immutable PRD", (worktree: string) => fs.rmSync(path.join(worktree, "PRD.md"))],
+    ["unexpected worktree file", (worktree: string) => fs.writeFileSync(path.join(worktree, "unexpected.txt"), "unexpected")],
+    ["unexpected worktree directory", (worktree: string) => fs.mkdirSync(path.join(worktree, "unexpected-directory"))],
+  ])("rejects %s before test execution", (_name, alter) => {
+    const { repositoryRoot, worktree } = reset();
+    writeKnownCorrectImplementations(worktree);
+    alter(worktree);
+    expect(() => verifyIndependentParallel({ repositoryRoot, worktree })).toThrow(/fixture boundary mismatch/i);
+    expect(fs.existsSync(path.join(worktree, ".git", "pi-super-messenger-eval-verification.json"))).toBe(false);
+  });
+
+  it.each([
     ["missing marker", (worktree: string, repositoryRoot: string) => fs.rmSync(path.join(worktree, ".git", "pi-super-messenger-eval-marker.json"))],
     ["profile hash mismatch", (worktree: string, repositoryRoot: string) => {
       writeKnownCorrectImplementations(worktree);

@@ -41,14 +41,22 @@ function existsWithoutFollowingLinks(filePath) {
   }
 }
 
-function findTestPaths(root, directory = root) {
-  const paths = [];
+function fixtureEntries(root, directory = root) {
+  const entries = {};
   for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (directory === root && entry.name === ".git") continue;
     const filePath = path.join(directory, entry.name);
-    if (entry.isDirectory()) paths.push(...findTestPaths(root, filePath));
-    else if (entry.isFile() && entry.name.endsWith(".test.mjs")) paths.push(path.relative(root, filePath).split(path.sep).join("/"));
+    const relativePath = path.relative(root, filePath).split(path.sep).join("/");
+    if (entry.isDirectory()) {
+      entries[relativePath] = "directory";
+      Object.assign(entries, fixtureEntries(root, filePath));
+    } else if (entry.isFile()) {
+      entries[relativePath] = "file";
+    } else {
+      entries[relativePath] = "unsupported";
+    }
   }
-  return paths;
+  return entries;
 }
 
 function hashFiles(root) {
@@ -116,13 +124,25 @@ function preflight(repositoryRoot, worktree) {
   const headCommit = requiredGit("git", ["rev-parse", "HEAD"], checkedWorktree);
   if (command("git", ["merge-base", "--is-ancestor", manifest.seedCommit, headCommit], checkedWorktree).status !== 0) throw new Error("Seed commit is not an ancestor of HEAD");
 
-  const testDirectory = path.join(checkedWorktree, "test");
-  const currentTestPaths = findTestPaths(checkedWorktree, testDirectory).sort();
-  const expectedPaths = Object.keys(expectedTestHashes).sort();
-  if (currentTestPaths.join("\n") !== expectedPaths.join("\n")) throw new Error("test paths mismatch");
-  for (const testPath of expectedPaths) {
-    if (sha256File(path.join(checkedWorktree, testPath)) !== expectedTestHashes[testPath]) throw new Error(`test hash mismatch: ${testPath}`);
+  const expectedEntries = fixtureEntries(seed);
+  const currentEntries = fixtureEntries(checkedWorktree);
+  const expectedEntryPaths = Object.keys(expectedEntries).sort();
+  const currentEntryPaths = Object.keys(currentEntries).sort();
+  if (expectedEntryPaths.join("\n") !== currentEntryPaths.join("\n")
+    || expectedEntryPaths.some((entryPath) => expectedEntries[entryPath] !== currentEntries[entryPath])) {
+    const changedPaths = [...new Set([...expectedEntryPaths, ...currentEntryPaths])]
+      .filter((entryPath) => expectedEntries[entryPath] !== currentEntries[entryPath]);
+    const onlyTestPathsChanged = changedPaths.every((entryPath) => entryPath.startsWith("test/"));
+    throw new Error(onlyTestPathsChanged ? "test paths mismatch" : "fixture boundary mismatch: unexpected, missing, or unsafe worktree entry");
   }
+  for (const entryPath of expectedEntryPaths) {
+    if (expectedEntries[entryPath] !== "file" || sourcePaths.includes(entryPath)) continue;
+    if (sha256File(path.join(checkedWorktree, entryPath)) !== sha256File(path.join(seed, entryPath))) {
+      if (entryPath.startsWith("test/") && entryPath.endsWith(".test.mjs")) throw new Error(`test hash mismatch: ${entryPath}`);
+      throw new Error(`fixture boundary mismatch: immutable file changed: ${entryPath}`);
+    }
+  }
+  const expectedPaths = Object.keys(expectedTestHashes).sort();
   for (const sourcePath of sourcePaths) {
     const absolute = path.join(checkedWorktree, sourcePath);
     if (!fs.existsSync(absolute) || !fs.lstatSync(absolute).isFile()) throw new Error(`Missing source file: ${sourcePath}`);
