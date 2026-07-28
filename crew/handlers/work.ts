@@ -5,7 +5,7 @@
  * Simplified: works on current plan's tasks
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Dirs } from "../../lib.js";
 import type { CrewParams, AppendEntryFn } from "../types.js";
 import { result } from "../utils/result.js";

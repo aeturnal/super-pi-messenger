@@ -1,4 +1,4 @@
-import type { OverlayHandle, TUI } from "@mariozechner/pi-tui";
+import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
 
 const QUIET_PERIOD_MS = 80;
 const RENDER_THROTTLE_MS = 32;
