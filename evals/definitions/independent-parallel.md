@@ -35,7 +35,7 @@ Each task owns only its listed source path. Built-in `node:test` acceptance file
 
 ## Supervised observations
 
-Record same-wave dispatch, worker overlap, reservation conflicts, and whether every task receives review. Also record nested orchestration (agents, controllers, worktrees, or orchestration), sessions by role, retries, review cycles, human interventions, duration, and available provider usage metadata.
+Record same-wave dispatch, worker overlap, reservation conflicts, and whether every task receives review. Also record nested orchestration (agents, controllers, worktrees, or orchestration), sessions by role, retries, review cycles, human interventions, wall-clock duration, and available provider usage metadata.
 
 ## Product target versus stock baseline
 

@@ -27,7 +27,7 @@ Task review sees only task-owned changes. A separate integration review examines
 
 ## Supervised observations
 
-Record task decomposition, task review scope, integration review outcome, review cycles, worker overlap, and reservation conflicts. Nested orchestration, retries, interventions, review scope, and provider metadata are all recorded. Record any deviation or unavailable observation honestly.
+Record task decomposition, task review scope, integration review outcome, review cycles, worker overlap, and reservation conflicts. Nested orchestration, retries, interventions, review scope, and provider metadata are all recorded. Sessions by role, human interventions, wall-clock duration, and available provider usage metadata are also recorded. Record any deviation or unavailable observation honestly.
 
 ## Product target versus stock baseline
 

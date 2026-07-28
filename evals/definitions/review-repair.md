@@ -27,7 +27,7 @@ The future product target fails if review misses mutation, restarts the complete
 
 ## Supervised observations
 
-Record reviewer findings and verdict, repair count and scope, retries, review cycles, interventions, task and integration review scope, nested orchestration, worker overlap, reservation conflicts, duration, and available provider usage metadata.
+Record reviewer findings and verdict, repair count and scope, sessions by role, retries, review cycles, human interventions, task and integration review scope, nested orchestration, worker overlap, reservation conflicts, wall-clock duration, and available provider usage metadata.
 
 ## Product target versus stock baseline
 

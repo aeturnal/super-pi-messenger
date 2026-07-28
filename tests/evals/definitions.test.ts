@@ -54,6 +54,24 @@ describe("Phase 0 eval definitions", () => {
     expect(repair).toContain("nested orchestration");
   });
 
+  it.each([
+    ["independent-parallel", "evals/definitions/independent-parallel.md"],
+    ["shared-interface", "evals/definitions/shared-interface.md"],
+    ["review-repair", "evals/definitions/review-repair.md"],
+  ])("requires %s to prohibit nested orchestration and record complete supervised observations", (_name, path) => {
+    const definition = read(path);
+
+    expect(definition).toContain("Nested orchestration is prohibited");
+    for (const observation of [
+      /sessions/i,
+      /retries/i,
+      /review cycles/i,
+      /human interventions/i,
+      /wall-clock duration/i,
+      /provider usage metadata/i,
+    ]) expect(definition).toMatch(observation);
+  });
+
   it("pins a non-secret stock comparison profile", () => {
     const profile = JSON.parse(read("evals/profiles/stock-baseline.json"));
     expect(profile).toEqual({
