@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { run, sha256Json } from "./lib.mjs";
+import { assertSafeDescendant, run, sha256Json } from "./lib.mjs";
 
 const PACKAGE = "npm:pi-messenger@0.14.1";
 const RUNTIME_NAME = "stock-pi-messenger-0.14.1";
@@ -24,7 +24,7 @@ function defaultRuntimeRoot() {
 }
 
 function quoteShell(value) {
-  return `'${String(value).replaceAll("'", "'\\\"'\\\"'")}'`;
+  return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
 
 function copyCredential(source, target) {
@@ -49,6 +49,7 @@ export function prepareStockRuntime({ repositoryRoot, sourceAgentDir, runtimeRoo
   const runtimeDir = path.join(root, RUNTIME_NAME);
   const auth = path.join(source, "auth.json");
   if (!fs.existsSync(auth) || !fs.lstatSync(auth).isFile()) throw new Error(`Missing required auth.json in source agent directory: ${source}`);
+  assertSafeDescendant(root, runtimeDir);
   if (fs.existsSync(runtimeDir)) throw new Error(`Stock runtime already exists: ${runtimeDir}`);
 
   const profile = checkedProfile(repository);
@@ -98,8 +99,8 @@ function parseCli(arguments_) {
   const values = {};
   for (let index = 0; index < arguments_.length; index += 1) {
     const flag = arguments_[index];
-    if (flag !== "--source-agent-dir" && flag !== "--runtime-root") {
-      throw new Error("Usage: prepare-stock-runtime.mjs [--source-agent-dir <directory>] [--runtime-root <directory>]");
+    if (flag !== "--source-agent-dir") {
+      throw new Error("Usage: prepare-stock-runtime.mjs [--source-agent-dir <directory>]");
     }
     if (Object.hasOwn(values, flag)) throw new Error(`Repeated flag ${flag}`);
     const value = arguments_[index + 1];
@@ -107,7 +108,7 @@ function parseCli(arguments_) {
     values[flag] = value;
     index += 1;
   }
-  return { sourceAgentDir: values["--source-agent-dir"], runtimeRoot: values["--runtime-root"] };
+  return { sourceAgentDir: values["--source-agent-dir"] };
 }
 
 function isMain() {

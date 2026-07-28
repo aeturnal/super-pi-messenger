@@ -13,7 +13,7 @@ describe("prepareStockRuntime", () => {
   const cleanups: (() => void)[] = [];
   afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
 
-  function setup(options: { auth?: boolean; packages?: string[]; models?: string[] } = {}) {
+  function setup(options: { auth?: boolean; packages?: string[]; models?: string[]; failInstall?: boolean; failModels?: boolean; malformedSettings?: boolean } = {}) {
     const repository = createEvalTestRepository();
     cleanups.push(repository.cleanup);
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-stock-test-"));
@@ -31,8 +31,14 @@ const root = process.env.PI_CODING_AGENT_DIR;
 const log = fs.existsSync(${JSON.stringify(logPath)}) ? JSON.parse(fs.readFileSync(${JSON.stringify(logPath)}, "utf8")) : [];
 log.push({ args: process.argv.slice(2), root, cwd: process.cwd() });
 fs.writeFileSync(${JSON.stringify(logPath)}, JSON.stringify(log));
-if (process.argv[2] === "install") fs.writeFileSync(path.join(root, "settings.json"), JSON.stringify({ packages: JSON.parse(process.env.FAKE_PACKAGES || ${JSON.stringify(JSON.stringify(options.packages ?? [packageName]))}) }));
-if (process.argv[2] === "--list-models") process.stdout.write(process.env.FAKE_MODELS || ${JSON.stringify((options.models ?? ["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-terra", "openai-codex/gpt-5.6-luna"]).join("\n"))});
+if (process.argv[2] === "install") {
+  if (${Boolean(options.failInstall)}) { process.stderr.write("install failed"); process.exit(7); }
+  fs.writeFileSync(path.join(root, "settings.json"), ${options.malformedSettings ? '"not-json"' : 'JSON.stringify({ packages: JSON.parse(process.env.FAKE_PACKAGES || ' + JSON.stringify(JSON.stringify(options.packages ?? [packageName])) + ') })'});
+}
+if (process.argv[2] === "--list-models") {
+  if (${Boolean(options.failModels)}) { process.stderr.write("model listing failed"); process.exit(8); }
+  process.stdout.write(process.env.FAKE_MODELS || ${JSON.stringify((options.models ?? ["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-terra", "openai-codex/gpt-5.6-luna"]).join("\n"))});
+}
 `);
     fs.chmodSync(piCommand, 0o755);
     return { ...repository, root, sourceAgentDir, runtimeRoot: path.join(root, "runtime"), piCommand, logPath };
@@ -62,6 +68,33 @@ if (process.argv[2] === "--list-models") process.stdout.write(process.env.FAKE_M
     expect(result.launchCommand).not.toContain("--no-extensions");
   });
 
+  it("shell-quotes apostrophes in runtime and worktree paths", () => {
+    const test = setup();
+    const runtimeRoot = path.join(test.root, "runtime's root");
+    const worktree = path.join(test.root, "worktree's path");
+    fs.mkdirSync(worktree, { recursive: true });
+    const result = prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot, piCommand: test.piCommand, worktree });
+    const capturePath = path.join(test.root, "launch-argv.json");
+    const bin = path.join(test.root, "bin");
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, "pi"), `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(capturePath)}\n`);
+    fs.chmodSync(path.join(bin, "pi"), 0o755);
+    expect(spawnSync("sh", ["-n", "-c", result.launchCommand], { encoding: "utf8" }).status).toBe(0);
+    expect(spawnSync("sh", ["-c", result.launchCommand], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, encoding: "utf8" }).status).toBe(0);
+    expect(fs.readFileSync(capturePath, "utf8").trim().split("\n")).toEqual(["--model", "openai-codex/gpt-5.6-sol"]);
+  });
+
+  it.each(["runtime root", "an existing runtime-root ancestor"])("rejects a symlinked %s before creating credentials or a marker", (kind) => {
+    const test = setup();
+    const target = path.join(test.root, "symlink-target");
+    fs.mkdirSync(target);
+    const runtimeRoot = kind === "runtime root" ? path.join(test.root, "runtime-link") : path.join(test.root, "ancestor-link", "runtime");
+    fs.symlinkSync(target, kind === "runtime root" ? runtimeRoot : path.dirname(runtimeRoot));
+    expect(() => prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot, piCommand: test.piCommand })).toThrow(/symbolic link/i);
+    expect(fs.existsSync(path.join(target, "stock-pi-messenger-0.14.1", "auth.json"))).toBe(false);
+    expect(fs.existsSync(path.join(target, "stock-pi-messenger-0.14.1", ".pi-super-messenger-stock-runtime.json"))).toBe(false);
+  });
+
   it("rejects missing authentication before creating the runtime", () => {
     const test = setup({ auth: false });
     expect(() => prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot: test.runtimeRoot, piCommand: test.piCommand })).toThrow(/auth/i);
@@ -69,12 +102,17 @@ if (process.argv[2] === "--list-models") process.stdout.write(process.env.FAKE_M
   });
 
   it.each([
-    ["unexpected installed package", [packageName, "npm:superpowers@1.0.0"]],
-    ["unavailable pinned model", ["openai-codex/gpt-5.6-sol"]],
-  ])("retains a marked cleanable runtime after %s", (_name, value) => {
-    const test = _name.includes("package") ? setup({ packages: value as string[] }) : setup({ models: value as string[] });
-    expect(() => prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot: test.runtimeRoot, piCommand: test.piCommand })).toThrow(/runtime retained at/i);
-    expect(fs.existsSync(path.join(test.runtimeRoot, "stock-pi-messenger-0.14.1", ".pi-super-messenger-stock-runtime.json"))).toBe(true);
+    ["install process failure", { failInstall: true }, /install failed/],
+    ["malformed isolated settings", { malformedSettings: true }, /Invalid isolated settings/],
+    ["model-list process failure", { failModels: true }, /model listing failed/],
+    ["unexpected installed package", { packages: [packageName, "npm:superpowers@1.0.0"] }, /exactly the pinned/],
+    ["unavailable pinned model", { models: ["openai-codex/gpt-5.6-sol"] }, /Pinned model is unavailable/],
+  ])("retains a marked cleanable runtime after %s", (_name, options, error) => {
+    const test = setup(options);
+    expect(() => prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot: test.runtimeRoot, piCommand: test.piCommand })).toThrow(error);
+    const runtimeDir = path.join(test.runtimeRoot, "stock-pi-messenger-0.14.1");
+    expect(fs.existsSync(path.join(runtimeDir, ".pi-super-messenger-stock-runtime.json"))).toBe(true);
+    expect(fs.statSync(runtimeDir).isDirectory()).toBe(true);
   });
 
   it("rejects an existing runtime before mutation", () => {
@@ -83,12 +121,20 @@ if (process.argv[2] === "--list-models") process.stdout.write(process.env.FAKE_M
     expect(() => prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot: test.runtimeRoot, piCommand: test.piCommand })).toThrow(/already exists/i);
   });
 
-  it("CLI accepts the documented runtime-root flag before validating credentials", () => {
+  it("CLI reports a credential-bearing source path without creating a runtime", () => {
     const test = setup({ auth: false });
-    const result = spawnSync(process.execPath, [script, "--source-agent-dir", test.sourceAgentDir, "--runtime-root", test.runtimeRoot], { cwd: test.repositoryRoot, encoding: "utf8" });
+    const result = spawnSync(process.execPath, [script, "--source-agent-dir", test.sourceAgentDir], { cwd: test.repositoryRoot, encoding: "utf8" });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Missing required auth.json");
-    expect(fs.existsSync(test.runtimeRoot)).toBe(false);
+    expect(result.stderr).toContain(test.sourceAgentDir);
+  });
+
+  it("CLI treats runtime-root as an unknown flag", () => {
+    const test = setup();
+    const result = spawnSync(process.execPath, [script, "--runtime-root", test.runtimeRoot], { cwd: test.repositoryRoot, encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/Usage/);
+    expect(result.stderr).not.toContain("runtime-root <directory>");
   });
 
   it("CLI rejects invalid source flags before mutation", () => {
