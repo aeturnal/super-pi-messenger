@@ -23,6 +23,29 @@ function defaultRuntimeRoot() {
   return path.join(os.tmpdir(), `pi-super-messenger-evals-${process.getuid?.() ?? process.pid}`);
 }
 
+function resolveSymlinks(filePath) {
+  const unresolved = [];
+  for (let current = path.resolve(filePath); ; current = path.dirname(current)) {
+    try {
+      return path.join(fs.realpathSync.native(current), ...unresolved.reverse());
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      const parent = path.dirname(current);
+      if (parent === current) throw error;
+      unresolved.push(path.basename(current));
+    }
+  }
+}
+
+function assertRuntimeRootOutsideRepository(repositoryRoot, runtimeRoot) {
+  const resolvedRepository = resolveSymlinks(repositoryRoot);
+  const resolvedRuntimeRoot = resolveSymlinks(runtimeRoot);
+  const relativeRuntime = path.relative(resolvedRepository, resolvedRuntimeRoot);
+  if (!relativeRuntime || (!relativeRuntime.startsWith(`..${path.sep}`) && relativeRuntime !== ".." && !path.isAbsolute(relativeRuntime))) {
+    throw new Error(`Unsafe resolved runtime root: ${resolvedRuntimeRoot} is within repository root ${resolvedRepository}`);
+  }
+}
+
 function quoteShell(value) {
   return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
@@ -43,11 +66,12 @@ function retainedError(runtimeDir, error) {
 }
 
 export function prepareStockRuntime({ repositoryRoot, sourceAgentDir, runtimeRoot, piCommand = "pi", worktree } = {}) {
-  const repository = path.resolve(repositoryRoot ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "../.."));
+  const repository = path.resolve(repositoryRoot ?? process.cwd());
   const source = path.resolve(sourceAgentDir ?? process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
   const root = path.resolve(runtimeRoot ?? defaultRuntimeRoot());
   const runtimeDir = path.join(root, RUNTIME_NAME);
   const auth = path.join(source, "auth.json");
+  assertRuntimeRootOutsideRepository(repository, root);
   if (!fs.existsSync(auth) || !fs.lstatSync(auth).isFile()) throw new Error(`Missing required auth.json in source agent directory: ${source}`);
   assertSafeDescendant(root, runtimeDir);
   if (fs.existsSync(runtimeDir)) throw new Error(`Stock runtime already exists: ${runtimeDir}`);

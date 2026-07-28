@@ -44,6 +44,48 @@ if (process.argv[2] === "--list-models") {
     return { ...repository, root, sourceAgentDir, runtimeRoot: path.join(root, "runtime"), piCommand, logPath };
   }
 
+  it.each([
+    ["repository root", (test: ReturnType<typeof setup>) => test.repositoryRoot],
+    ["repository descendant", (test: ReturnType<typeof setup>) => path.join(test.repositoryRoot, "runtime-root")],
+    ["symlink-resolved repository descendant", (test: ReturnType<typeof setup>) => {
+      const target = path.join(test.repositoryRoot, "resolved-runtime-root");
+      const link = path.join(test.root, "runtime-root-link");
+      fs.mkdirSync(target);
+      fs.symlinkSync(target, link, "dir");
+      return link;
+    }],
+  ])("rejects a %s runtime root before creating credentials or a marker", (_kind, runtimeRootFor) => {
+    const test = setup();
+    const runtimeRoot = runtimeRootFor(test);
+    const resolvedRuntimeRoot = fs.existsSync(runtimeRoot) ? fs.realpathSync.native(runtimeRoot) : path.resolve(runtimeRoot);
+    const runtimeDir = path.join(resolvedRuntimeRoot, "stock-pi-messenger-0.14.1");
+
+    expect(() => prepareStockRuntime({ repositoryRoot: test.repositoryRoot, sourceAgentDir: test.sourceAgentDir, runtimeRoot, piCommand: test.piCommand })).toThrow(`Unsafe resolved runtime root: ${resolvedRuntimeRoot}`);
+    expect(fs.existsSync(path.join(runtimeDir, "auth.json"))).toBe(false);
+    expect(fs.existsSync(path.join(runtimeDir, ".pi-super-messenger-stock-runtime.json"))).toBe(false);
+  });
+
+  it("CLI rejects a repository-local default runtime root before creating credentials or a marker", () => {
+    const test = setup();
+    const temporaryDirectory = path.join(test.repositoryRoot, "temporary-directory");
+    const uid = process.getuid?.() ?? process.pid;
+    const runtimeRoot = path.join(temporaryDirectory, `pi-super-messenger-evals-${uid}`);
+    const runtimeDir = path.join(runtimeRoot, "stock-pi-messenger-0.14.1");
+    fs.mkdirSync(temporaryDirectory);
+
+    const result = spawnSync(process.execPath, [script, "--source-agent-dir", test.sourceAgentDir], {
+      cwd: test.repositoryRoot,
+      env: { ...process.env, TMPDIR: temporaryDirectory, TMP: temporaryDirectory, TEMP: temporaryDirectory, PATH: path.dirname(process.execPath) },
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`Unsafe resolved runtime root: ${runtimeRoot}`);
+    expect(result.stderr).not.toContain("fake");
+    expect(fs.existsSync(path.join(runtimeDir, "auth.json"))).toBe(false);
+    expect(fs.existsSync(path.join(runtimeDir, ".pi-super-messenger-stock-runtime.json"))).toBe(false);
+  });
+
   it("creates an isolated marked runtime with only stock configuration", () => {
     const test = setup();
     const worktree = path.join(test.root, "work tree; safe");

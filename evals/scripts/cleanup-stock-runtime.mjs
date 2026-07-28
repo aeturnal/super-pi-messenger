@@ -11,6 +11,29 @@ export function defaultRuntimeRoot() {
   return path.join(os.tmpdir(), `pi-super-messenger-evals-${process.getuid?.() ?? process.pid}`);
 }
 
+function resolveSymlinks(filePath) {
+  const unresolved = [];
+  for (let current = path.resolve(filePath); ; current = path.dirname(current)) {
+    try {
+      return path.join(fs.realpathSync.native(current), ...unresolved.reverse());
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      const parent = path.dirname(current);
+      if (parent === current) throw error;
+      unresolved.push(path.basename(current));
+    }
+  }
+}
+
+function assertRuntimeRootOutsideRepository(repositoryRoot, runtimeRoot) {
+  const resolvedRepository = resolveSymlinks(repositoryRoot);
+  const resolvedRuntimeRoot = resolveSymlinks(runtimeRoot);
+  const relativeRuntime = path.relative(resolvedRepository, resolvedRuntimeRoot);
+  if (!relativeRuntime || (!relativeRuntime.startsWith(`..${path.sep}`) && relativeRuntime !== ".." && !path.isAbsolute(relativeRuntime))) {
+    throw new Error(`Unsafe resolved runtime root: ${resolvedRuntimeRoot} is within repository root ${resolvedRepository}`);
+  }
+}
+
 function pathExists(filePath) {
   try {
     fs.lstatSync(filePath);
@@ -70,10 +93,11 @@ function validateMarker(runtimeDir, runtimeRoot) {
   }
 }
 
-export function cleanupStockRuntime({ runtimeRoot = defaultRuntimeRoot(), runtimeDir } = {}) {
+export function cleanupStockRuntime({ repositoryRoot = process.cwd(), runtimeRoot = defaultRuntimeRoot(), runtimeDir } = {}) {
   const candidate = runtimeDir ?? path.join(runtimeRoot, RUNTIME_NAME);
   let expected = path.resolve(candidate);
   try {
+    assertRuntimeRootOutsideRepository(repositoryRoot, runtimeRoot);
     const validated = assertExpectedRuntime(runtimeRoot, candidate);
     expected = validated.expected;
     if (!pathExists(expected)) throw new Error(`Runtime does not exist: ${expected}`);

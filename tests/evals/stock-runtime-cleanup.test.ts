@@ -40,6 +40,47 @@ describe("cleanupStockRuntime", () => {
     return { cli, result: spawnSync(process.execPath, [script, ...args], { cwd: test.repositoryRoot, env: cli.env, encoding: "utf8" }) };
   }
 
+  it.each([
+    ["repository root", (test: ReturnType<typeof setup>) => test.repositoryRoot],
+    ["repository descendant", (test: ReturnType<typeof setup>) => path.join(test.repositoryRoot, "runtime-root")],
+    ["symlink-resolved repository descendant", (test: ReturnType<typeof setup>) => {
+      const target = path.join(test.repositoryRoot, "resolved-runtime-root");
+      const link = path.join(test.temporaryRoot, "runtime-root-link");
+      fs.mkdirSync(target);
+      fs.symlinkSync(target, link, "dir");
+      return link;
+    }],
+  ])("rejects a %s runtime root before reading or deleting its runtime", (_kind, runtimeRootFor) => {
+    const test = setup();
+    const runtimeRoot = runtimeRootFor(test);
+    const resolvedRuntimeRoot = fs.existsSync(runtimeRoot) ? fs.realpathSync.native(runtimeRoot) : path.resolve(runtimeRoot);
+    const runtimeDir = path.join(resolvedRuntimeRoot, runtimeName);
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, markerName), "not a marker");
+
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot, runtimeDir })).toThrow(`Unsafe resolved runtime root: ${resolvedRuntimeRoot}`);
+    expect(fs.existsSync(runtimeDir)).toBe(true);
+    expect(fs.readFileSync(path.join(runtimeDir, markerName), "utf8")).toBe("not a marker");
+  });
+
+  it("CLI rejects a repository-local default runtime root before reading or deleting", () => {
+    const test = setup();
+    const temporaryDirectory = path.join(test.repositoryRoot, "temporary-directory");
+    const uid = process.getuid?.() ?? process.pid;
+    const runtimeRoot = path.join(temporaryDirectory, `pi-super-messenger-evals-${uid}`);
+    const runtimeDir = path.join(runtimeRoot, runtimeName);
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, markerName), "not a marker");
+    const env = { ...process.env, TMPDIR: temporaryDirectory, TMP: temporaryDirectory, TEMP: temporaryDirectory };
+
+    const result = spawnSync(process.execPath, [script, "--runtime", runtimeDir], { cwd: test.repositoryRoot, env, encoding: "utf8" });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(`Unsafe resolved runtime root: ${runtimeRoot}`);
+    expect(fs.existsSync(runtimeDir)).toBe(true);
+    expect(fs.readFileSync(path.join(runtimeDir, markerName), "utf8")).toBe("not a marker");
+  });
+
   it("removes only an exact marked runtime", () => {
     const test = setup();
     fs.writeFileSync(path.join(test.runtimeDir, "auth.json"), "fake credential");
