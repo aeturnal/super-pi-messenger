@@ -26,6 +26,20 @@ describe("cleanupStockRuntime", () => {
     return { temporaryRoot, repositoryRoot, runtimeRoot, runtimeDir };
   }
 
+  function setupCliRuntimeRoot(test: ReturnType<typeof setup>) {
+    const childTmpdir = path.join(test.temporaryRoot, "child-tmpdir");
+    const uid = process.getuid?.() ?? process.pid;
+    fs.mkdirSync(childTmpdir, { recursive: true });
+    return {
+      runtimeRoot: path.join(childTmpdir, `pi-super-messenger-evals-${uid}`),
+      env: { ...process.env, TMPDIR: childTmpdir, TMP: childTmpdir, TEMP: childTmpdir },
+    };
+  }
+
+  function runCleanupCli(test: ReturnType<typeof setup>, args: string[], cli = setupCliRuntimeRoot(test)) {
+    return { cli, result: spawnSync(process.execPath, [script, ...args], { cwd: test.repositoryRoot, env: cli.env, encoding: "utf8" }) };
+  }
+
   it("removes a marked runtime and reports it removed", () => {
     const test = setup();
     fs.writeFileSync(path.join(test.runtimeDir, "auth.json"), "fake credential");
@@ -66,6 +80,11 @@ describe("cleanupStockRuntime", () => {
 
   it.each([
     ["malformed marker", "not json"],
+    ["array marker", JSON.stringify([])],
+    ["string primitive marker", JSON.stringify("not an object")],
+    ["number primitive marker", JSON.stringify(1)],
+    ["boolean primitive marker", JSON.stringify(true)],
+    ["null primitive marker", JSON.stringify(null)],
     ["wrong marker", JSON.stringify({ schemaVersion: 2, kind: "wrong", package: packageName, runtimeRoot: "/wrong" })],
   ])("rejects a %s", (_name, marker) => {
     const test = setup();
@@ -125,25 +144,27 @@ describe("cleanupStockRuntime", () => {
     expect(fs.existsSync(test.runtimeDir)).toBe(false);
   });
 
-  it("CLI uses the default UID-scoped runtime root for an exact stock child", () => {
-    const runtimeRoot = defaultRuntimeRoot();
-    const runtimeDir = path.join(runtimeRoot, runtimeName);
-    if (fs.existsSync(runtimeDir)) throw new Error(`Test runtime already exists: ${runtimeDir}`);
-    cleanups.push(() => fs.rmSync(runtimeDir, { recursive: true, force: true }));
+  it("CLI uses an isolated default UID-scoped runtime root for an exact stock child", () => {
+    const test = setup();
+    const cli = setupCliRuntimeRoot(test);
+    const runtimeDir = path.join(cli.runtimeRoot, runtimeName);
+    expect(cli.runtimeRoot).not.toBe(defaultRuntimeRoot());
     fs.mkdirSync(runtimeDir, { recursive: true });
-    fs.writeFileSync(path.join(runtimeDir, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(runtimeRoot) })}\n`);
-    const result = spawnSync(process.execPath, [script, "--runtime", runtimeDir], { encoding: "utf8" });
+    fs.writeFileSync(path.join(runtimeDir, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(cli.runtimeRoot) })}\n`);
+
+    const { result } = runCleanupCli(test, ["--runtime", runtimeDir], cli);
     expect(result.status).toBe(0);
     expect(fs.existsSync(runtimeDir)).toBe(false);
   });
 
-  it("CLI rejects a correctly marked identically named runtime outside its default root without mutation", () => {
+  it("CLI rejects a correctly marked identically named runtime outside its isolated default root without mutation", () => {
     const test = setup();
     const outsideRoot = path.join(test.temporaryRoot, "outside-root");
     const outsideRuntime = path.join(outsideRoot, runtimeName);
     fs.mkdirSync(outsideRuntime, { recursive: true });
     fs.writeFileSync(path.join(outsideRuntime, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(outsideRoot) })}\n`);
-    const result = spawnSync(process.execPath, [script, "--runtime", outsideRuntime], { encoding: "utf8" });
+    const { cli, result } = runCleanupCli(test, ["--runtime", outsideRuntime]);
+    expect(cli.runtimeRoot).not.toBe(outsideRoot);
     expect(result.status).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toMatch(/expected|runtime|cleanup/i);
     expect(fs.existsSync(outsideRuntime)).toBe(true);
@@ -152,7 +173,7 @@ describe("cleanupStockRuntime", () => {
   it("CLI rejects invalid flags before mutation", () => {
     const test = setup();
     for (const args of [["--unknown"], ["--runtime"], ["--runtime", test.runtimeDir, "--runtime", test.runtimeDir], ["--runtime", test.runtimeDir, "--evidence"]]) {
-      const result = spawnSync(process.execPath, [script, ...args], { cwd: test.repositoryRoot, encoding: "utf8" });
+      const { result } = runCleanupCli(test, args);
       expect(result.status).toBe(1);
       expect(`${result.stdout}${result.stderr}`).toContain(runtimeName);
       expect(fs.existsSync(test.runtimeDir)).toBe(true);
