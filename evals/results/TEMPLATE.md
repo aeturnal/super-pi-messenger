@@ -61,7 +61,7 @@ Use explicit checkboxes and tables. Mark unavailable observations as `not observ
 
 ## Evidence
 
-- [ ] Ignored raw-evidence paths retained temporarily: <paths/none>
+- [ ] Deliberately reviewed and sanitized excerpt created under ignored `evals/runs/` before cleanup: <path/none>
 - [ ] Secret review: committed excerpts and metadata were reviewed for credentials, provider secrets, `auth.json`, and `models-store.json` before commit.
 
 ## Comparability

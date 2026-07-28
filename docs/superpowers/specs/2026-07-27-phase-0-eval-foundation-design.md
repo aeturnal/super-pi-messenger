@@ -17,7 +17,7 @@ Phase 0 must:
 - Build only the independent-parallel fixture.
 - Use deterministic reset and acceptance scripts around supervised model execution.
 - Compare stock pi-messenger and the integrated fork on the same immutable fixture and model profile.
-- Keep authentication and potentially sensitive raw sessions out of Git.
+- Keep authentication and potentially sensitive raw runtime evidence out of Git.
 - Record compact durable evidence without imposing token budgets or changing model behavior.
 - Keep stock Obra Superpowers separately installed and copy none of its content.
 - Treat upstream as an optional, read-only source of changes rather than a release dependency.
@@ -76,7 +76,7 @@ Responsibilities are intentionally narrow:
 - `evals/profiles/` contains non-secret, exact role and control settings used for comparisons.
 - `evals/scripts/` resets, verifies, and isolates runs; it does not launch models automatically.
 - `evals/results/` contains concise durable records.
-- `evals/runs/` contains ignored active worktrees and optionally retained raw evidence.
+- `evals/runs/` contains ignored active worktrees and any operator-created deliberately reviewed and sanitized excerpts.
 - `tests/evals/` deterministically tests the tooling without making model calls.
 - `docs/upstream-maintenance.md` defines selective upstream intake.
 
@@ -297,7 +297,7 @@ The operator follows this sequence:
 8. Observe task waves, worker overlap, reservations, reviews, retries, and interventions.
 9. Run the deterministic verifier.
 10. Complete the stock baseline result from the run manifest and observations.
-11. Before cleanup, manually retain only deliberately reviewed and sanitized ignored excerpts when useful.
+11. Before cleanup, manually create only deliberately reviewed and sanitized excerpts under ignored `evals/runs/` when useful.
 12. Run deletion-only isolated-runtime cleanup and confirm authentication was removed.
 
 The scripts never launch a model automatically. Model and credit use begins only when the operator deliberately executes the printed Pi command.
@@ -317,14 +317,14 @@ The Markdown result template and completed baseline record include:
 - Human interventions and wall-clock duration
 - Important findings and escaped defects
 - Available provider usage metadata
-- Paths to ignored raw evidence retained temporarily
+- Paths to deliberately reviewed and sanitized excerpts created under ignored run storage before cleanup
 - Every deviation affecting comparison validity
 
 ### 10.2 Ignored evidence
 
-`evals/runs/.gitignore` excludes reset worktrees, raw Pi sessions, terminal captures, Crew state, and generated manifests. The `.gitignore` file keeps the otherwise ignored directory tracked.
+`evals/runs/.gitignore` excludes reset worktrees, operator-created sanitized excerpts, Crew state, and generated manifests. The `.gitignore` file keeps the otherwise ignored directory tracked.
 
-Authentication is never stored under `evals/runs/`, even temporarily. Full raw runtime evidence is inspectable only until cleanup and is never copied there automatically.
+Authentication is never stored under `evals/runs/`, even temporarily. Full raw runtime evidence is inspectable only until cleanup and cleanup never retains or copies it.
 
 Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`. Selected excerpts may be copied into a durable result only after review and secret removal.
 
@@ -383,7 +383,7 @@ Phase 0 is complete when:
 6. The supervised procedure isolates stock `pi-messenger@0.14.1` from Superpowers and the temporary compatibility extension.
 7. One supervised stock independent-parallel baseline is completed and committed.
 8. The result records exact models, deviations, outcomes, review behavior, retries, interventions, duration, and readily available provider usage metadata.
-9. Potentially sensitive raw runtime data remains ignored and authentication is removed after the run.
+9. Raw runtime evidence is inspectable only before deletion-only cleanup, which removes copied authentication and never retains or copies that evidence.
 10. Upstream monitoring and selective intake rules are documented.
 11. Existing inherited tests and new deterministic eval-tooling tests pass.
 12. No Superpowers content is copied or modified.

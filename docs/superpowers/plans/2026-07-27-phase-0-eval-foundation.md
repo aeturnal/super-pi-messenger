@@ -4,7 +4,7 @@
 
 **Goal:** Define all three initial evals, build and deterministically verify the independent-parallel fixture, isolate stock `pi-messenger@0.14.1`, record one supervised stock baseline, and document selective upstream maintenance.
 
-**Architecture:** Keep model execution supervised while making fixture reset, functional verification, runtime isolation, and cleanup deterministic. Store immutable seeds and concise results in Git, store active worktrees and raw sessions under ignored `evals/runs/`, and keep copied authentication only in a marked operating-system temporary directory. Test all tooling through exported functions and fake executables; normal tests and CI never launch models.
+**Architecture:** Keep model execution supervised while making fixture reset, functional verification, runtime isolation, and cleanup deterministic. Store immutable seeds and concise results in Git, store active worktrees and operator-created sanitized excerpts under ignored `evals/runs/`, and keep copied authentication only in a marked operating-system temporary directory. Test all tooling through exported functions and fake executables; normal tests and CI never launch models.
 
 **Tech Stack:** Node.js ESM, built-in `node:test`, TypeScript, Vitest, Git, Pi CLI, npm.
 
@@ -20,7 +20,7 @@
 - Default destructive paths must be under the designated eval run root or operating-system temporary runtime root; reject symlink escapes and missing markers.
 - Pin the stock package to `npm:pi-messenger@0.14.1` and never substitute a model silently.
 - Disable stock artifacts for this baseline to avoid known raw snapshot amplification.
-- Preserve full raw sessions only in ignored storage while useful; commit concise reviewed results only.
+- Raw runtime evidence is inspectable only before cleanup; cleanup never retains or copies it. An operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/` before cleanup.
 - Use dependency-free fixture code and built-in Node test tooling.
 - Use explicit Git paths in every commit.
 - Stop after Task 7 Step 2 and ask the user to run the printed supervised command; do not launch Pi or spend model credits automatically.
@@ -765,7 +765,7 @@ Do not continue until the user confirms the supervised run ended.
 
 **Files:**
 - Modify: `evals/results/stock-pi-messenger-0.14.1-independent-parallel.md`
-- Optionally retain ignored evidence under: `evals/runs/independent-parallel/evidence/stock-0.14.1-baseline/`
+- Optionally create a deliberately reviewed and sanitized excerpt under: `evals/runs/independent-parallel/evidence/stock-0.14.1-baseline/` before cleanup
 - Modify: `docs/superpowers/plans/2026-07-27-phase-0-eval-foundation.md` through completed checkboxes
 
 **Interfaces:**
@@ -774,7 +774,7 @@ Do not continue until the user confirms the supervised run ended.
 
 - [ ] **Step 1: Inspect run state before verification**
 
-Record task files, Crew state, Git log, status, session counts, reviews, retries, failure state, timestamps, and available provider metadata from the ignored run/runtime. Do not infer missing observations; label them `not observable`.
+Record task files, Crew state, Git log, status, session counts, reviews, retries, failure state, timestamps, and available provider metadata from the run/runtime before cleanup. Do not infer missing observations; label them `not observable`.
 
 - [ ] **Step 2: Run deterministic verification**
 
@@ -786,7 +786,7 @@ Expected for a functionally successful baseline: verifier exits 0, immutable tes
 
 - [ ] **Step 3: Complete the durable baseline record**
 
-Replace `Status: NOT RUN` with `Status: COMPLETE` or `Status: INCOMPLETE/FAILED`. Fill every template field using manifest, verifier, Crew state, provider metadata, and supervised observations. Record exact deviations and mark non-observable items explicitly. Review excerpts for secrets before committing.
+Replace `Status: NOT RUN` with `Status: COMPLETE` or `Status: INCOMPLETE/FAILED`. Fill every template field using manifest, verifier, Crew state, provider metadata, and supervised observations. Record exact deviations and mark non-observable items explicitly. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`; review it for secrets before committing. Cleanup never retains or copies raw runtime evidence.
 
 - [ ] **Step 4: Clean the credential-bearing runtime**
 

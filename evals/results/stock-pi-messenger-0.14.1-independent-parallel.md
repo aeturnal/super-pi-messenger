@@ -61,8 +61,8 @@ This placeholder becomes a baseline only after implementation-plan Task 8 and hu
 
 ## Evidence
 
-- [ ] Ignored raw-evidence paths retained temporarily: none
-- [ ] Secret review: no raw evidence, credentials, provider secrets, `auth.json`, or `models-store.json` are recorded here.
+- [ ] Deliberately reviewed and sanitized excerpt created under ignored `evals/runs/` before cleanup: none
+- [ ] Secret review: no sanitized excerpt, credentials, provider secrets, `auth.json`, or `models-store.json` are recorded here.
 
 ## Comparability
 

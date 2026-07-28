@@ -4,7 +4,7 @@ This kit creates reproducible, supervised comparisons. It defines three evals, i
 
 ## Safety and boundaries
 
-- Reset worktrees and raw evidence live under ignored `evals/runs/`; the checked seed is never modified.
+- Reset worktrees live under ignored `evals/runs/`; the checked seed is never modified.
 - Authentication is never stored under `evals/runs/`, committed results, or fixture material. Do not copy `auth.json`, `models-store.json`, settings, provider secrets, or raw credentials into the repository.
 - Stock runtime preparation copies only required credentials into a marked, isolated temporary agent directory outside this repository. Cleanup removes that directory and copied authentication.
 - Superpowers stays separately installed. Do not copy its skills, prompts, extensions, or compatibility content into the stock runtime.
@@ -38,7 +38,7 @@ node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH
 6. Inspect and record the generated three-task decomposition and any deviation.
 7. Start autonomous work at concurrency three.
 8. Observe task waves, worker overlap, reservations, reviews, retries, interventions, and provider metadata.
-9. Run deterministic fixture verification; inspect raw runtime evidence only before cleanup.
+9. Run deterministic fixture verification. Raw runtime evidence is inspectable only before cleanup.
 10. Complete the durable result, then clean the isolated runtime and confirm copied authentication is removed.
 
 Preparation does not launch a model. It only validates and prints a safely quoted launch command. The printed Pi command begins provider usage, so it is executed only by the human operator after the checkpoint. Do not continue past that checkpoint until the operator separately confirms that the supervised run ended.
@@ -47,9 +47,9 @@ The reset command creates a marked Git worktree and manifest. The verifier runs 
 
 ## Evidence and results
 
-Use `results/TEMPLATE.md` for durable compact evidence. Retain raw sessions or terminal captures only in ignored storage when useful, and copy excerpts into a committed result only after secret review. Record paths to retained evidence, not credential contents. The initial stock result is `NOT RUN` until the human-supervised baseline completes.
+Use `results/TEMPLATE.md` for durable compact evidence. Record deliberately reviewed and sanitized excerpts only after secret review; never record credential contents. The initial stock result is `NOT RUN` until the human-supervised baseline completes.
 
-Cleanup is deletion-only and never copies runtime evidence into the repository. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`. If cleanup fails, treat the reported temporary runtime as credential-bearing until it is removed.
+Cleanup is deletion-only. Cleanup never retains or copies raw runtime evidence. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/` before cleanup. If cleanup fails, treat the reported temporary runtime as credential-bearing until it is removed.
 
 ## Eval definitions
 

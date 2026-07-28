@@ -110,9 +110,10 @@ describe("Phase 0 eval definitions", () => {
         "Task count", "Worker count", "Reviewer count", "Retry count", "Review-cycle count",
         "Worker-overlap", "Reservation conflicts", "Nested orchestration", "Human interventions",
         "Wall-clock duration", "Important findings", "Escaped defects", "provider usage metadata",
-        "Ignored raw-evidence paths", "Deviations affecting comparison validity",
+        "sanitized excerpt", "Deviations affecting comparison validity",
       ]) expect(document).toContain(field);
     }
+    expect(template).toContain("sanitized excerpt");
     expect(initial).toContain("baseline only after implementation-plan Task 8 and human run completion");
     expect(ignore).toBe("*\n!.gitignore\n");
   });
@@ -127,6 +128,10 @@ describe("Phase 0 eval definitions", () => {
     ]) expect(readme).toContain(command);
     expect(readme).toContain("Preparation does not launch a model");
     expect(readme).toContain("printed Pi command begins provider usage");
+    expect(readme).toContain("Raw runtime evidence is inspectable only before cleanup");
+    expect(readme).toContain("Cleanup never retains or copies raw runtime evidence");
+    expect(readme).toContain("deliberately reviewed and sanitized excerpt under ignored `evals/runs/` before cleanup");
+    expect(readme).not.toContain("Retain raw sessions or terminal captures");
     for (const step of ["1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10."])
       expect(readme).toContain(step);
   });
