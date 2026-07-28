@@ -1,0 +1,120 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { spawnSync } from "node:child_process";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanupStockRuntime } from "../../evals/scripts/cleanup-stock-runtime.mjs";
+
+const packageName = "npm:pi-messenger@0.14.1";
+const runtimeName = "stock-pi-messenger-0.14.1";
+const markerName = ".pi-super-messenger-stock-runtime.json";
+const script = path.resolve("evals/scripts/cleanup-stock-runtime.mjs");
+
+describe("cleanupStockRuntime", () => {
+  const cleanups: (() => void)[] = [];
+  afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
+
+  function setup() {
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-cleanup-test-"));
+    cleanups.push(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+    const repositoryRoot = path.join(temporaryRoot, "repository");
+    const runtimeRoot = path.join(temporaryRoot, "runtime-root");
+    const runtimeDir = path.join(runtimeRoot, runtimeName);
+    fs.mkdirSync(path.join(repositoryRoot, "evals", "runs"), { recursive: true });
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(runtimeRoot) })}\n`);
+    return { temporaryRoot, repositoryRoot, runtimeRoot, runtimeDir };
+  }
+
+  it("removes a marked runtime and reports it removed", () => {
+    const test = setup();
+    fs.writeFileSync(path.join(test.runtimeDir, "auth.json"), "fake credential");
+    expect(cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toEqual({ removed: true });
+    expect(fs.existsSync(test.runtimeDir)).toBe(false);
+  });
+
+  it("rejects an outside runtime without removing it", () => {
+    const test = setup();
+    const outside = path.join(test.temporaryRoot, "outside", runtimeName);
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, markerName), "{}");
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: outside })).toThrow(/runtime|unsafe|expected/i);
+    expect(fs.existsSync(outside)).toBe(true);
+  });
+
+  it("rejects symlinked runtime roots and intermediate ancestors", () => {
+    const test = setup();
+    const realRoot = path.join(test.temporaryRoot, "real-root");
+    fs.mkdirSync(realRoot, { recursive: true });
+    fs.rmSync(test.runtimeRoot, { recursive: true });
+    fs.symlinkSync(realRoot, test.runtimeRoot, "dir");
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: path.join(test.runtimeRoot, runtimeName) })).toThrow(/symbolic|symlink|unsafe/i);
+
+    const second = setup();
+    const intermediate = path.join(second.runtimeRoot, "nested");
+    fs.mkdirSync(path.join(second.temporaryRoot, "real-intermediate"), { recursive: true });
+    fs.symlinkSync(path.join(second.temporaryRoot, "real-intermediate"), intermediate, "dir");
+    expect(() => cleanupStockRuntime({ repositoryRoot: second.repositoryRoot, runtimeRoot: second.runtimeRoot, runtimeDir: path.join(intermediate, runtimeName) })).toThrow(/expected|unsafe|symbolic|symlink/i);
+  });
+
+  it.each([
+    ["malformed marker", "not json"],
+    ["wrong marker", JSON.stringify({ schemaVersion: 2, kind: "wrong", package: packageName, runtimeRoot: "/wrong" })],
+  ])("rejects a %s", (_name, marker) => {
+    const test = setup();
+    fs.writeFileSync(path.join(test.runtimeDir, markerName), marker);
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toThrow(/marker|runtime/i);
+    expect(fs.existsSync(test.runtimeDir)).toBe(true);
+  });
+
+  it("fails missing runtime while prominently naming its expected path", () => {
+    const test = setup();
+    fs.rmSync(test.runtimeDir, { recursive: true });
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toThrow(test.runtimeDir);
+  });
+
+  it.each(["auth.json", "SETTINGS.JSON", "pi-messenger.json", "models-store.json", "credentials.txt", "secret.log", "TOKEN", "api-key.txt"])("rejects forbidden evidence basename %s", (name) => {
+    const test = setup();
+    fs.mkdirSync(path.join(test.runtimeDir, "sessions"));
+    fs.writeFileSync(path.join(test.runtimeDir, "sessions", name), "credential");
+    const evidence = path.join(test.repositoryRoot, "evals", "runs", "evidence");
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination: evidence })).toThrow(/forbidden|credential|evidence/i);
+    expect(fs.existsSync(test.runtimeDir)).toBe(true);
+  });
+
+  it("rejects symlinks anywhere in selected evidence", () => {
+    const test = setup();
+    fs.mkdirSync(path.join(test.runtimeDir, "sessions", "nested"), { recursive: true });
+    fs.writeFileSync(path.join(test.runtimeDir, "sessions", "nested", "safe.log"), "safe");
+    fs.symlinkSync(path.join(test.runtimeDir, "sessions", "nested", "safe.log"), path.join(test.runtimeDir, "sessions", "link.log"));
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination: path.join(test.repositoryRoot, "evals", "runs", "evidence") })).toThrow(/symbolic|symlink/i);
+  });
+
+  it("copies only allowed safe evidence before deleting credentials with runtime", () => {
+    const test = setup();
+    fs.mkdirSync(path.join(test.runtimeDir, "sessions", "nested"), { recursive: true });
+    fs.writeFileSync(path.join(test.runtimeDir, "sessions", "nested", "output.txt"), "safe session");
+    fs.writeFileSync(path.join(test.runtimeDir, "terminal.log"), "safe log");
+    fs.writeFileSync(path.join(test.runtimeDir, "terminal.jsonl"), "{\"safe\":true}\n");
+    fs.writeFileSync(path.join(test.runtimeDir, "other.txt"), "not evidence");
+    fs.writeFileSync(path.join(test.runtimeDir, "auth.json"), "credential");
+    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");
+    expect(cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toEqual({ removed: true, evidencePath: evidenceDestination });
+    expect(fs.readFileSync(path.join(evidenceDestination, "sessions", "nested", "output.txt"), "utf8")).toBe("safe session");
+    expect(fs.existsSync(path.join(evidenceDestination, "terminal.log"))).toBe(true);
+    expect(fs.existsSync(path.join(evidenceDestination, "terminal.jsonl"))).toBe(true);
+    expect(fs.existsSync(path.join(evidenceDestination, "other.txt"))).toBe(false);
+    expect(fs.existsSync(path.join(evidenceDestination, "auth.json"))).toBe(false);
+    expect(fs.existsSync(test.runtimeDir)).toBe(false);
+  });
+
+  it("CLI rejects invalid flags before mutation", () => {
+    const test = setup();
+    for (const args of [["--unknown"], ["--runtime"], ["--runtime", test.runtimeDir, "--runtime", test.runtimeDir], ["--runtime", test.runtimeDir, "--evidence"]]) {
+      const result = spawnSync(process.execPath, [script, ...args], { cwd: test.repositoryRoot, encoding: "utf8" });
+      expect(result.status).toBe(1);
+      expect(`${result.stdout}${result.stderr}`).toContain(runtimeName);
+      expect(fs.existsSync(test.runtimeDir)).toBe(true);
+    }
+  });
+});
