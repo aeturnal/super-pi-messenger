@@ -116,6 +116,34 @@ describe("cleanupStockRuntime", () => {
     expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination: path.join(test.repositoryRoot, "evals", "runs", "evidence") })).toThrow(/symbolic|symlink/i);
   });
 
+  it.each([
+    ["private-key header", path.join("sessions", "nested", "transcript.log"), "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----\n"],
+    ["apiKey JSON key", "terminal.log", '{"apiKey":"not-a-real-key"}\n'],
+    ["api_key JSON key", "terminal.jsonl", '{"api_key":"not-a-real-key"}\n'],
+    ["accessToken JSON key", "terminal.log", '{"accessToken":"not-a-real-token"}\n'],
+    ["refreshToken JSON key", "terminal.jsonl", '{"refreshToken":"not-a-real-token"}\n'],
+    ["authToken JSON key", "terminal.log", '{"authToken":"not-a-real-token"}\n'],
+    ["oauthToken JSON key", "terminal.jsonl", '{"oauthToken":"not-a-real-token"}\n'],
+    ["clientSecret JSON key", "terminal.log", '{"clientSecret":"not-a-real-secret"}\n'],
+    ["API_KEY environment credential assignment", path.join("sessions", "environment.log"), "API_KEY=not-a-real-key\n"],
+    ["AUTH_TOKEN environment credential assignment", "terminal.log", "AUTH_TOKEN=not-a-real-token\n"],
+    ["OAUTH_TOKEN environment credential assignment", "terminal.jsonl", "OAUTH_TOKEN=not-a-real-token\n"],
+    ["ACCESS_TOKEN environment credential assignment", "terminal.log", "ACCESS_TOKEN=not-a-real-token\n"],
+    ["REFRESH_TOKEN environment credential assignment", "terminal.jsonl", "REFRESH_TOKEN=not-a-real-token\n"],
+    ["Bearer token", "terminal.log", "Authorization: Bearer not-a-real-token\n"],
+    ["binary NUL content", "terminal.jsonl", Buffer.from("safe\0unsafe")],
+  ])("rejects retained evidence containing %s before creating its destination", (_name, relativePath, content) => {
+    const test = setup();
+    const source = path.join(test.runtimeDir, relativePath);
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(source, content);
+    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");
+
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toThrow(/evidence|credential|secret|binary|private|bearer/i);
+    expect(fs.existsSync(test.runtimeDir)).toBe(true);
+    expect(fs.existsSync(evidenceDestination)).toBe(false);
+  });
+
   it("refuses an existing evidence destination without deleting the runtime", () => {
     const test = setup();
     const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");

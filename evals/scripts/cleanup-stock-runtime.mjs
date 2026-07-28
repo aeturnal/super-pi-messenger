@@ -7,6 +7,10 @@ const PACKAGE = "npm:pi-messenger@0.14.1";
 const RUNTIME_NAME = "stock-pi-messenger-0.14.1";
 const MARKER_NAME = ".pi-super-messenger-stock-runtime.json";
 const forbiddenEvidenceName = /auth\.json|settings\.json|pi-messenger\.json|models-store\.json|credentials|secret|token|api-key/i;
+const privateKeyHeader = /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/i;
+const credentialJsonKey = /"(?:apiKey|api_key|accessToken|refreshToken|authToken|oauthToken|clientSecret)"\s*:/i;
+const bearerToken = /\bBearer\s+\S+/i;
+const environmentAssignment = /(?:^|\r?\n)\s*(?:export\s+)?(?:API_KEY|AUTH_TOKEN|OAUTH_TOKEN|ACCESS_TOKEN|REFRESH_TOKEN)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/gi;
 
 export function defaultRuntimeRoot() {
   return path.join(os.tmpdir(), `pi-super-messenger-evals-${process.getuid?.() ?? process.pid}`);
@@ -58,14 +62,31 @@ function assertEvidenceDestination(repositoryRoot, destination) {
   return resolved;
 }
 
+function containsSecretEvidence(text) {
+  if (privateKeyHeader.test(text) || credentialJsonKey.test(text) || bearerToken.test(text)) return true;
+  environmentAssignment.lastIndex = 0;
+  for (const match of text.matchAll(environmentAssignment)) {
+    if (match.slice(1).some((value) => value !== undefined && value.length > 0)) return true;
+  }
+  return false;
+}
+
 function validateEvidenceTree(source) {
   const stat = fs.lstatSync(source);
   if (stat.isSymbolicLink()) throw new Error(`Evidence contains symbolic link: ${source}`);
   if (forbiddenEvidenceName.test(path.basename(source))) throw new Error(`Evidence contains forbidden credential-like name: ${source}`);
-  if (!stat.isDirectory()) return;
-  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-    validateEvidenceTree(path.join(source, entry.name));
+  if (stat.isDirectory()) {
+    for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+      validateEvidenceTree(path.join(source, entry.name));
+    }
+    return;
   }
+  if (!stat.isFile()) throw new Error(`Evidence contains non-regular file: ${source}`);
+
+  const content = fs.readFileSync(source);
+  if (content.includes(0)) throw new Error(`Evidence contains binary NUL content: ${source}`);
+  // This is conservative ignored evidence retention, not automatic redaction.
+  if (containsSecretEvidence(content.toString("utf8"))) throw new Error(`Evidence contains potentially secret content: ${source}`);
 }
 
 function copyEvidence(runtimeDir, destination) {
