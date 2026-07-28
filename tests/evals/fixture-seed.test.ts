@@ -16,14 +16,39 @@ describe("independent-parallel seed", () => {
     }
   });
 
-  it("assigns exactly one source file and no test files to each task", () => {
+  it("maps each PRD task to one unique source and immutable acceptance test without dependencies", () => {
     const prd = readFileSync(resolve(seed, "PRD.md"), "utf8");
-    const tasks = prd.split(/^## Task \d+ — .*$/m).slice(1);
+    const tasks = [...prd.matchAll(/^## Task \d+ — (.+)\n([\s\S]*?)(?=^## Task \d+ — |$(?![\s\S]))/gm)];
     expect(tasks).toHaveLength(3);
-    for (const task of tasks) {
-      expect(task).toMatch(/Own only `src\/[\w-]+\.mjs`\./);
-      expect(task).toContain("No test files are owned by this task.");
-    }
+    expect(tasks.map(([, title, body]) => ({
+      title,
+      source: body.match(/Own only `(src\/[\w-]+\.mjs)`\./)?.[1],
+      test: body.match(/Immutable acceptance: `(test\/[\w-]+\.test\.mjs)`\./)?.[1],
+      dependencies: body.match(/This task has no dependencies\./)?.[0],
+      noTestOwnership: body.match(/No test files are owned by this task\./)?.[0],
+    }))).toEqual([
+      {
+        title: "Parse durations",
+        source: "src/duration.mjs",
+        test: "test/duration.test.mjs",
+        dependencies: "This task has no dependencies.",
+        noTestOwnership: "No test files are owned by this task.",
+      },
+      {
+        title: "Format byte counts",
+        source: "src/format-bytes.mjs",
+        test: "test/format-bytes.test.mjs",
+        dependencies: "This task has no dependencies.",
+        noTestOwnership: "No test files are owned by this task.",
+      },
+      {
+        title: "Parse Retry-After",
+        source: "src/retry-after.mjs",
+        test: "test/retry-after.test.mjs",
+        dependencies: "This task has no dependencies.",
+        noTestOwnership: "No test files are owned by this task.",
+      },
+    ]);
     expect(JSON.parse(readFileSync(resolve(seed, "package.json"), "utf8"))).toEqual({
       name: "pi-super-messenger-independent-parallel-eval",
       private: true,
@@ -40,6 +65,8 @@ describe("independent-parallel seed", () => {
       "Monday, 27-Jul-26 12:01:30 GMT",
       "Mon Jul 27 12:01:30 2026",
       "7/27/2026",
+      "Tue, 27 Jul 2026 12:01:30 GMT",
+      "Mon, 31 Feb 2026 12:01:30 GMT",
       '"-1"',
       '"1.5"',
       '"120 seconds"',

@@ -18,6 +18,8 @@ test("rejects non-IMF-fixdate and malformed Retry-After values", () => {
     "Monday, 27-Jul-26 12:01:30 GMT",
     "Mon Jul 27 12:01:30 2026",
     "7/27/2026",
+    "Tue, 27 Jul 2026 12:01:30 GMT",
+    "Mon, 31 Feb 2026 12:01:30 GMT",
     "-1",
     "1.5",
     "120 seconds",
