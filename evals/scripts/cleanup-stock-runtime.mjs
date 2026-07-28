@@ -54,6 +54,7 @@ function assertEvidenceDestination(repositoryRoot, destination) {
   }
   assertNoSymlinkInPath(evidenceRoot);
   assertNoSymlinkInPath(resolved);
+  if (pathExists(resolved)) throw new Error(`Evidence destination already exists: ${resolved}`);
   return resolved;
 }
 
@@ -88,7 +89,19 @@ function validateMarker(runtimeDir, runtimeRoot) {
   } catch (error) {
     throw new Error(`Missing or invalid runtime marker ${markerPath}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (marker?.schemaVersion !== 1 || marker?.kind !== "pi-super-messenger-stock-runtime" || marker?.package !== PACKAGE || marker?.runtimeRoot !== runtimeRoot) {
+  const expectedKeys = ["schemaVersion", "kind", "package", "runtimeRoot"];
+  if (
+    !marker ||
+    typeof marker !== "object" ||
+    Array.isArray(marker) ||
+    Object.getPrototypeOf(marker) !== Object.prototype ||
+    Object.keys(marker).length !== expectedKeys.length ||
+    !expectedKeys.every((key) => Object.hasOwn(marker, key)) ||
+    marker.schemaVersion !== 1 ||
+    marker.kind !== "pi-super-messenger-stock-runtime" ||
+    marker.package !== PACKAGE ||
+    marker.runtimeRoot !== runtimeRoot
+  ) {
     throw new Error(`Missing or invalid runtime marker ${markerPath}`);
   }
 }
@@ -140,7 +153,7 @@ if (isMain()) {
     const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     const runtimeDir = path.resolve(args["--runtime"]);
     reportedPath = runtimeDir;
-    console.log(JSON.stringify(cleanupStockRuntime({ repositoryRoot, runtimeRoot: path.dirname(runtimeDir), runtimeDir, evidenceDestination: args["--evidence"] && path.resolve(args["--evidence"]) })));
+    console.log(JSON.stringify(cleanupStockRuntime({ repositoryRoot, runtimeDir, evidenceDestination: args["--evidence"] && path.resolve(args["--evidence"]) })));
   } catch (error) {
     console.error(`Cleanup failed for runtime ${reportedPath}: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;

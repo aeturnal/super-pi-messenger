@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanupStockRuntime } from "../../evals/scripts/cleanup-stock-runtime.mjs";
+import { cleanupStockRuntime, defaultRuntimeRoot } from "../../evals/scripts/cleanup-stock-runtime.mjs";
 
 const packageName = "npm:pi-messenger@0.14.1";
 const runtimeName = "stock-pi-messenger-0.14.1";
@@ -57,6 +57,13 @@ describe("cleanupStockRuntime", () => {
     expect(() => cleanupStockRuntime({ repositoryRoot: second.repositoryRoot, runtimeRoot: second.runtimeRoot, runtimeDir: path.join(intermediate, runtimeName) })).toThrow(/expected|unsafe|symbolic|symlink/i);
   });
 
+  it("rejects a marker with an unexpected property without removing the runtime", () => {
+    const test = setup();
+    fs.writeFileSync(path.join(test.runtimeDir, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(test.runtimeRoot), unexpected: true })}\n`);
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir })).toThrow(/marker|runtime/i);
+    expect(fs.existsSync(test.runtimeDir)).toBe(true);
+  });
+
   it.each([
     ["malformed marker", "not json"],
     ["wrong marker", JSON.stringify({ schemaVersion: 2, kind: "wrong", package: packageName, runtimeRoot: "/wrong" })],
@@ -90,6 +97,16 @@ describe("cleanupStockRuntime", () => {
     expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination: path.join(test.repositoryRoot, "evals", "runs", "evidence") })).toThrow(/symbolic|symlink/i);
   });
 
+  it("refuses an existing evidence destination without deleting the runtime", () => {
+    const test = setup();
+    const evidenceDestination = path.join(test.repositoryRoot, "evals", "runs", "evidence");
+    fs.mkdirSync(evidenceDestination);
+    fs.writeFileSync(path.join(evidenceDestination, "unrelated.txt"), "stale");
+    expect(() => cleanupStockRuntime({ repositoryRoot: test.repositoryRoot, runtimeRoot: test.runtimeRoot, runtimeDir: test.runtimeDir, evidenceDestination })).toThrow(/evidence.*exist|exist.*evidence/i);
+    expect(fs.readFileSync(path.join(evidenceDestination, "unrelated.txt"), "utf8")).toBe("stale");
+    expect(fs.existsSync(test.runtimeDir)).toBe(true);
+  });
+
   it("copies only allowed safe evidence before deleting credentials with runtime", () => {
     const test = setup();
     fs.mkdirSync(path.join(test.runtimeDir, "sessions", "nested"), { recursive: true });
@@ -106,6 +123,30 @@ describe("cleanupStockRuntime", () => {
     expect(fs.existsSync(path.join(evidenceDestination, "other.txt"))).toBe(false);
     expect(fs.existsSync(path.join(evidenceDestination, "auth.json"))).toBe(false);
     expect(fs.existsSync(test.runtimeDir)).toBe(false);
+  });
+
+  it("CLI uses the default UID-scoped runtime root for an exact stock child", () => {
+    const runtimeRoot = defaultRuntimeRoot();
+    const runtimeDir = path.join(runtimeRoot, runtimeName);
+    if (fs.existsSync(runtimeDir)) throw new Error(`Test runtime already exists: ${runtimeDir}`);
+    cleanups.push(() => fs.rmSync(runtimeDir, { recursive: true, force: true }));
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(runtimeRoot) })}\n`);
+    const result = spawnSync(process.execPath, [script, "--runtime", runtimeDir], { encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(fs.existsSync(runtimeDir)).toBe(false);
+  });
+
+  it("CLI rejects a correctly marked identically named runtime outside its default root without mutation", () => {
+    const test = setup();
+    const outsideRoot = path.join(test.temporaryRoot, "outside-root");
+    const outsideRuntime = path.join(outsideRoot, runtimeName);
+    fs.mkdirSync(outsideRuntime, { recursive: true });
+    fs.writeFileSync(path.join(outsideRuntime, markerName), `${JSON.stringify({ schemaVersion: 1, kind: "pi-super-messenger-stock-runtime", package: packageName, runtimeRoot: path.resolve(outsideRoot) })}\n`);
+    const result = spawnSync(process.execPath, [script, "--runtime", outsideRuntime], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toMatch(/expected|runtime|cleanup/i);
+    expect(fs.existsSync(outsideRuntime)).toBe(true);
   });
 
   it("CLI rejects invalid flags before mutation", () => {
