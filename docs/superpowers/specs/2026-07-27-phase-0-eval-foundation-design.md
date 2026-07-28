@@ -66,7 +66,8 @@ tests/
   evals/
     reset-independent-parallel.test.ts
     verify-independent-parallel.test.ts
-    stock-runtime.test.ts
+    stock-runtime-prepare.test.ts
+    stock-runtime-cleanup.test.ts
 ```
 
 Responsibilities are intentionally narrow:

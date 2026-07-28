@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const read = (path: string) =>
@@ -153,6 +153,30 @@ describe("Phase 0 eval definitions", () => {
       expect(document).toContain("`runtimeRoot` injection exists only in the exported test API");
       expect(document).toContain("UID-scoped OS temporary root");
       expect(document).toContain("supersedes the original example after security review");
+    }
+  });
+
+  it("keeps documented eval test paths aligned with the split stock-runtime tests", () => {
+    const documents = [
+      read("docs/superpowers/specs/2026-07-27-phase-0-eval-foundation-design.md"),
+      read("docs/superpowers/plans/2026-07-27-phase-0-eval-foundation.md"),
+    ];
+    const documentedPaths = documents.flatMap((document) => [
+      ...document.matchAll(/`(tests\/evals\/[^`\s]+\.test\.ts)`/g),
+      ...document.matchAll(/\b(tests\/evals\/stock-runtime(?:-[a-z]+)?\.test\.ts)\b/g),
+    ].map((match) => match[1]));
+
+    for (const path of documentedPaths)
+      expect(existsSync(new URL(`../../${path}`, import.meta.url))).toBe(true);
+
+    for (const document of documents) {
+      const stockRuntimeCommands = [...document.matchAll(/```bash\n([\s\S]*?npx vitest run[\s\S]*?)```/g)]
+        .map((match) => match[1])
+        .filter((command) => command.includes("stock-runtime"));
+      for (const command of stockRuntimeCommands) {
+        expect(command).toContain("tests/evals/stock-runtime-prepare.test.ts");
+        expect(command).toContain("tests/evals/stock-runtime-cleanup.test.ts");
+      }
     }
   });
 

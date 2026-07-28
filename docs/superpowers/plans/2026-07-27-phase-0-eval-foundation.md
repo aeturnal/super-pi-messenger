@@ -548,7 +548,8 @@ git commit -m "feat: verify independent eval deterministically"
 **Files:**
 - Create: `evals/scripts/prepare-stock-runtime.mjs`
 - Create: `evals/scripts/cleanup-stock-runtime.mjs`
-- Create: `tests/evals/stock-runtime.test.ts`
+- Create: `tests/evals/stock-runtime-prepare.test.ts`
+- Create: `tests/evals/stock-runtime-cleanup.test.ts`
 
 **Interfaces:**
 - Produces: `prepareStockRuntime(options): PreparedRuntime`.
@@ -598,7 +599,9 @@ Set mode `0755` before passing its path as `piCommand`. Tests must prove:
 - [ ] **Step 2: Run runtime tests and verify RED**
 
 ```bash
-npx vitest run tests/evals/stock-runtime.test.ts
+npx vitest run \
+  tests/evals/stock-runtime-prepare.test.ts \
+  tests/evals/stock-runtime-cleanup.test.ts
 ```
 
 Expected: FAIL because preparation and cleanup modules are missing.
@@ -637,7 +640,9 @@ Unknown or repeated flags fail before mutation.
 - [ ] **Step 5: Run runtime tests and verify GREEN**
 
 ```bash
-npx vitest run tests/evals/stock-runtime.test.ts
+npx vitest run \
+  tests/evals/stock-runtime-prepare.test.ts \
+  tests/evals/stock-runtime-cleanup.test.ts
 ```
 
 Expected: all preparation, isolation, model-list, and deletion-only cleanup tests pass without real credentials, network calls, or model calls.
@@ -645,7 +650,11 @@ Expected: all preparation, isolation, model-list, and deletion-only cleanup test
 - [ ] **Step 6: Commit isolated runtime tooling**
 
 ```bash
-git add -- evals/scripts/prepare-stock-runtime.mjs evals/scripts/cleanup-stock-runtime.mjs tests/evals/stock-runtime.test.ts
+git add -- \
+  evals/scripts/prepare-stock-runtime.mjs \
+  evals/scripts/cleanup-stock-runtime.mjs \
+  tests/evals/stock-runtime-prepare.test.ts \
+  tests/evals/stock-runtime-cleanup.test.ts
 git diff --cached --check
 git commit -m "feat: isolate stock eval runtime"
 ```
@@ -670,7 +679,8 @@ npx vitest run \
   tests/evals/fixture-seed.test.ts \
   tests/evals/reset-independent-parallel.test.ts \
   tests/evals/verify-independent-parallel.test.ts \
-  tests/evals/stock-runtime.test.ts
+  tests/evals/stock-runtime-prepare.test.ts \
+  tests/evals/stock-runtime-cleanup.test.ts
 ```
 
 Expected: all focused tests pass.
