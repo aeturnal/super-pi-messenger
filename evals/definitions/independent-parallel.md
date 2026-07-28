@@ -14,7 +14,7 @@ The dependency-free Node ESM fixture has exactly three tasks:
 
 ## Fixture boundary
 
-Each task owns only its listed source path. Built-in `node:test` acceptance files are immutable inputs, are not task-owned, and no dependency additions are allowed. `parseDuration(input)` accepts one nonnegative decimal plus `ms`, `s`, `m`, or `h`, with surrounding or intervening whitespace, and returns milliseconds. `formatBytes(bytes)` accepts a finite nonnegative integer and formats `B`, `KiB`, `MiB`, `GiB`, or `TiB` to at most one decimal. `parseRetryAfter(value, nowMs)` accepts digit seconds or valid HTTP dates, clamps past dates to zero, returns `null` for empty or invalid headers, and requires finite epoch milliseconds. Invalid contract inputs throw `TypeError`.
+Each task owns only its listed source path. Built-in `node:test` acceptance files are immutable inputs, are not task-owned, and no dependency additions are allowed. `parseDuration(input)` accepts one nonnegative decimal plus `ms`, `s`, `m`, or `h`, with surrounding or intervening whitespace, and returns milliseconds. `formatBytes(bytes)` accepts a finite nonnegative integer and formats `B`, `KiB`, `MiB`, `GiB`, or `TiB` to at most one decimal. `parseRetryAfter(value, nowMs)` accepts all-digit delta seconds or HTTP dates in IMF-fixdate exactly (for example, `Mon, 27 Jul 2026 12:01:30 GMT`), clamps past dates to zero, returns `null` for empty or invalid headers, including ISO-8601, RFC-850, asctime, locale dates, signed or decimal seconds, and trailing junk, and requires finite epoch milliseconds. Invalid contract inputs throw `TypeError`.
 
 ## Procedure
 

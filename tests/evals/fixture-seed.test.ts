@@ -32,6 +32,20 @@ describe("independent-parallel seed", () => {
     });
   });
 
+  it("requires strict IMF-fixdate Retry-After acceptance cases", () => {
+    const retryAfterTests = readFileSync(resolve(seed, "test/retry-after.test.mjs"), "utf8");
+    expect(retryAfterTests).toContain('"Mon, 27 Jul 2026 12:01:30 GMT"');
+    for (const invalid of [
+      "2026-07-27T12:01:30Z",
+      "Monday, 27-Jul-26 12:01:30 GMT",
+      "Mon Jul 27 12:01:30 2026",
+      "7/27/2026",
+      '"-1"',
+      '"1.5"',
+      '"120 seconds"',
+    ]) expect(retryAfterTests).toContain(invalid);
+  });
+
   it("is intentionally red before workers implement it", () => {
     const result = spawnSync("node", ["--test", ...[
       "test/duration.test.mjs", "test/format-bytes.test.mjs", "test/retry-after.test.mjs",
