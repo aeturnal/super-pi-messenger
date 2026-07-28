@@ -94,15 +94,20 @@ describe("Phase 0 eval definitions", () => {
 
   it("defines durable results without committing raw runs", () => {
     const template = read("evals/results/TEMPLATE.md");
-    const initial = read("evals/results/stock-pi-messenger-0.14.1-independent-parallel.md");
+    const result = read("evals/results/stock-pi-messenger-0.14.1-independent-parallel.md");
     const ignore = read("evals/runs/.gitignore");
     for (const heading of [
       "Run identity", "Functional outcome", "Orchestration observations",
       "Review outcome", "Reliability", "Usage metadata", "Evidence", "Comparability",
-    ]) expect(template).toContain(`## ${heading}`);
-    expect(initial).toContain("**Status:** `NOT RUN`");
-    for (const document of [template, initial]) {
-      expect(document).toContain("- [ ]");
+    ]) {
+      expect(template).toContain(`## ${heading}`);
+      expect(result).toContain(`## ${heading}`);
+    }
+    expect(template).toContain("- [ ]");
+    expect(result).toMatch(/\*\*Status:\*\* `(PASSED|FAILED|INCOMPLETE)`/);
+    expect(result).not.toContain("**Status:** `NOT RUN`");
+    expect(result).toContain("- [x]");
+    for (const document of [template, result]) {
       expect(document).toContain("| Evidence | Value |");
       for (const field of [
         "Run ID", "Date", "Operator", "Fixture version", "Seed commit", "Final commit",
@@ -113,8 +118,6 @@ describe("Phase 0 eval definitions", () => {
         "sanitized excerpt", "Deviations affecting comparison validity",
       ]) expect(document).toContain(field);
     }
-    expect(template).toContain("sanitized excerpt");
-    expect(initial).toContain("baseline only after implementation-plan Task 8 and human run completion");
     expect(ignore).toBe("*\n!.gitignore\n");
   });
 

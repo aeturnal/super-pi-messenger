@@ -46,7 +46,7 @@
 - Consumes: Approved Phase 0 design and PRD Section 14/Phase 0.
 - Produces: Fixed definition documents, `stock-baseline.json` profile consumed by reset/runtime scripts, and result fields consumed after the supervised run.
 
-- [ ] **Step 1: Write the failing documentation-contract test**
+- [x] **Step 1: Write the failing documentation-contract test**
 
 Create `tests/evals/definitions.test.ts`:
 
@@ -108,7 +108,7 @@ describe("Phase 0 eval definitions", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run:
 
@@ -118,7 +118,7 @@ npx vitest run tests/evals/definitions.test.ts
 
 Expected: FAIL with `ENOENT` for the first missing definition.
 
-- [ ] **Step 3: Write all three fixed definition documents**
+- [x] **Step 3: Write all three fixed definition documents**
 
 Create the three definition files with these required sections:
 
@@ -140,7 +140,7 @@ The shared-interface definition must fix the canonical record contract, parallel
 
 The repair definition must fix the caller-mutation defect, completed seed commit, expected `NEEDS_WORK`, one scoped repair, regression coverage, repair-owned re-review, design sanity check, and escalation conditions while stating that its fixture is deferred to Phase 3.
 
-- [ ] **Step 4: Write the checked stock profile**
+- [x] **Step 4: Write the checked stock profile**
 
 Create `evals/profiles/stock-baseline.json`:
 
@@ -162,7 +162,7 @@ Create `evals/profiles/stock-baseline.json`:
 }
 ```
 
-- [ ] **Step 5: Write operator, result, ignore, and upstream documentation**
+- [x] **Step 5: Write operator, result, ignore, and upstream documentation**
 
 Create `evals/README.md` with the ten-step supervised procedure, explicit reset/prepare/launch/verify/cleanup command shapes, a warning that preparation does not launch a model, and a warning that the printed Pi command begins provider usage.
 
@@ -172,7 +172,7 @@ Create `evals/runs/.gitignore` exactly as tested.
 
 Create `docs/upstream-maintenance.md` with the eight-step intake procedure from Design Section 12, including the exact fetch command, disabled upstream push invariant, dedicated branches, smallest coherent commit range, PRD/compatibility review, inherited tests, relevant evals, attribution, and no automatic merge.
 
-- [ ] **Step 6: Run the focused test and verify GREEN**
+- [x] **Step 6: Run the focused test and verify GREEN**
 
 Run:
 
@@ -182,7 +182,7 @@ npx vitest run tests/evals/definitions.test.ts
 
 Expected: 4 tests pass.
 
-- [ ] **Step 7: Commit the fixed definitions and policy**
+- [x] **Step 7: Commit the fixed definitions and policy**
 
 ```bash
 git add -- \
@@ -219,7 +219,7 @@ git commit -m "docs: define Phase 0 evals and upstream policy"
 - Consumes: `evals/definitions/independent-parallel.md` contracts.
 - Produces: Intentionally red seed copied by `resetIndependentParallel()` and made green only inside ignored run worktrees.
 
-- [ ] **Step 1: Write a failing repository-level seed test**
+- [x] **Step 1: Write a failing repository-level seed test**
 
 Create `tests/evals/fixture-seed.test.ts`:
 
@@ -252,7 +252,7 @@ describe("independent-parallel seed", () => {
 });
 ```
 
-- [ ] **Step 2: Run the seed test and verify RED**
+- [x] **Step 2: Run the seed test and verify RED**
 
 ```bash
 npx vitest run tests/evals/fixture-seed.test.ts
@@ -260,7 +260,7 @@ npx vitest run tests/evals/fixture-seed.test.ts
 
 Expected: FAIL with missing `PRD.md` or source files.
 
-- [ ] **Step 3: Create the seed manifest, PRD, and stubs**
+- [x] **Step 3: Create the seed manifest, PRD, and stubs**
 
 Create `package.json`:
 
@@ -281,7 +281,7 @@ Each source stub must export the named function and contain this sentinel in its
 throw new Error("NOT_IMPLEMENTED");
 ```
 
-- [ ] **Step 4: Add immutable acceptance tests for all contracts**
+- [x] **Step 4: Add immutable acceptance tests for all contracts**
 
 Use built-in `node:test` and `node:assert/strict`. Cover at minimum:
 
@@ -313,7 +313,7 @@ assert.throws(() => parseRetryAfter("1", NaN), TypeError);
 
 Group assertions into clearly named `test()` cases and import only the owned source module.
 
-- [ ] **Step 5: Run the repository seed test and verify GREEN**
+- [x] **Step 5: Run the repository seed test and verify GREEN**
 
 ```bash
 npx vitest run tests/evals/fixture-seed.test.ts
@@ -321,7 +321,7 @@ npx vitest run tests/evals/fixture-seed.test.ts
 
 Expected: 2 tests pass while the fixture’s direct Node acceptance command remains intentionally red.
 
-- [ ] **Step 6: Commit the immutable seed**
+- [x] **Step 6: Commit the immutable seed**
 
 ```bash
 git add -- tests/evals/fixture-seed.test.ts evals/fixtures/independent-parallel/seed
@@ -346,7 +346,7 @@ git commit -m "test: add independent parallel eval seed"
 - Creates marker `.git/pi-super-messenger-eval-marker.json` and manifest `.git/pi-super-messenger-eval-run.json`.
 - `lib.mjs` exports `assertSafeDescendant(root, target)`, `sha256File(path)`, `sha256Json(value)`, and `run(command, args, options)`.
 
-- [ ] **Step 1: Write reset safety and success tests**
+- [x] **Step 1: Write reset safety and success tests**
 
 Create `tests/evals/helpers.ts`. `createEvalTestRepository()` must make an OS temporary root, copy the checked `evals/fixtures/independent-parallel` and `evals/profiles` directories beneath `path.join(temporaryRoot, "repo", "evals")`, create `path.join(temporaryRoot, "repo", "evals", "runs", "independent-parallel")`, return `path.join(temporaryRoot, "repo")` as `repositoryRoot`, set `destination` to its `worktree` child, and return a `cleanup()` that recursively removes the temporary root. `fixedNow()` returns `new Date("2026-07-27T12:00:00.000Z")`.
 
@@ -375,7 +375,7 @@ it("replaces only a previously marked run", () => {
 
 Also assert rejection of: run-root itself, repository root, fixture seed, outside-root destination, unmarked existing directory, destination symlink, and an existing symlink in any destination ancestor.
 
-- [ ] **Step 2: Run the reset tests and verify RED**
+- [x] **Step 2: Run the reset tests and verify RED**
 
 ```bash
 npx vitest run tests/evals/reset-independent-parallel.test.ts
@@ -383,7 +383,7 @@ npx vitest run tests/evals/reset-independent-parallel.test.ts
 
 Expected: FAIL because `resetIndependentParallel` does not exist.
 
-- [ ] **Step 3: Implement shared hashing, process, and path safety helpers**
+- [x] **Step 3: Implement shared hashing, process, and path safety helpers**
 
 `assertSafeDescendant(root, target)` must resolve both paths, require a nonempty relative path that does not begin with `..`, reject an absolute relative result, and walk every existing component from root to target with `lstatSync()` to reject symbolic links.
 
@@ -391,7 +391,7 @@ Expected: FAIL because `resetIndependentParallel` does not exist.
 
 Hash helpers use SHA-256 over file bytes or canonical `JSON.stringify(value)`.
 
-- [ ] **Step 4: Implement reset**
+- [x] **Step 4: Implement reset**
 
 Implement this exact sequence:
 
@@ -406,7 +406,7 @@ Implement this exact sequence:
 
 Add a CLI guard that defaults to `evals/runs/independent-parallel/worktree`, accepts at most one destination argument, prints the result as JSON, and sets `process.exitCode = 1` with a concise error on failure.
 
-- [ ] **Step 5: Run reset tests and verify GREEN**
+- [x] **Step 5: Run reset tests and verify GREEN**
 
 ```bash
 npx vitest run tests/evals/reset-independent-parallel.test.ts
@@ -414,7 +414,7 @@ npx vitest run tests/evals/reset-independent-parallel.test.ts
 
 Expected: all reset success and refusal tests pass.
 
-- [ ] **Step 6: Commit safe reset tooling**
+- [x] **Step 6: Commit safe reset tooling**
 
 ```bash
 git add -- evals/scripts/lib.mjs evals/scripts/reset-independent-parallel.mjs tests/evals/helpers.ts tests/evals/reset-independent-parallel.test.ts
@@ -438,7 +438,7 @@ git commit -m "feat: add safe independent eval reset"
 - `VerificationResult`: `{ passed, testExitCode, seedCommit, headCommit, gitStatus, testHashes, stdout, stderr }`.
 - Writes `.git/pi-super-messenger-eval-verification.json`.
 
-- [ ] **Step 1: Write failing verifier tests**
+- [x] **Step 1: Write failing verifier tests**
 
 Use `createEvalTestRepository()` and `resetIndependentParallel()` in each test, registering the returned cleanup exactly as in Task 3. Add `writeKnownCorrectImplementations(worktree)` to `tests/evals/helpers.ts`, export it, and import it into the verifier test. Cover:
 
@@ -500,7 +500,7 @@ export function parseRetryAfter(value, nowMs) {
 }
 ```
 
-- [ ] **Step 2: Run verifier tests and verify RED**
+- [x] **Step 2: Run verifier tests and verify RED**
 
 ```bash
 npx vitest run tests/evals/verify-independent-parallel.test.ts
@@ -508,7 +508,7 @@ npx vitest run tests/evals/verify-independent-parallel.test.ts
 
 Expected: FAIL because the verifier module is missing.
 
-- [ ] **Step 3: Implement deterministic verification**
+- [x] **Step 3: Implement deterministic verification**
 
 Implement in this order:
 
@@ -525,7 +525,7 @@ Implement in this order:
 
 The CLI accepts one optional worktree path, prints JSON on success, and prints the failure plus verifier-result path on error.
 
-- [ ] **Step 4: Run verifier tests and verify GREEN**
+- [x] **Step 4: Run verifier tests and verify GREEN**
 
 ```bash
 npx vitest run tests/evals/verify-independent-parallel.test.ts
@@ -533,7 +533,7 @@ npx vitest run tests/evals/verify-independent-parallel.test.ts
 
 Expected: all verifier tests pass.
 
-- [ ] **Step 5: Commit deterministic verification**
+- [x] **Step 5: Commit deterministic verification**
 
 ```bash
 git add -- evals/scripts/verify-independent-parallel.mjs tests/evals/helpers.ts tests/evals/verify-independent-parallel.test.ts
@@ -560,7 +560,7 @@ git commit -m "feat: verify independent eval deterministically"
 - Runtime marker: `.pi-super-messenger-stock-runtime.json`.
 - Production preparation and cleanup derive their runtime root from a UID-scoped OS temporary root. `runtimeRoot` injection exists only in the exported test API; this fixed trust boundary supersedes the original example after security review.
 
-- [ ] **Step 1: Write failing preparation and cleanup tests with a fake Pi executable**
+- [x] **Step 1: Write failing preparation and cleanup tests with a fake Pi executable**
 
 Create an executable fake Pi script in the test temp directory. It must record argv and `PI_CODING_AGENT_DIR`; for `install`, write settings, and for `--list-models`, print all pinned models:
 
@@ -596,7 +596,7 @@ Set mode `0755` before passing its path as `piCommand`. Tests must prove:
 - Cleanup refuses outside-root paths and missing markers.
 - Cleanup never copies runtime evidence or creates paths under `evals/runs`.
 
-- [ ] **Step 2: Run runtime tests and verify RED**
+- [x] **Step 2: Run runtime tests and verify RED**
 
 ```bash
 npx vitest run \
@@ -606,7 +606,7 @@ npx vitest run \
 
 Expected: FAIL because preparation and cleanup modules are missing.
 
-- [ ] **Step 3: Implement stock preparation**
+- [x] **Step 3: Implement stock preparation**
 
 Preparation must:
 
@@ -623,7 +623,7 @@ Preparation must:
 
 On partial failure, retain the marked runtime and print its credential-bearing path for explicit cleanup.
 
-- [ ] **Step 4: Implement safe cleanup**
+- [x] **Step 4: Implement safe cleanup**
 
 Cleanup must validate runtime root/path/marker, recursively remove only the exact marked runtime, and confirm it no longer exists. Cleanup never retains or copies raw runtime evidence or creates paths under `evals/runs/`. Raw runtime evidence is inspectable only before cleanup, when an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`.
 
@@ -637,7 +637,7 @@ node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH"
 
 Unknown or repeated flags fail before mutation.
 
-- [ ] **Step 5: Run runtime tests and verify GREEN**
+- [x] **Step 5: Run runtime tests and verify GREEN**
 
 ```bash
 npx vitest run \
@@ -647,7 +647,7 @@ npx vitest run \
 
 Expected: all preparation, isolation, model-list, and deletion-only cleanup tests pass without real credentials, network calls, or model calls.
 
-- [ ] **Step 6: Commit isolated runtime tooling**
+- [x] **Step 6: Commit isolated runtime tooling**
 
 ```bash
 git add -- \
@@ -671,7 +671,7 @@ git commit -m "feat: isolate stock eval runtime"
 - Consumes: Tasks 1–5.
 - Produces: A documented, fully deterministic pre-model workflow and a clean feature branch ready for supervised baseline preparation.
 
-- [ ] **Step 1: Run every focused eval-tooling test**
+- [x] **Step 1: Run every focused eval-tooling test**
 
 ```bash
 npx vitest run \
@@ -685,7 +685,7 @@ npx vitest run \
 
 Expected: all focused tests pass.
 
-- [ ] **Step 2: Run the complete inherited suite**
+- [x] **Step 2: Run the complete inherited suite**
 
 ```bash
 npm test
@@ -693,7 +693,7 @@ npm test
 
 Expected: all existing and new Vitest tests pass; no model process launches.
 
-- [ ] **Step 3: Exercise reset and expected-red verification through the real CLI**
+- [x] **Step 3: Exercise reset and expected-red verification through the real CLI**
 
 ```bash
 node evals/scripts/reset-independent-parallel.mjs
@@ -702,7 +702,7 @@ node evals/scripts/verify-independent-parallel.mjs
 
 Expected: reset succeeds; verifier exits nonzero specifically because all three source files still contain `NOT_IMPLEMENTED`. This expected failure proves the real fixture begins red.
 
-- [ ] **Step 4: Confirm secrets and generated runs remain untracked**
+- [x] **Step 4: Confirm secrets and generated runs remain untracked**
 
 ```bash
 if git status --short --ignored | rg 'auth\.json|models-store\.json'; then exit 1; fi
@@ -712,7 +712,7 @@ git status --short
 
 Expected: no credential file appears; generated run worktree is ignored; only intended documentation adjustments, if any, appear.
 
-- [ ] **Step 5: Complete command examples and commit documentation adjustments**
+- [x] **Step 5: Complete command examples and commit documentation adjustments**
 
 Ensure `evals/README.md` matches the implemented CLI flags and default paths exactly, then:
 
@@ -737,7 +737,7 @@ Expected: commit only if README required an implementation-alignment change.
 - Consumes: Deterministically verified scripts and host `/home/dominic/.pi/agent/auth.json`.
 - Produces: Reset worktree, isolated stock runtime, and printed launch command. No model call occurs in this task.
 
-- [ ] **Step 1: Reset the real independent-parallel run**
+- [x] **Step 1: Reset the real independent-parallel run**
 
 ```bash
 node evals/scripts/reset-independent-parallel.mjs
@@ -745,7 +745,7 @@ node evals/scripts/reset-independent-parallel.mjs
 
 Expected: JSON identifies the ignored worktree, seed commit, profile hash, and manifest path.
 
-- [ ] **Step 2: Prepare stock runtime without launching a model**
+- [x] **Step 2: Prepare stock runtime without launching a model**
 
 ```bash
 set -o pipefail
@@ -782,11 +782,11 @@ Do not continue until the user confirms the supervised run ended.
 - Consumes: Completed supervised run from Task 7.
 - Produces: Committed stock baseline, removed credential runtime, all-green branch ready for review.
 
-- [ ] **Step 1: Inspect run state before verification**
+- [x] **Step 1: Inspect run state before verification**
 
 Record task files, Crew state, Git log, status, session counts, reviews, retries, failure state, timestamps, and available provider metadata from the run/runtime before cleanup. Do not infer missing observations; label them `not observable`.
 
-- [ ] **Step 2: Run deterministic verification**
+- [x] **Step 2: Run deterministic verification**
 
 ```bash
 node evals/scripts/verify-independent-parallel.mjs
@@ -794,11 +794,11 @@ node evals/scripts/verify-independent-parallel.mjs
 
 Expected for a functionally successful baseline: verifier exits 0, immutable tests match, stubs are gone, and all Node tests pass. If it fails, preserve the failure accurately; do not edit the fixture manually to manufacture a pass.
 
-- [ ] **Step 3: Complete the durable baseline record**
+- [x] **Step 3: Complete the durable baseline record**
 
 Replace `Status: NOT RUN` with `Status: COMPLETE` or `Status: INCOMPLETE/FAILED`. Fill every template field using manifest, verifier, Crew state, provider metadata, and supervised observations. Record exact deviations and mark non-observable items explicitly. Raw runtime evidence is inspectable only before cleanup. Before cleanup, an operator may manually create a deliberately reviewed and sanitized excerpt under ignored `evals/runs/`; review it for secrets before committing. Cleanup never retains or copies raw runtime evidence.
 
-- [ ] **Step 4: Clean the credential-bearing runtime**
+- [x] **Step 4: Clean the credential-bearing runtime**
 
 Read the exact runtime path from the ignored preparation record and clean it:
 
@@ -814,7 +814,7 @@ test ! -e "$RUNTIME_PATH/auth.json"
 test ! -e "$RUNTIME_PATH"
 ```
 
-- [ ] **Step 5: Run final deterministic verification**
+- [x] **Step 5: Run final deterministic verification**
 
 ```bash
 npm test
@@ -824,13 +824,14 @@ git diff --check
 
 Expected: full Vitest suite and fixture verifier pass for a successful baseline; for a recorded failed baseline, `npm test` must pass and the verifier’s expected failure must exactly match the durable result.
 
-- [ ] **Step 6: Commit the completed baseline and plan record**
+- [x] **Step 6: Commit the completed baseline and plan record**
 
-Mark all completed plan checkboxes accurately, then:
+Mark all completed plan checkboxes accurately, update the durable-result contract test from its initial `NOT RUN` boundary to the terminal-result boundary, then:
 
 ```bash
 git add -- \
   evals/results/stock-pi-messenger-0.14.1-independent-parallel.md \
+  tests/evals/definitions.test.ts \
   docs/superpowers/plans/2026-07-27-phase-0-eval-foundation.md
 git diff --cached --check
 git commit -m "test: record stock independent parallel baseline"
