@@ -71,6 +71,17 @@ function containsSecretEvidence(text) {
   return false;
 }
 
+function decodeEvidenceText(content, source) {
+  if (content.includes(0) || content.some((byte) => (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d && byte !== 0x1b) || byte === 0x7f)) {
+    throw new Error(`Evidence contains binary control content: ${source}`);
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(content);
+  } catch {
+    throw new Error(`Evidence contains invalid UTF-8 binary content: ${source}`);
+  }
+}
+
 function validateEvidenceTree(source) {
   const stat = fs.lstatSync(source);
   if (stat.isSymbolicLink()) throw new Error(`Evidence contains symbolic link: ${source}`);
@@ -84,9 +95,8 @@ function validateEvidenceTree(source) {
   if (!stat.isFile()) throw new Error(`Evidence contains non-regular file: ${source}`);
 
   const content = fs.readFileSync(source);
-  if (content.includes(0)) throw new Error(`Evidence contains binary NUL content: ${source}`);
   // This is conservative ignored evidence retention, not automatic redaction.
-  if (containsSecretEvidence(content.toString("utf8"))) throw new Error(`Evidence contains potentially secret content: ${source}`);
+  if (containsSecretEvidence(decodeEvidenceText(content, source))) throw new Error(`Evidence contains potentially secret content: ${source}`);
 }
 
 function copyEvidence(runtimeDir, destination) {

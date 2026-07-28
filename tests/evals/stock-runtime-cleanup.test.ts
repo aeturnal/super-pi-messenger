@@ -132,6 +132,7 @@ describe("cleanupStockRuntime", () => {
     ["REFRESH_TOKEN environment credential assignment", "terminal.jsonl", "REFRESH_TOKEN=not-a-real-token\n"],
     ["Bearer token", "terminal.log", "Authorization: Bearer not-a-real-token\n"],
     ["binary NUL content", "terminal.jsonl", Buffer.from("safe\0unsafe")],
+    ["invalid UTF-8 binary content", "terminal.log", Buffer.from([0xff, 0xfe, 0xfd, 0xfc])],
   ])("rejects retained evidence containing %s before creating its destination", (_name, relativePath, content) => {
     const test = setup();
     const source = path.join(test.runtimeDir, relativePath);
