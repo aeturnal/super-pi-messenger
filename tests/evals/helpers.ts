@@ -56,8 +56,19 @@ export function parseRetryAfter(value, nowMs) {
   const header = value.trim();
   if (/^\\d+$/.test(header)) return Number(header) * 1000;
   if (!/^[A-Z][a-z]{2}, \\d{2} [A-Z][a-z]{2} \\d{4} \\d{2}:\\d{2}:\\d{2} GMT$/.test(header)) return null;
-  const target = Date.parse(header);
-  return Number.isNaN(target) ? null : Math.max(0, target - nowMs);
+  const match = header.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$/);
+  if (!match) return null;
+  const [, weekday, dayText, monthText, yearText, hourText, minuteText, secondText] = match;
+  const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(monthText);
+  const day = Number(dayText), year = Number(yearText), hour = Number(hourText), minute = Number(minuteText), second = Number(secondText);
+  const target = Date.UTC(year, month, day, hour, minute, second);
+  const date = new Date(target);
+  if (
+    date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour || date.getUTCMinutes() !== minute || date.getUTCSeconds() !== second ||
+    date.getUTCDay() !== ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday)
+  ) return null;
+  return Math.max(0, target - nowMs);
 }
 `);
 }
