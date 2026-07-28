@@ -628,8 +628,9 @@ Add CLI parsing:
 
 ```text
 node evals/scripts/prepare-stock-runtime.mjs --source-agent-dir /home/dominic/.pi/agent
+RUNTIME_PATH=$(node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("evals/runs/independent-parallel/prepared-runtime.json", "utf8")); process.stdout.write(p.runtimeDir)')
 node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH"
-node evals/scripts/cleanup-stock-runtime.mjs --runtime /tmp/pi-super-messenger-evals-1000/stock-pi-messenger-0.14.1 --evidence evals/runs/independent-parallel/evidence/stock-0.14.1-baseline
+node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH" --evidence evals/runs/independent-parallel/evidence/stock-0.14.1-baseline
 ```
 
 Unknown or repeated flags fail before mutation.

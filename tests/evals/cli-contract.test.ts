@@ -8,6 +8,7 @@ const repositoryRoot = path.resolve(".");
 const readmePath = path.join(repositoryRoot, "evals", "README.md");
 const prepareScript = path.join(repositoryRoot, "evals", "scripts", "prepare-stock-runtime.mjs");
 const cleanupScript = path.join(repositoryRoot, "evals", "scripts", "cleanup-stock-runtime.mjs");
+const planPath = path.join(repositoryRoot, "docs", "superpowers", "plans", "2026-07-27-phase-0-eval-foundation.md");
 const runtimeName = "stock-pi-messenger-0.14.1";
 
 function runCli(script: string, args: string[], environment: NodeJS.ProcessEnv) {
@@ -56,6 +57,16 @@ describe("documented stock-runtime CLI contract", () => {
       expect(result.stderr).toContain("Missing required auth.json");
       expect(fs.existsSync(runtimeDirectory)).toBe(false);
     }
+  });
+
+  it("derives documented cleanup runtime paths from prepared runtime evidence", () => {
+    const plan = fs.readFileSync(planPath, "utf8");
+
+    expect(plan).toContain('RUNTIME_PATH=$(node -e \'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("evals/runs/independent-parallel/prepared-runtime.json", "utf8")); process.stdout.write(p.runtimeDir)\')');
+    expect(plan).toContain('node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH"');
+    expect(plan).toContain('node evals/scripts/cleanup-stock-runtime.mjs --runtime "$RUNTIME_PATH" --evidence evals/runs/independent-parallel/evidence/stock-0.14.1-baseline');
+    expect(plan).not.toContain("/tmp/pi-super-messenger-evals-1000");
+    expect(plan).toContain("UID-scoped OS temporary root");
   });
 
   it.each([
