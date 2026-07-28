@@ -22,19 +22,28 @@ describe("documented stock-runtime CLI contract", () => {
   const cleanups: (() => void)[] = [];
   afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
 
-  it("documents only parser-accepted preparation and cleanup command shapes", () => {
+  function missingRuntimeContext() {
     const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-cli-contract-"));
     cleanups.push(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
     const missingAgentDirectory = path.join(temporaryRoot, "missing-agent");
     const childTmpdir = path.join(temporaryRoot, "tmp");
     const runtimeDirectory = path.join(childTmpdir, `pi-super-messenger-evals-${process.getuid?.() ?? process.pid}`, runtimeName);
-    const environment = {
-      ...process.env,
-      PI_CODING_AGENT_DIR: missingAgentDirectory,
-      TMPDIR: childTmpdir,
-      TMP: childTmpdir,
-      TEMP: childTmpdir,
+    return {
+      temporaryRoot,
+      missingAgentDirectory,
+      runtimeDirectory,
+      environment: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: missingAgentDirectory,
+        TMPDIR: childTmpdir,
+        TMP: childTmpdir,
+        TEMP: childTmpdir,
+      },
     };
+  }
+
+  it("documents only parser-accepted preparation and cleanup command shapes", () => {
+    const { missingAgentDirectory, runtimeDirectory, environment } = missingRuntimeContext();
     const readme = fs.readFileSync(readmePath, "utf8");
 
     expect(readme).not.toContain("--runtime-root");
@@ -47,11 +56,26 @@ describe("documented stock-runtime CLI contract", () => {
       expect(result.stderr).toContain("Missing required auth.json");
       expect(fs.existsSync(runtimeDirectory)).toBe(false);
     }
-    for (const args of [["--runtime", runtimeDirectory], ["--runtime", runtimeDirectory, "--evidence", path.join(temporaryRoot, "evidence")]]) {
-      const result = runCli(cleanupScript, args, environment);
-      expect(result.status).toBe(1);
-      expect(`${result.stdout}${result.stderr}`).toMatch(/Runtime does not exist|Cleanup failed/);
-      expect(fs.existsSync(runtimeDirectory)).toBe(false);
+  });
+
+  it.each([
+    ["--runtime", false],
+    ["--runtime ... --evidence ...", true],
+  ])("passes parser validation for documented cleanup shape %s", (_shape, includesEvidence) => {
+    const { temporaryRoot, runtimeDirectory, environment } = missingRuntimeContext();
+    const args = ["--runtime", runtimeDirectory];
+    if (includesEvidence) args.push("--evidence", path.join(temporaryRoot, "evidence"));
+
+    const result = runCli(cleanupScript, args, environment);
+    const combinedOutput = `${result.stdout}${result.stderr}`;
+    const expectedMessage = `Runtime does not exist: ${runtimeDirectory}`;
+
+    expect(result.status).toBe(1);
+    expect(combinedOutput).toContain(expectedMessage);
+    for (const parserFailure of ["Unknown flag", "Missing value", "Missing required --runtime"]) {
+      expect(combinedOutput).not.toContain(parserFailure);
     }
+    expect(combinedOutput).not.toMatch(/^Cleanup failed\s*$/);
+    expect(fs.existsSync(runtimeDirectory)).toBe(false);
   });
 });
