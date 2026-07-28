@@ -30,6 +30,7 @@ The supervised baseline ran to a terminal Crew state. All three utility implemen
 | --- | --- |
 | Task count | 3 |
 | Worker count | 6 worker processes across two attempts per task; maximum observed concurrent task workers: 2 |
+| Sessions by role | Control: 1 persisted session; planner: 1 pass observed, separate session artifact not retained; task workers: 6 processes; task/integration reviewer: 0; planning-reviewer and analyst session counts: not observable |
 | Tasks dispatched in same wave | Partial — tasks 1 and 2 started together; task 3 started only after task 2 blocked |
 | Worker-overlap | Observed for pairs of tasks; configured three-worker overlap was not observed |
 | Reservation conflicts | None recorded in the Crew feed |

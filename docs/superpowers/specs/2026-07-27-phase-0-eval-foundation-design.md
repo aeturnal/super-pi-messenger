@@ -124,7 +124,7 @@ Each task owns one source file. Fixture tests are immutable acceptance inputs an
 - Accepts an HTTP `Retry-After` string and a finite epoch-millisecond reference time.
 - Returns a nonnegative delay in milliseconds.
 - Treats an all-digit value as delta-seconds.
-- Treats a valid HTTP date as an absolute time and clamps past dates to zero.
+- For this fixed orchestration fixture, accepts only IMF-fixdate and intentionally rejects obsolete RFC-850 and asctime forms; a valid IMF-fixdate is treated as an absolute time and past dates clamp to zero.
 - Returns `null` for an empty or invalid header value.
 - Rejects an invalid `nowMs` with `TypeError`.
 

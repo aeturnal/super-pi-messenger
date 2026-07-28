@@ -23,6 +23,7 @@ describe("Phase 0 eval definitions", () => {
   });
 
   it("fixes definition ownership, lifecycle, and observation contracts", () => {
+    const design = read("docs/superpowers/specs/2026-07-27-phase-0-eval-foundation-design.md");
     const independent = read("evals/definitions/independent-parallel.md");
     const shared = read("evals/definitions/shared-interface.md");
     const repair = read("evals/definitions/review-repair.md");
@@ -33,6 +34,7 @@ describe("Phase 0 eval definitions", () => {
     for (const definition of [independent, shared, repair])
       for (const heading of headings) expect(definition).toContain(`## ${heading}`);
 
+    expect(design).toContain("accepts only IMF-fixdate and intentionally rejects obsolete RFC-850 and asctime forms");
     expect(independent).toContain("Each task owns only its listed source path");
     expect(independent).toContain("acceptance files are immutable inputs");
     expect(independent).toContain("Nested orchestration is prohibited");
@@ -112,7 +114,7 @@ describe("Phase 0 eval definitions", () => {
       for (const field of [
         "Run ID", "Date", "Operator", "Fixture version", "Seed commit", "Final commit",
         "Stock package", "Profile", "Functional outcome", "Test-integrity outcome",
-        "Task count", "Worker count", "Reviewer count", "Retry count", "Review-cycle count",
+        "Task count", "Worker count", "Sessions by role", "Reviewer count", "Retry count", "Review-cycle count",
         "Worker-overlap", "Reservation conflicts", "Nested orchestration", "Human interventions",
         "Wall-clock duration", "Important findings", "Escaped defects", "provider usage metadata",
         "sanitized excerpt", "Deviations affecting comparison validity",

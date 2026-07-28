@@ -30,6 +30,7 @@ Use explicit checkboxes and tables. Mark unavailable observations as `not observ
 | --- | --- |
 | Task count | <count/not observable> |
 | Worker count | <count/not observable> |
+| Sessions by role | <control/planner/worker/reviewer/analyst counts or not observable> |
 | Tasks dispatched in same wave | <yes/no/not observable> |
 | Worker-overlap | <observed/not observed/not observable> |
 | Reservation conflicts | <none/details/not observable> |
