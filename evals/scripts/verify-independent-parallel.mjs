@@ -20,6 +20,37 @@ function readJson(filePath, description) {
   }
 }
 
+function requireNonSymlink(filePath, description) {
+  let stat;
+  try {
+    stat = fs.lstatSync(filePath);
+  } catch (error) {
+    throw new Error(`Missing ${description}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (stat.isSymbolicLink()) throw new Error(`Unsafe ${description}: symbolic link`);
+  return stat;
+}
+
+function existsWithoutFollowingLinks(filePath) {
+  try {
+    fs.lstatSync(filePath);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function findTestPaths(root, directory = root) {
+  const paths = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const filePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) paths.push(...findTestPaths(root, filePath));
+    else if (entry.isFile() && entry.name.endsWith(".test.mjs")) paths.push(path.relative(root, filePath).split(path.sep).join("/"));
+  }
+  return paths;
+}
+
 function hashFiles(root) {
   const hashes = {};
   const visit = (directory) => {
@@ -65,9 +96,14 @@ function preflight(repositoryRoot, worktree) {
   if (!fs.existsSync(seed) || !fs.existsSync(profile)) throw new Error("Fixture seed or stock profile is missing");
 
   const gitDir = path.join(checkedWorktree, ".git");
-  const marker = readJson(path.join(gitDir, markerName), "fixture marker");
+  if (!requireNonSymlink(gitDir, ".git directory").isDirectory()) throw new Error("Invalid .git directory");
+  const markerPath = path.join(gitDir, markerName);
+  requireNonSymlink(markerPath, "fixture marker");
+  const marker = readJson(markerPath, "fixture marker");
   if (Object.keys(marker).length !== 3 || marker.schemaVersion !== 1 || marker.kind !== "pi-super-messenger-eval-run" || marker.fixture !== fixture) throw new Error("Invalid fixture marker");
-  const manifest = readJson(path.join(gitDir, manifestName), "run manifest");
+  const manifestPath = path.join(gitDir, manifestName);
+  requireNonSymlink(manifestPath, "run manifest");
+  const manifest = readJson(manifestPath, "run manifest");
   if (manifest.schemaVersion !== 1) throw new Error("Invalid manifest schema version");
   const expectedFixtureHashes = hashFiles(seed);
   const expectedTestHashes = Object.fromEntries(Object.entries(expectedFixtureHashes).filter(([name]) => name.startsWith("test/") && name.endsWith(".test.mjs")));
@@ -81,9 +117,7 @@ function preflight(repositoryRoot, worktree) {
   if (command("git", ["merge-base", "--is-ancestor", manifest.seedCommit, headCommit], checkedWorktree).status !== 0) throw new Error("Seed commit is not an ancestor of HEAD");
 
   const testDirectory = path.join(checkedWorktree, "test");
-  const currentTestPaths = fs.readdirSync(testDirectory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".test.mjs"))
-    .map((entry) => `test/${entry.name}`).sort();
+  const currentTestPaths = findTestPaths(checkedWorktree, testDirectory).sort();
   const expectedPaths = Object.keys(expectedTestHashes).sort();
   if (currentTestPaths.join("\n") !== expectedPaths.join("\n")) throw new Error("test paths mismatch");
   for (const testPath of expectedPaths) {
@@ -94,7 +128,9 @@ function preflight(repositoryRoot, worktree) {
     if (!fs.existsSync(absolute) || !fs.lstatSync(absolute).isFile()) throw new Error(`Missing source file: ${sourcePath}`);
     if (fs.readFileSync(absolute, "utf8").includes("NOT_IMPLEMENTED")) throw new Error(`NOT_IMPLEMENTED sentinel remains in ${sourcePath}`);
   }
-  return { worktree: checkedWorktree, gitDir, manifest, headCommit, testPaths: expectedPaths };
+  const resultPath = path.join(gitDir, verificationName);
+  if (existsWithoutFollowingLinks(resultPath)) requireNonSymlink(resultPath, "verification result path");
+  return { worktree: checkedWorktree, gitDir, manifest, headCommit, testPaths: expectedPaths, resultPath };
 }
 
 export function verifyIndependentParallel({ repositoryRoot, worktree }) {
@@ -110,11 +146,10 @@ export function verifyIndependentParallel({ repositoryRoot, worktree }) {
     stdout: testRun.stdout,
     stderr: testRun.stderr,
   };
-  const resultPath = path.join(checked.gitDir, verificationName);
-  fs.writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
+  fs.writeFileSync(checked.resultPath, `${JSON.stringify(result, null, 2)}\n`);
   if (!result.passed) {
-    const error = new Error(`Verification failed; verifier result: ${resultPath}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-    error.resultPath = resultPath;
+    const error = new Error(`Verification failed; verifier result: ${checked.resultPath}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    error.resultPath = checked.resultPath;
     error.stdout = result.stdout;
     error.stderr = result.stderr;
     throw error;

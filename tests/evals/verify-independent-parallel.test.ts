@@ -44,8 +44,13 @@ describe("verifyIndependentParallel", () => {
     ["deleted", (worktree: string) => fs.rmSync(path.join(worktree, "test", "duration.test.mjs"))],
     ["renamed", (worktree: string) => fs.renameSync(path.join(worktree, "test", "duration.test.mjs"), path.join(worktree, "test", "renamed.test.mjs"))],
     ["additional", (worktree: string) => fs.writeFileSync(path.join(worktree, "test", "extra.test.mjs"), "")],
+    ["nested additional", (worktree: string) => {
+      fs.mkdirSync(path.join(worktree, "test", "subdir"));
+      fs.writeFileSync(path.join(worktree, "test", "subdir", "extra.test.mjs"), "");
+    }],
   ])("rejects %s acceptance tests before execution", (_kind, alter) => {
     const { repositoryRoot, worktree } = reset();
+    writeKnownCorrectImplementations(worktree);
     alter(worktree);
     expect(() => verifyIndependentParallel({ repositoryRoot, worktree })).toThrow(/test (hash mismatch|paths mismatch)/i);
     expect(fs.existsSync(path.join(worktree, ".git", "pi-super-messenger-eval-verification.json"))).toBe(false);
@@ -53,12 +58,19 @@ describe("verifyIndependentParallel", () => {
 
   it.each([
     ["missing marker", (worktree: string, repositoryRoot: string) => fs.rmSync(path.join(worktree, ".git", "pi-super-messenger-eval-marker.json"))],
-    ["profile mismatch", (_worktree: string, repositoryRoot: string) => fs.appendFileSync(path.join(repositoryRoot, "evals", "profiles", "stock-baseline.json"), "\n")],
+    ["profile hash mismatch", (worktree: string, repositoryRoot: string) => {
+      writeKnownCorrectImplementations(worktree);
+      const profilePath = path.join(repositoryRoot, "evals", "profiles", "stock-baseline.json");
+      const profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+      profile.coordination = "silent";
+      fs.writeFileSync(profilePath, JSON.stringify(profile));
+    }],
     ["missing source", (worktree: string) => fs.rmSync(path.join(worktree, "src", "duration.mjs"))],
   ])("rejects %s during preflight", (_name, alter) => {
     const { repositoryRoot, worktree } = reset();
     alter(worktree, repositoryRoot);
-    expect(() => verifyIndependentParallel({ repositoryRoot, worktree })).toThrow();
+    expect(() => verifyIndependentParallel({ repositoryRoot, worktree })).toThrow(_name === "profile hash mismatch" ? /profile hash mismatch/ : undefined);
+    expect(fs.existsSync(path.join(worktree, ".git", "pi-super-messenger-eval-verification.json"))).toBe(false);
   });
 
   it.each([
@@ -87,6 +99,38 @@ describe("verifyIndependentParallel", () => {
     writeKnownCorrectImplementations(worktree);
     fs.writeFileSync(path.join(worktree, "src", "duration.mjs"), 'throw new Error("NOT_IMPLEMENTED");\n');
     expect(() => verifyIndependentParallel({ repositoryRoot, worktree })).toThrow(/NOT_IMPLEMENTED/);
+  });
+
+  it.each([
+    [".git directory", (worktree: string) => {
+      fs.renameSync(path.join(worktree, ".git"), path.join(worktree, ".git-real"));
+      fs.symlinkSync(".git-real", path.join(worktree, ".git"));
+    }],
+    ["fixture marker", (worktree: string) => {
+      const marker = path.join(worktree, ".git", "pi-super-messenger-eval-marker.json");
+      fs.renameSync(marker, `${marker}.real`);
+      fs.symlinkSync(`${path.basename(marker)}.real`, marker);
+    }],
+    ["run manifest", (worktree: string) => {
+      const manifest = path.join(worktree, ".git", "pi-super-messenger-eval-run.json");
+      fs.renameSync(manifest, `${manifest}.real`);
+      fs.symlinkSync(`${path.basename(manifest)}.real`, manifest);
+    }],
+    ["verification result", (worktree: string) => {
+      const result = path.join(worktree, ".git", "pi-super-messenger-eval-verification.json");
+      fs.writeFileSync(`${result}.real`, "must not be overwritten");
+      fs.symlinkSync(`${path.basename(result)}.real`, result);
+    }],
+    ["dangling verification result", (worktree: string) => {
+      fs.symlinkSync("missing-result.json", path.join(worktree, ".git", "pi-super-messenger-eval-verification.json"));
+    }],
+  ])("refuses a symbolic link for the %s", (_name, alter) => {
+    const { repositoryRoot, worktree } = reset();
+    writeKnownCorrectImplementations(worktree);
+    alter(worktree);
+    expect(() => verifyIndependentParallel({ repositoryRoot, worktree })).toThrow(/symbolic link/i);
+    const result = path.join(worktree, ".git", "pi-super-messenger-eval-verification.json");
+    if (fs.existsSync(`${result}.real`)) expect(fs.readFileSync(`${result}.real`, "utf8")).toBe("must not be overwritten");
   });
 
   it("retains a result and diagnostics when executed tests fail", () => {
