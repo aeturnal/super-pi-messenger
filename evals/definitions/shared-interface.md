@@ -23,10 +23,11 @@ Task review sees only task-owned changes. A separate integration review examines
 - Contract mismatches are not considered covered merely because isolated codec tests pass.
 - The shared contract is not modified by either task.
 - The separate integration review explicitly covers the shared interface.
+- Nested orchestration is prohibited.
 
 ## Supervised observations
 
-Record task decomposition, task review scope, integration review outcome, nested orchestration, retries, interventions, review cycles, worker overlap, reservation conflicts, and available provider usage metadata. Record any deviation or unavailable observation honestly.
+Record task decomposition, task review scope, integration review outcome, review cycles, worker overlap, and reservation conflicts. Nested orchestration, retries, interventions, review scope, and provider metadata are all recorded. Record any deviation or unavailable observation honestly.
 
 ## Product target versus stock baseline
 

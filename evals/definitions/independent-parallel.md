@@ -31,6 +31,7 @@ Each task owns only its listed source path. Built-in `node:test` acceptance file
 - The exact stub sentinels are replaced and explicit `node --test` succeeds.
 - The worktree is a Git repository at the recorded seed commit and its manifest identifies fixture and profile hashes.
 - Any integrity mismatch fails before model work is judged successful.
+- Nested orchestration is prohibited.
 
 ## Supervised observations
 

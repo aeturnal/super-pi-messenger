@@ -22,6 +22,38 @@ describe("Phase 0 eval definitions", () => {
     expect(repair).toContain("one scoped repair");
   });
 
+  it("fixes definition ownership, lifecycle, and observation contracts", () => {
+    const independent = read("evals/definitions/independent-parallel.md");
+    const shared = read("evals/definitions/shared-interface.md");
+    const repair = read("evals/definitions/review-repair.md");
+    const headings = [
+      "Purpose", "Fixed task", "Fixture boundary", "Procedure",
+      "Deterministic acceptance", "Supervised observations", "Product target versus stock baseline",
+    ];
+    for (const definition of [independent, shared, repair])
+      for (const heading of headings) expect(definition).toContain(`## ${heading}`);
+
+    expect(independent).toContain("Each task owns only its listed source path");
+    expect(independent).toContain("acceptance files are immutable inputs");
+    expect(independent).toContain("Nested orchestration is prohibited");
+    expect(shared).toContain("Each task owns only its codec and task-specific tests");
+    expect(shared).toContain("shared canonical record contract is immutable");
+    expect(repair).toContain("scoped repair owns only the relevant implementation and regression test");
+    expect(repair).toContain("Nested orchestration is prohibited");
+    expect(independent).toContain("nested orchestration (agents, controllers, worktrees, or orchestration)");
+    expect(independent).toContain("retries, review cycles, human interventions");
+    expect(independent).toContain("provider usage metadata");
+    expect(shared).toContain("fixture is deferred to Phase 2");
+    expect(shared).toContain("Nested orchestration, retries, interventions, review scope, and provider metadata");
+    expect(repair).toContain("fixture is deferred to Phase 3");
+    expect(repair).toContain("NEEDS_WORK is eligible only when the core design remains sound");
+    expect(repair).toContain("architectural uncertainty requires `MAJOR_RETHINK`");
+    expect(repair).toContain("one failed scoped repair escalates rather than repeats");
+    expect(repair).toContain("add mutation regression coverage");
+    expect(repair).toContain("re-review the repair-owned changes and perform a concise design sanity check");
+    expect(repair).toContain("nested orchestration");
+  });
+
   it("pins a non-secret stock comparison profile", () => {
     const profile = JSON.parse(read("evals/profiles/stock-baseline.json"));
     expect(profile).toEqual({
@@ -51,6 +83,19 @@ describe("Phase 0 eval definitions", () => {
       "Review outcome", "Reliability", "Usage metadata", "Evidence", "Comparability",
     ]) expect(template).toContain(`## ${heading}`);
     expect(initial).toContain("**Status:** `NOT RUN`");
+    for (const document of [template, initial]) {
+      expect(document).toContain("- [ ]");
+      expect(document).toContain("| Evidence | Value |");
+      for (const field of [
+        "Run ID", "Date", "Operator", "Fixture version", "Seed commit", "Final commit",
+        "Stock package", "Profile", "Functional outcome", "Test-integrity outcome",
+        "Task count", "Worker count", "Reviewer count", "Retry count", "Review-cycle count",
+        "Worker-overlap", "Reservation conflicts", "Nested orchestration", "Human interventions",
+        "Wall-clock duration", "Important findings", "Escaped defects", "provider usage metadata",
+        "Ignored raw-evidence paths", "Deviations affecting comparison validity",
+      ]) expect(document).toContain(field);
+    }
+    expect(initial).toContain("baseline only after implementation-plan Task 8 and human run completion");
     expect(ignore).toBe("*\n!.gitignore\n");
   });
 

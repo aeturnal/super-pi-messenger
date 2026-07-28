@@ -15,15 +15,15 @@ The completed seed commit, its task-owned change, and the caller-mutation defect
 ## Procedure
 
 1. Review the completed task-owned commit.
-2. Expect the reviewer to find mutation and return `NEEDS_WORK` while the core design remains sound.
-3. Dispatch one scoped repair.
-4. Require the repair to preserve the core approach, avoid unrelated changes, and add mutation coverage.
-5. Re-review repair-owned changes plus a concise design sanity check.
+2. Expect the reviewer to find mutation and return `NEEDS_WORK`. NEEDS_WORK is eligible only when the core design remains sound; architectural uncertainty requires `MAJOR_RETHINK`.
+3. Dispatch one scoped repair. If it fails, one failed scoped repair escalates rather than repeats.
+4. Require the repair to preserve the core approach, avoid unrelated changes, and add mutation regression coverage.
+5. The reviewer must re-review the repair-owned changes and perform a concise design sanity check.
 6. Expect deterministic acceptance to pass.
 
 ## Deterministic acceptance
 
-The future product target fails if review misses mutation, restarts the complete task, launches more than one routine repair, bypasses regression coverage, ignores design validity on re-review, or observes nested orchestration. The scoped repair and its review retain the stated ownership boundaries.
+The future product target fails if review misses mutation, restarts the complete task, launches more than one routine repair, bypasses regression coverage, ignores design validity on re-review, or observes nested orchestration. Nested orchestration is prohibited. The scoped repair and its review retain the stated ownership boundaries.
 
 ## Supervised observations
 
