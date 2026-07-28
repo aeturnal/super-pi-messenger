@@ -847,6 +847,6 @@ Use `superpowers:requesting-code-review` to review the complete feature branch a
 
 Resolve findings through TDD and rerun Task 8 Step 5.
 
-- [ ] **Step 8: Finish the development branch**
+- [x] **Step 8: Finish the development branch**
 
 Use `superpowers:finishing-a-development-branch` to present merge, pull-request, or keep-as-is options. Do not merge or push the feature branch without the user’s selected integration action.
