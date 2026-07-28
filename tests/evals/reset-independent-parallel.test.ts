@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { createEvalTestRepository, fixedNow } from "./helpers.js";
 import { resetIndependentParallel } from "../../evals/scripts/reset-independent-parallel.mjs";
+import { assertSafeDescendant, run, sha256File, sha256Json } from "../../evals/scripts/lib.mjs";
 
 describe("resetIndependentParallel", () => {
   const cleanups: (() => void)[] = [];
@@ -76,6 +77,78 @@ describe("resetIndependentParallel", () => {
     fs.mkdirSync(path.join(destination, ".git"), { recursive: true });
     fs.writeFileSync(path.join(destination, ".git", "pi-super-messenger-eval-marker.json"), marker);
     expect(() => resetIndependentParallel({ repositoryRoot, destination })).toThrow(/marker/i);
+  });
+
+  it("rejects a symlink above run root before deleting a marked destination", () => {
+    const { repositoryRoot, destination } = repository();
+    resetIndependentParallel({ repositoryRoot, destination });
+    const sentinel = path.join(destination, "must-not-delete");
+    fs.writeFileSync(sentinel, "keep");
+    const evals = path.join(repositoryRoot, "evals");
+    const externalEvals = path.join(path.dirname(repositoryRoot), "external-evals");
+    fs.renameSync(evals, externalEvals);
+    fs.symlinkSync(externalEvals, evals, "dir");
+
+    const runRoot = path.join(repositoryRoot, "evals", "runs", "independent-parallel");
+    expect(() => assertSafeDescendant(runRoot, destination)).toThrow(/symbolic link/i);
+    expect(() => resetIndependentParallel({ repositoryRoot, destination })).toThrow(/symbolic link/i);
+    expect(fs.readFileSync(sentinel, "utf8")).toBe("keep");
+  });
+
+  it("hashes file bytes and canonical JSON content", () => {
+    const { repositoryRoot } = repository();
+    const filePath = path.join(repositoryRoot, "hash-input");
+    fs.writeFileSync(filePath, "abc");
+
+    expect(sha256File(filePath)).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    expect(sha256Json({ b: 2, a: 1 })).toBe("43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777");
+    expect(sha256Json({ b: { z: true, a: null }, a: [2, 1] })).toBe(sha256Json({ a: [2, 1], b: { a: null, z: true } }));
+  });
+
+  it("retains failed command status, stdout, and stderr", () => {
+    let failure: any;
+    try {
+      run(process.execPath, ["-e", 'process.stdout.write("out"); process.stderr.write("err"); process.exit(7)']);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.status).toBe(7);
+    expect(failure.signal).toBeNull();
+    expect(failure.stdout).toBe("out");
+    expect(failure.stderr).toBe("err");
+    expect(failure.message).toContain("status 7");
+  });
+
+  it("retains failed command signal, stdout, and stderr", () => {
+    let failure: any;
+    try {
+      run(process.execPath, ["-e", 'process.stdout.write("out"); process.stderr.write("err"); process.kill(process.pid, "SIGTERM")']);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.status).toBeNull();
+    expect(failure.signal).toBe("SIGTERM");
+    expect(failure.stdout).toBe("out");
+    expect(failure.stderr).toBe("err");
+    expect(failure.message).toContain("signal SIGTERM");
+  });
+
+  it("includes spawn-error diagnostics", () => {
+    let failure: any;
+    try {
+      run("definitely-not-an-executable", []);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.status).toBeNull();
+    expect(failure.signal).toBeNull();
+    expect(failure.stdout).toBe("");
+    expect(failure.stderr).toBe("");
+    expect(failure.message).toContain("error:");
+    expect(failure.message).toMatch(/ENOENT|not found/i);
   });
 
   it("rejects a destination symlink", () => {

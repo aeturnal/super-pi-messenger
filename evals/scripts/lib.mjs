@@ -11,16 +11,12 @@ export function assertSafeDescendant(root, target) {
     throw new Error(`Unsafe path: ${resolvedTarget} is not a descendant of ${resolvedRoot}`);
   }
 
-  let current = resolvedRoot;
-  for (const component of relativeTarget.split(sep)) {
-    if (!component) continue;
+  for (let current = resolvedTarget; ; current = resolve(current, "..")) {
     if (existsWithoutFollowingLinks(current) && lstatSync(current).isSymbolicLink()) {
       throw new Error(`Unsafe path: symbolic link in ancestor ${current}`);
     }
-    current = resolve(current, component);
-  }
-  if (existsWithoutFollowingLinks(current) && lstatSync(current).isSymbolicLink()) {
-    throw new Error(`Unsafe path: symbolic link at ${current}`);
+    const parent = resolve(current, "..");
+    if (parent === current) break;
   }
   return resolvedTarget;
 }
@@ -40,7 +36,15 @@ export function sha256File(filePath) {
 }
 
 export function sha256Json(value) {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return createHash("sha256").update(JSON.stringify(canonicalJson(value))).digest("hex");
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+  }
+  return value;
 }
 
 export function run(command, args, options = {}) {
