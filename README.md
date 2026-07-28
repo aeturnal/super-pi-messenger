@@ -1,3 +1,7 @@
+<p>
+  <img src="https://raw.githubusercontent.com/aeturnal/super-pi-messenger/main/banner.png" alt="super-pi-messenger" width="1100">
+</p>
+
 # Super Pi Messenger
 
 **Multi-agent orchestration for Pi, powered by Superpowers.**
