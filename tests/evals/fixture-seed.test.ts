@@ -16,6 +16,22 @@ describe("independent-parallel seed", () => {
     }
   });
 
+  it("assigns exactly one source file and no test files to each task", () => {
+    const prd = readFileSync(resolve(seed, "PRD.md"), "utf8");
+    const tasks = prd.split(/^## Task \d+ — .*$/m).slice(1);
+    expect(tasks).toHaveLength(3);
+    for (const task of tasks) {
+      expect(task).toMatch(/Own only `src\/[\w-]+\.mjs`\./);
+      expect(task).toContain("No test files are owned by this task.");
+    }
+    expect(JSON.parse(readFileSync(resolve(seed, "package.json"), "utf8"))).toEqual({
+      name: "pi-super-messenger-independent-parallel-eval",
+      private: true,
+      type: "module",
+      scripts: { test: "node --test test/*.test.mjs" },
+    });
+  });
+
   it("is intentionally red before workers implement it", () => {
     const result = spawnSync("node", ["--test", ...[
       "test/duration.test.mjs", "test/format-bytes.test.mjs", "test/retry-after.test.mjs",
