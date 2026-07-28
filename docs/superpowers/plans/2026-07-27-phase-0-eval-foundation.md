@@ -837,7 +837,7 @@ git diff --cached --check
 git commit -m "test: record stock independent parallel baseline"
 ```
 
-- [ ] **Step 7: Request code review before integration**
+- [x] **Step 7: Request code review before integration**
 
 Use `superpowers:requesting-code-review` to review the complete feature branch against:
 
