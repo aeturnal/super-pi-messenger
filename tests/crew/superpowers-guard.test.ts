@@ -1,4 +1,9 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  BeforeAgentStartEvent,
+  BeforeAgentStartEventResult,
+  ContextEvent,
+  ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import registerSuperpowersGuard, {
   LEGACY_POLICY_MARKER,
@@ -8,20 +13,39 @@ import registerSuperpowersGuard, {
   stripStockBootstrap,
 } from "../../crew/superpowers-guard.js";
 
-type RegisteredHandler = (event: any, context?: any) => unknown;
+type MaybePromise<T> = T | Promise<T>;
+type BeforeAgentStartHandler = (
+  event: BeforeAgentStartEvent,
+) => MaybePromise<BeforeAgentStartEventResult | void>;
+type ContextHandler = (
+  event: ContextEvent,
+) => MaybePromise<{ messages?: ContextEvent["messages"] } | void>;
+type GuardRegistration =
+  | [event: "before_agent_start", handler: BeforeAgentStartHandler]
+  | [event: "context", handler: ContextHandler];
 
-function captureHandlers(): {
-  pi: ExtensionAPI;
-  handlers: Map<string, RegisteredHandler[]>;
-} {
-  const handlers = new Map<string, RegisteredHandler[]>();
-  const pi = {
-    on: vi.fn((event: string, handler: RegisteredHandler) => {
-      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+type CapturedHandlers = {
+  before_agent_start: BeforeAgentStartHandler[];
+  context: ContextHandler[];
+};
+
+function captureHandlers(): { pi: ExtensionAPI; handlers: CapturedHandlers } {
+  const handlers: CapturedHandlers = {
+    before_agent_start: [],
+    context: [],
+  };
+  const pi: Partial<ExtensionAPI> = {};
+  Object.assign(pi, {
+    on: vi.fn((...registration: GuardRegistration) => {
+      if (registration[0] === "before_agent_start") {
+        handlers.before_agent_start.push(registration[1]);
+      } else {
+        handlers.context.push(registration[1]);
+      }
     }),
-  } as unknown as ExtensionAPI;
+  });
 
-  return { pi, handlers };
+  return { pi: pi as ExtensionAPI, handlers };
 }
 
 afterEach(() => {
@@ -66,6 +90,10 @@ describe("Superpowers child guidance markers", () => {
     expect(result[1]).toBe(approximate);
     expect(result[2]).toBe(thinkingOnly);
     expect(result[3]).toBe(after);
+
+    const typedMessages: ContextEvent["messages"] = [];
+    const typedResult: ContextEvent["messages"] = stripStockBootstrap(typedMessages);
+    expect(typedResult).toEqual([]);
   });
 
   it("strips only the suffix beginning at the exact legacy marker", () => {
@@ -96,7 +124,8 @@ describe("Superpowers child guard activation", () => {
 
     registerSuperpowersGuard(pi);
 
-    expect(handlers.size).toBe(0);
+    expect(handlers.before_agent_start).toHaveLength(0);
+    expect(handlers.context).toHaveLength(0);
   });
 
   it.each(["worker", "reviewer"])(
@@ -108,31 +137,44 @@ describe("Superpowers child guard activation", () => {
 
       registerSuperpowersGuard(pi);
 
-      expect([...handlers.keys()]).toEqual(["before_agent_start", "context"]);
-      expect(handlers.get("before_agent_start")).toHaveLength(1);
-      expect(handlers.get("context")).toHaveLength(1);
+      expect(handlers.before_agent_start).toHaveLength(1);
+      expect(handlers.context).toHaveLength(1);
     },
   );
 
-  it("returns Pi's event result shapes from active handlers", () => {
+  it("returns Pi's event result shapes from active handlers", async () => {
     vi.stubEnv(SUPERPOWERS_CHILD_FLAG, "1");
     vi.stubEnv("PI_CREW_ROLE", "worker");
     const { pi, handlers } = captureHandlers();
     registerSuperpowersGuard(pi);
-    const beforeAgentStart = handlers.get("before_agent_start")?.[0];
-    const context = handlers.get("context")?.[0];
+    const beforeAgentStart = handlers.before_agent_start[0];
+    const context = handlers.context[0];
     if (!beforeAgentStart || !context) throw new Error("guard handlers were not registered");
 
-    expect(beforeAgentStart({
+    expect(await beforeAgentStart({
+      type: "before_agent_start",
+      prompt: "",
       systemPrompt: `base${LEGACY_POLICY_MARKER}legacy`,
+      systemPromptOptions: { cwd: process.cwd() },
     })).toEqual({ systemPrompt: "base" });
 
-    const retained = { role: "user", content: "keep" };
-    expect(context({
-      messages: [
-        retained,
-        { role: "custom", content: STOCK_BOOTSTRAP_MARKER },
-      ],
+    const retained: ContextEvent["messages"][number] = {
+      role: "custom",
+      customType: "test",
+      content: "keep",
+      display: false,
+      timestamp: 0,
+    };
+    const marked: ContextEvent["messages"][number] = {
+      role: "custom",
+      customType: "test",
+      content: STOCK_BOOTSTRAP_MARKER,
+      display: false,
+      timestamp: 0,
+    };
+    expect(await context({
+      type: "context",
+      messages: [retained, marked],
     })).toEqual({ messages: [retained] });
   });
 });

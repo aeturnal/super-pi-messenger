@@ -4,7 +4,7 @@ export const SUPERPOWERS_CHILD_FLAG = "PI_CREW_SUPERPOWERS_MVP";
 export const STOCK_BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
 export const LEGACY_POLICY_MARKER = "<!-- crew-superpowers-policy:";
 
-export function stripStockBootstrap(messages: unknown[]): unknown[] {
+export function stripStockBootstrap<T>(messages: T[]): T[] {
   return messages.filter((message) => {
     if (typeof message !== "object" || message === null) return true;
 
