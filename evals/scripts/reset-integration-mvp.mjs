@@ -52,12 +52,14 @@ function hasExactMarker(marker) {
 }
 
 function requireValidMarker(destination) {
-  const markerPath = join(destination, ".git", MARKER_NAME);
-  let markerStat;
+  const gitDirectory = join(destination, ".git");
+  const markerPath = join(gitDirectory, MARKER_NAME);
   let marker;
 
   try {
-    markerStat = lstatSync(markerPath);
+    const gitDirectoryStat = lstatSync(gitDirectory);
+    if (!gitDirectoryStat.isDirectory() || gitDirectoryStat.isSymbolicLink()) throw new Error("invalid .git type");
+    const markerStat = lstatSync(markerPath);
     if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error("invalid marker type");
     marker = JSON.parse(readFileSync(markerPath, "utf8"));
   } catch {

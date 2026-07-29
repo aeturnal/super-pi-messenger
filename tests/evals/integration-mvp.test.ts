@@ -238,6 +238,31 @@ describe("reset destination guards", () => {
     expect(readFileSync(markerTarget, "utf8")).toBe(JSON.stringify(resetMarker));
   });
 
+  it("rejects a symlinked .git directory without mutating either run", () => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = join(runRoot, "worktree");
+    const otherRun = join(runRoot, "other-run");
+    const otherGitDirectory = join(otherRun, ".git");
+    const linkedGitDirectory = join(destination, ".git");
+    const markerPath = join(otherGitDirectory, "pi-super-messenger-eval-marker.json");
+    const markerText = `${JSON.stringify(resetMarker)}\n`;
+    const destinationSentinel = join(destination, "sentinel.txt");
+    const otherRunSentinel = join(otherRun, "sentinel.txt");
+    mkdirSync(destination, { recursive: true });
+    mkdirSync(otherGitDirectory, { recursive: true });
+    writeFileSync(markerPath, markerText);
+    writeFileSync(destinationSentinel, "preserve destination\n");
+    writeFileSync(otherRunSentinel, "preserve other run\n");
+    symlinkSync(otherGitDirectory, linkedGitDirectory);
+
+    expect(invokeReset(repositoryRoot, destination)).toThrow(/valid integration MVP marker/);
+    expect(lstatSync(linkedGitDirectory).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(linkedGitDirectory)).toBe(otherGitDirectory);
+    expect(readFileSync(destinationSentinel, "utf8")).toBe("preserve destination\n");
+    expect(readFileSync(otherRunSentinel, "utf8")).toBe("preserve other run\n");
+    expect(readFileSync(markerPath, "utf8")).toBe(markerText);
+  });
+
   it("stops at the creation seam for a safe missing destination", () => {
     const { repositoryRoot, runRoot } = createResetRepository();
     const destination = join(runRoot, "worktree");
