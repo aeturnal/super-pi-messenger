@@ -104,9 +104,9 @@ A developer who:
 - The concrete Superpowers adapter owns engineering-method guidance and role-specific quality standards for the MVP; any future provider boundary must preserve the same ownership.
 - The user or outer session owns final integration decisions unless explicitly delegated.
 
-### P2. No nested orchestration
+### P2. No adapter-induced nested orchestration
 
-Crew agents must not start another SDD controller, plan executor, parallel worker tree, or nested worktree unless a task explicitly requests that workflow.
+For the Integration MVP, the adapter must not select, recommend, or inject instructions for SDD, plan execution, parallel worker dispatch, nested worktrees, or branch-finishing workflows into ordinary Crew agents. User-authorized nested workflows and stronger runtime enforcement are deferred unless acceptance evidence requires them.
 
 ### P3. Eliminate duplication before eliminating judgment
 
@@ -188,14 +188,13 @@ The Integration MVP will not:
 
 The first release succeeds when:
 
-1. Existing Crew roles receive compact, relevant guidance from the separately installed stock Superpowers package.
-2. Feature, bug/failing-test, repair, and reviewer roles receive only their intended starting guidance.
-3. Planner guidance, when enabled, does not start another approval loop, plan executor, or competing controller.
-4. Crew agents do not start nested orchestration in focused rendering and representative live acceptance tests.
-5. Superpowers absence leaves native pi-messenger behavior unchanged.
-6. Missing required resources produce an actionable warning and complete native fallback.
-7. Selected skills, resolved paths, reasons, and prohibited workflows are minimally inspectable.
-8. Existing pi-messenger tests remain green and no broad execution subsystem is rewritten as a prerequisite.
+1. Existing Crew workers and reviewers receive compact, relevant guidance from the separately installed stock Superpowers package.
+2. Workers and reviewers receive only their intended starting guidance.
+3. The adapter does not select, recommend, or inject nested-orchestration workflows into ordinary Crew agents.
+4. Superpowers absence leaves native pi-messenger behavior unchanged.
+5. Missing required resources produce an actionable warning and complete native fallback.
+6. Selected skills, resolved paths, reasons, and prohibited workflows are minimally inspectable.
+7. Existing pi-messenger tests remain green and no broad execution subsystem is rewritten as a prerequisite.
 
 ### 8.2 Long-term product success
 
@@ -242,9 +241,9 @@ The adapter must:
 - Discover the installed Superpowers package through Pi resource metadata or configured package paths.
 - Detect the installed version when available.
 - Use actual installed skill names, descriptions, and paths.
-- Select only the skills relevant to the current Crew role, task type, and attempt type.
+- Select only the skills relevant to the current supported Crew role and existing assignment context.
 - Preserve Crew ownership of orchestration.
-- Prevent nested controllers, nested worktrees, and unauthorized integration actions.
+- Not select, recommend, or inject nested controllers, nested worktrees, or unauthorized integration actions into ordinary Crew agents.
 - Warn and fall back completely when a known-incompatible installation or missing required skill makes safe guidance impossible.
 - Remain inactive when Superpowers is unavailable so native pi-messenger behavior is unchanged.
 
@@ -257,9 +256,9 @@ The adapter must not:
 
 ### 10.3 Per-launch policy selection record
 
-Before launching a Crew agent, the adapter must create a compact inspectable selection record that records:
+Before launching a supported Crew agent, the adapter must create a compact inspectable selection record that records:
 
-- The agent's role, task, and attempt type
+- The agent's existing Crew role and assignment identifier or context when available
 - The detected Superpowers version
 - The required starting skills selected for the agent
 - The installed paths used for those skills
@@ -287,7 +286,7 @@ If a second provider is approved or the concrete Superpowers adapter reveals sta
 
 ## 11. Functional Requirements
 
-The requirements below remain the long-term catalog. The active Integration MVP requirements are FR-POL-001 through FR-POL-007 as qualified below; FR-SKL-001 through FR-SKL-010 as qualified below; minimal status behavior from FR-UI-001; and applicable quality/safety requirements. Other requirements remain deferred until a rollout milestone explicitly activates them. Deferred requirements must not be implemented early solely to establish speculative foundations.
+The requirements below remain the long-term catalog. The active Integration MVP requirements are FR-POL-001 through FR-POL-007 as qualified below; FR-SKL-001, FR-SKL-004, and FR-SKL-006 through FR-SKL-010 as qualified below; minimal status behavior from FR-UI-001; and applicable quality/safety requirements. Specialized bug, repair, and planner guidance in FR-SKL-002, FR-SKL-003, and FR-SKL-005 is deferred. Other requirements remain deferred until a rollout milestone explicitly activates them. Deferred requirements must not be implemented early solely to establish speculative foundations.
 
 ## 11.1 Policy discovery and compatibility
 
@@ -323,27 +322,27 @@ If Superpowers is unavailable, the compatibility layer must remain inactive and 
 
 ### FR-SKL-001
 
-A normal feature worker should receive TDD and verification guidance.
+An existing Crew worker should receive TDD and verification guidance.
 
 ### FR-SKL-002
 
-A bug or failing-test worker should receive systematic-debugging, TDD, and verification guidance.
+Deferred beyond the Integration MVP: a deterministically classified bug or failing-test worker should receive systematic-debugging, TDD, and verification guidance.
 
 ### FR-SKL-003
 
-A review repair worker should receive receiving-code-review, relevant implementation discipline, and verification guidance.
+Deferred beyond the Integration MVP: a deterministically classified review repair worker should receive receiving-code-review, relevant implementation discipline, and verification guidance.
 
 ### FR-SKL-004
 
-A reviewer should receive review rubric and evidence-validation guidance without being instructed to dispatch another reviewer.
+An existing Crew reviewer should receive review rubric and evidence-validation guidance without being instructed to dispatch another reviewer.
 
 ### FR-SKL-005
 
-Planner integration is a separate MVP milestone. It must adapt planning and decomposition principles without blindly loading a complete workflow that starts a second human approval loop, plan executor, or competing controller inside autonomous Crew planning.
+Deferred beyond the Integration MVP: planner integration should adapt planning and decomposition principles without blindly loading a complete workflow that starts a second human approval loop, plan executor, or competing controller inside autonomous Crew planning.
 
 ### FR-SKL-006
 
-No Crew role may start SDD, executing-plans, nested worktrees, or branch-finishing workflows unless the assigned task explicitly requests the workflow itself.
+For the Integration MVP, the adapter must not select, recommend, or inject SDD, executing-plans, parallel-dispatch, nested-worktree, or branch-finishing workflows into ordinary Crew roles.
 
 ### FR-SKL-007
 
@@ -937,37 +936,23 @@ Phase 1 delivers the motivating integration while preserving native pi-messenger
 - Missing required resources produce complete native fallback, not partial guidance.
 - Existing pi-messenger tests remain green.
 
-### Milestone 1.2: Worker, repair, and reviewer guidance
+### Milestone 1.2: Worker and reviewer guidance
 
-- Add a concrete role-to-skill mapping for feature workers, bug/failing-test workers, repair workers, and reviewers.
+- Add a concrete role-to-skill mapping for existing Crew workers and reviewers.
 - Render compact Crew ownership invariants, selected installed skill references, short selection reasons, and prohibited workflows.
-- Give feature workers TDD and verification guidance.
-- Give bug/failing-test workers systematic debugging, TDD, and verification guidance.
-- Give repair workers code-review-response guidance plus relevant implementation and verification discipline.
+- Give workers TDD and verification guidance.
 - Give reviewers evidence-validation guidance without nested reviewer dispatch.
-- Never recommend SDD, executing-plans, parallel-dispatch, nested worktrees, or branch-finishing workflows to an ordinary Crew role unless its assigned task explicitly requests that workflow.
+- Do not select, recommend, or inject SDD, executing-plans, parallel-dispatch, nested-worktree, or branch-finishing workflows into ordinary Crew roles.
 - Preserve existing task prompts, project agent overrides, launch behavior, task state, review behavior, and scheduling.
 
 #### Exit criteria
 
-- Each supported role receives only its intended starting guidance.
+- Workers and reviewers receive only their intended starting guidance.
 - Rendered guidance is smaller than the existing global role matrix.
 - Selected paths come from the installed package rather than hardcoded copies.
 - Crew remains the sole orchestration and task authority.
 
-### Milestone 1.3: Planner compatibility
-
-- Design planner-specific adaptation separately from worker guidance.
-- Apply planning and decomposition principles without blindly loading a complete workflow that starts another human approval loop, planner, executor, or controller.
-- Keep existing Crew planning output and task state authoritative.
-- Add focused planner rendering and behavior tests before enabling planner guidance.
-
-#### Exit criteria
-
-- Planner guidance improves decomposition discipline without starting competing orchestration.
-- Existing autonomous planning behavior remains operable without an added approval loop.
-
-### Milestone 1.4: Inspectability and acceptance
+### Milestone 1.3: Inspectability and acceptance
 
 - Expose active, inactive, or fallback status plus selected skills, resolved paths, short reasons, and prohibited workflows through tests and minimal Crew status.
 - Keep the selection record per launch; do not add durable manifest persistence unless evidence shows post-launch inspection requires it.
@@ -1135,6 +1120,7 @@ Do not implement this theme for the Integration MVP. Consider it only after a se
 
 ### Milestone 5C: Broader skill and context delivery
 
+- Add specialized bug, repair, and planner guidance only after a deterministic role or assignment classification contract exists.
 - Inject full metadata only for recommended skills.
 - Preserve a compact index or query path for other discoverable skills.
 - Avoid repeating complete skill catalogs in every agent prompt.
@@ -1331,8 +1317,8 @@ Super Pi Messenger may ship its first usable integration when:
 
 - Stock Superpowers remains separately installed and no skill bodies are copied.
 - Required installed skills are resolved dynamically by actual path.
-- Feature, bug/failing-test, repair, and reviewer roles receive only their intended compact starting guidance.
-- Planner guidance, if enabled, does not start a second approval or execution workflow.
+- Existing Crew workers and reviewers receive only their intended compact starting guidance.
+- The adapter does not select, recommend, or inject nested-orchestration workflows into ordinary Crew agents.
 - Crew remains the sole orchestration and task authority.
 - Superpowers absence preserves native pi-messenger behavior without warning.
 - Missing required resources produce one actionable warning and complete native fallback.
