@@ -3,8 +3,15 @@
 **Product name:** Super Pi Messenger
 **Repository:** Focused fork of `nicobailon/pi-messenger`  
 **Date:** 2026-07-27  
-**Status:** Approved through section-by-section review  
-**Primary optimization target:** Coherent integration, quality, autonomy, parallel speed, and reduced duplicated work
+**Revised:** 2026-07-29
+**Status:** Revised for Integration MVP review
+**Primary optimization target:** Deliver a coherent, thin integration first; keep broader Crew improvements evidence-gated
+
+### How to read this PRD
+
+This document is the long-term product vision and requirements catalog. A requirement is not automatically a prerequisite for the first usable integration. The rollout section identifies which requirements are active in each delivery milestone; requirements assigned to later roadmap themes must not be implemented early as speculative foundations.
+
+The first active delivery target is the concrete Superpowers Integration MVP. It preserves native pi-messenger execution semantics except for a narrowly scoped, independently tested defect that directly blocks MVP acceptance or creates an immediate safety problem. Broader execution, review, repair, recovery, observability, context, routing, and provider-platform work remains evidence-gated roadmap scope.
 
 ## 1. Product Summary
 
@@ -21,18 +28,24 @@ The product will preserve pi-messenger's defining capabilities:
 - Autonomous execution
 - Crew overlay and activity feed
 
-It will add:
+The first release will add:
 
-- A generic policy-provider interface
-- A thin, dynamically loaded Superpowers adapter
-- Exact task-owned review diffs
+- A thin, concrete, dynamically loaded Superpowers adapter
+- Compact role-specific Superpowers guidance for existing Crew agents
+- Explicit Crew ownership invariants and nested-orchestration prevention
+- Safe native fallback when Superpowers is absent or required skills cannot be resolved
+- Minimal inspectability for selected skills, paths, reasons, and prohibited workflows
+- Focused rendering and representative live acceptance tests
+
+The long-term roadmap may later add, when evidence justifies each milestone:
+
+- Exact task-owned review diffs and integration review
 - Scoped repair and re-review workflows
-- Explicit wave-level integration review
+- Focused execution-correctness and recovery improvements
 - Failure classification and bounded retries
-- Reduced duplicated context and work without execution limits
-- Compact, relevant agent context
-- Structured routine status with flexible agent communication
-- Bounded opt-in diagnostic artifacts
+- Reduced duplicated context and work
+- Structured routine status and bounded diagnostic artifacts
+- A generic policy-provider interface if a second provider or demonstrated duplication warrants extraction
 
 Superpowers will remain a separate stock installation and source of truth for its skills. The fork will not copy or rewrite Superpowers skill bodies.
 
@@ -46,7 +59,7 @@ Pi-messenger provides a strong multi-agent runtime, but current Crew behavior ca
 
 Superpowers provides disciplined planning, TDD, debugging, verification, and review workflows, but it does not provide pi-messenger's persistent multi-agent task room, dependency scheduler, messaging, reservations, presence, or Crew UI.
 
-The existing local Crew–Superpowers adapter establishes the correct ownership boundary but is only a prompt overlay. It does not alter Crew's review, repair, retry, scheduling, or diff behavior. It also hardcodes the current Superpowers skill catalog and adds a large role matrix to every Crew agent.
+The existing local Crew–Superpowers adapter establishes the correct ownership boundary but hardcodes the current Superpowers skill catalog and adds a large role matrix to every Crew agent. The first product step is to replace that broad prompt overlay with compact, dynamically resolved, role-specific guidance. Altering Crew's review, repair, retry, scheduling, or diff behavior is not a prerequisite for proving this integration.
 
 Users therefore face an unsatisfactory choice:
 
@@ -88,7 +101,7 @@ A developer who:
 ### P1. One owner per responsibility
 
 - Pi-messenger owns task decomposition, scheduling, task state, reservations, communication, process lifecycle, review dispatch, and completion state.
-- Policy providers own engineering-method guidance and role-specific quality standards.
+- The concrete Superpowers adapter owns engineering-method guidance and role-specific quality standards for the MVP; any future provider boundary must preserve the same ownership.
 - The user or outer session owns final integration decisions unless explicitly delegated.
 
 ### P2. No nested orchestration
@@ -127,7 +140,7 @@ Maintain its identity as a file-based multi-agent coordination and Crew orchestr
 
 ### G2. Support an update-safe Superpowers integration
 
-Allow Crew behavior to use the installed stock Superpowers methodology through a generic policy boundary. Superpowers is the initial product integration; the boundary should not prevent future providers, but additional providers are not initial scope.
+Allow existing Crew roles to use the separately installed stock Superpowers methodology through one concrete adapter. Resolve actual installed skills and paths, preserve native fallback, and avoid interfaces that would prevent later extraction if a second provider is approved. A generic provider platform is not initial scope.
 
 ### G3. Reduce duplicated work and context
 
@@ -151,7 +164,7 @@ Organize changes into clear, tested modules so the fork can be maintained withou
 
 ## 7. Non-Goals
 
-The first product version will not:
+The Integration MVP will not:
 
 - Fork or modify Superpowers.
 - Copy Superpowers `SKILL.md` files or prompt templates into this repository.
@@ -165,19 +178,37 @@ The first product version will not:
 - Reduce implementation, testing, verification, or review quality merely to reduce model usage.
 - Automatically merge, push, create pull requests, delete branches, or clean worktrees without explicit authorization.
 - Treat free-form worker chat as a substitute for deterministic scheduling and dependency tracking.
+- Rewrite Crew scheduling, controller ownership, attempts, completion, review, repair, cancellation, restart recovery, artifacts, overlay behavior, model routing, or planning as an integration prerequisite.
+- Add a generic policy-provider registry before a second provider or concrete duplicated boundary requires one.
+- Add dormant schemas or lifecycle machinery whose consuming behavior is deferred to a later milestone.
 
 ## 8. Success Definition
 
-The product succeeds when the integrated Crew workflow:
+### 8.1 Integration MVP success
 
-1. Finishes suitable parallel work faster in wall-clock time than a comparable sequential Superpowers workflow.
-2. Produces fewer avoidable retries and better methodology adherence than stock pi-messenger.
-3. Uses substantially less duplicated reviewer and retry context than stock Crew.
-4. Preserves or improves important-defect detection.
-5. Does not start nested orchestration.
-6. Preserves normal pi-messenger behavior when Superpowers is absent and falls back safely when it is unsupported.
-7. Prevents unbounded artifact, retry, and quota-failure behavior.
-8. Keeps external policy updates independent of pi-messenger releases.
+The first release succeeds when:
+
+1. Existing Crew roles receive compact, relevant guidance from the separately installed stock Superpowers package.
+2. Feature, bug/failing-test, repair, and reviewer roles receive only their intended starting guidance.
+3. Planner guidance, when enabled, does not start another approval loop, plan executor, or competing controller.
+4. Crew agents do not start nested orchestration in focused rendering and representative live acceptance tests.
+5. Superpowers absence leaves native pi-messenger behavior unchanged.
+6. Missing required resources produce an actionable warning and complete native fallback.
+7. Selected skills, resolved paths, reasons, and prohibited workflows are minimally inspectable.
+8. Existing pi-messenger tests remain green and no broad execution subsystem is rewritten as a prerequisite.
+
+### 8.2 Long-term product success
+
+After the MVP is operating, later evidence-driven releases may additionally demonstrate:
+
+- Faster suitable parallel work than a comparable sequential workflow
+- Fewer avoidable retries and less duplicated context
+- Correct task and integration review scope
+- Efficient bounded repair
+- Improved failure handling and recoverability
+- Bounded memory and artifact growth
+- Continued important-defect detection
+- Maintainable compatibility with external Superpowers updates
 
 ## 9. Runtime Ownership
 
@@ -185,53 +216,26 @@ When pi-messenger and Superpowers are installed together, the compatibility laye
 
 During a Crew run, pi-messenger owns orchestration and Superpowers supplies relevant engineering discipline. Outside Crew, Superpowers may guide the interactive workflow while pi-messenger's messaging, presence, and reservation tools remain available without injecting competing orchestration.
 
-If Superpowers is not installed, the compatibility layer remains inactive and pi-messenger behaves exactly as it normally would. If Superpowers is installed but incompatible, the layer must warn and either use safe known mappings or suppress the incompatible Crew integration while allowing native pi-messenger behavior. It must never silently allow both systems to issue conflicting orchestration instructions.
+If Superpowers is not installed, the compatibility layer remains inactive and pi-messenger behaves exactly as it normally would. If Superpowers appears installed but the MVP cannot resolve its required skills safely, the adapter must emit one actionable warning and apply no integration policy. Configurable compatibility modes may be added later if real version differences require them. The adapter must never silently allow both systems to issue conflicting orchestration instructions.
 
 ## 10. System Architecture
 
-### 10.1 Layer 1: Crew execution engine
+### 10.1 Existing Crew execution engine
 
-The fork remains responsible for:
+For the Integration MVP, pi-messenger's existing Crew engine remains authoritative and behaviorally unchanged except for a focused blocker fix approved under the MVP acceptance criteria. It continues to own:
 
-- Agent spawning
-- Explicit role metadata
+- Agent spawning and existing role/task metadata
 - Task graph and wave scheduling
-- Task state
-- Worker ownership
+- Task state and worker ownership
 - File reservations
-- Agent messaging
-- Progress tracking
-- Commit ownership
-- Review package creation
-- Repair lifecycle
-- Integration review
-- Failure classification
-- Cancellation and recovery
+- Agent messaging and progress tracking
+- Existing review, retry, cancellation, overlay, and process behavior
 
-### 10.2 Layer 2: Policy-provider interface
+The MVP must not introduce a second task authority or require a replacement scheduler, lease, attempt, review, repair, or recovery subsystem.
 
-A generic interface supplies lifecycle-specific policy decisions.
+### 10.2 Concrete Superpowers adapter
 
-Conceptual contract:
-
-```ts
-interface CrewPolicyProvider {
-  id: string;
-  version?: string;
-
-  discover(context: PolicyDiscoveryContext): PolicyCapabilities;
-  preparePlan(context: PlanningContext): PlanningPolicy;
-  prepareWorker(context: WorkerContext): WorkerPolicy;
-  prepareReview(context: ReviewContext): ReviewPolicy;
-  prepareRepair(context: RepairContext): RepairPolicy;
-  prepareIntegration(context: IntegrationContext): IntegrationPolicy;
-  validateCompletion(context: CompletionContext): CompletionValidation;
-}
-```
-
-The final TypeScript interface may differ, but it must preserve these lifecycle boundaries.
-
-### 10.3 Layer 3: Superpowers adapter
+One concrete adapter discovers and selects guidance from the separately installed stock Superpowers package. Clean private functions are encouraged, but a public generic provider API and registry are deferred until a second provider is approved or concrete duplication demonstrates a stable shared boundary.
 
 The adapter must:
 
@@ -241,7 +245,7 @@ The adapter must:
 - Select only the skills relevant to the current Crew role, task type, and attempt type.
 - Preserve Crew ownership of orchestration.
 - Prevent nested controllers, nested worktrees, and unauthorized integration actions.
-- Warn when the installed major version is outside tested compatibility.
+- Warn and fall back completely when a known-incompatible installation or missing required skill makes safe guidance impossible.
 - Remain inactive when Superpowers is unavailable so native pi-messenger behavior is unchanged.
 
 The adapter must not:
@@ -251,9 +255,9 @@ The adapter must not:
 - Invoke `using-superpowers` as a complete workflow inside dispatched Crew agents.
 - Inject the full Superpowers skill matrix into every role.
 
-### 10.4 Agent policy manifest
+### 10.3 Per-launch policy selection record
 
-Before launching a Crew agent, the adapter must create a compact policy manifest that records:
+Before launching a Crew agent, the adapter must create a compact inspectable selection record that records:
 
 - The agent's role, task, and attempt type
 - The detected Superpowers version
@@ -262,22 +266,28 @@ Before launching a Crew agent, the adapter must create a compact policy manifest
 - A short reason each skill was selected
 - Any orchestration workflows explicitly prohibited for that agent
 
-The manifest must be inspectable in tests and Crew status without storing the complete system prompt. It defines the agent's required starting guidance but must not prevent the agent from discovering and using other relevant installed skills.
+The selection record must be inspectable in tests and minimal Crew status without storing the complete system prompt. Durable persistence is not required for MVP unless implementation evidence shows post-launch inspection cannot otherwise be supported. Required starting guidance must not prevent the agent from discovering and using other relevant installed skills.
 
-### 10.5 Explicit Crew process metadata
+### 10.4 Role and ownership input
 
-Every spawned Crew process must receive explicit metadata rather than relying on prompt-heading detection:
+The adapter should use reliable role/task metadata already available at the existing common launch boundary. It may add explicit bounded metadata when the existing launcher supports it without redesign, but an execution-metadata migration is not an MVP prerequisite. A possible later contract is:
 
 ```text
 PI_CREW_ROLE=planner|worker|reviewer|analyst|integration-reviewer
 PI_CREW_TASK_ID=<task-id when applicable>
 PI_CREW_ATTEMPT_KIND=initial|repair|replan|review|rereview|integration
-PI_CREW_POLICY_PROVIDER=superpowers|custom
+PI_CREW_POLICY_PROVIDER=superpowers
 ```
 
-Additional metadata may be added if it is stable, bounded, and useful.
+Additional metadata may be added later if it is stable, bounded, useful, and justified by delivered behavior.
+
+### 10.5 Conditional future provider extraction
+
+If a second provider is approved or the concrete Superpowers adapter reveals stable duplicated boundaries, a separate design may extract a generic provider interface. That future extraction must preserve native fallback and isolate provider failures from Crew task state; it is not part of the Integration MVP.
 
 ## 11. Functional Requirements
+
+The requirements below remain the long-term catalog. The active Integration MVP requirements are FR-POL-001 through FR-POL-007 as qualified below; FR-SKL-001 through FR-SKL-010 as qualified below; minimal status behavior from FR-UI-001; and applicable quality/safety requirements. Other requirements remain deferred until a rollout milestone explicitly activates them. Deferred requirements must not be implemented early solely to establish speculative foundations.
 
 ## 11.1 Policy discovery and compatibility
 
@@ -299,15 +309,11 @@ Unknown skills must remain discoverable but must not automatically gain orchestr
 
 ### FR-POL-005
 
-The adapter must expose the detected Superpowers version and compatibility status in Crew status output.
+The adapter must expose active, inactive, or fallback status, the detected Superpowers version when readily available, and an actionable fallback reason in minimal Crew status output.
 
 ### FR-POL-006
 
-Unsupported major versions must produce a warning and configurable behavior:
-
-- `warn`: continue with safe known mappings
-- `strict`: suppress the incompatible Superpowers Crew integration and continue with native pi-messenger behavior
-- `ignore`: continue with the installed integration without a compatibility warning
+Configurable compatibility modes are deferred. For the Integration MVP, unresolved required resources or a known incompatible installation must produce an actionable warning and complete native fallback; partial policy injection is forbidden.
 
 ### FR-POL-007
 
@@ -333,7 +339,7 @@ A reviewer should receive review rubric and evidence-validation guidance without
 
 ### FR-SKL-005
 
-A planner should receive planning and decomposition principles without starting a second human approval loop inside autonomous Crew planning.
+Planner integration is a separate MVP milestone. It must adapt planning and decomposition principles without blindly loading a complete workflow that starts a second human approval loop, plan executor, or competing controller inside autonomous Crew planning.
 
 ### FR-SKL-006
 
@@ -345,11 +351,11 @@ The generated policy prompt must include only applicable skills and compact shar
 
 ### FR-SKL-008
 
-Before launch, every Crew agent must have an inspectable policy manifest showing its selected Superpowers skills and why they were selected.
+Before launch, every supported MVP Crew role must have an inspectable per-launch selection record showing its selected Superpowers skills, resolved paths, short reasons, and prohibited workflows. Durable manifest persistence is deferred unless evidence requires it.
 
 ### FR-SKL-009
 
-The controller must validate that every required skill in the manifest exists at the discovered installed path. Missing required skills must produce an actionable compatibility error rather than silently launching with incomplete guidance.
+The adapter must validate that every required selected skill exists at the discovered installed path. Missing required skills must produce an actionable compatibility warning and complete native fallback rather than silently launching with incomplete guidance.
 
 ### FR-SKL-010
 
@@ -736,7 +742,7 @@ Targeted tests should be preferred during task work and repair, with broader sui
 
 ### FR-UI-001
 
-Crew status must display the active policy provider and compatibility status.
+For the Integration MVP, Crew status must display whether the concrete Superpowers adapter is active, inactive, or in native fallback, with selected skills/reasons when active and an actionable reason when fallback occurs. Generic provider status is deferred.
 
 ### FR-UI-002
 
@@ -767,7 +773,9 @@ The activity feed must use compact deterministic events for routine policy, revi
 
 ## 12. Configuration Requirements
 
-A representative configuration may look like:
+The Integration MVP should require no new user configuration when supported Superpowers resources are available. Absence remains silently native; incomplete or known-incompatible resources produce an actionable warning and complete native fallback. Configurable compatibility modes and the broader representative configuration below are deferred roadmap requirements.
+
+A representative future configuration may look like:
 
 ```json
 {
@@ -816,12 +824,18 @@ Agent prompt behavior must have both rendering tests and live acceptance tests w
 
 ### QR-004
 
-The project must include regression tests for:
+The Integration MVP regression set must cover:
 
 - Nested orchestration prevention
-- Explicit role metadata
-- Dynamic skill discovery
-- Per-agent policy manifest selection and path validation
+- Dynamic installed-skill discovery
+- Per-launch skill selection, path validation, reasons, and prohibited workflows
+- Complete native fallback
+- Role-specific compact prompt rendering
+- Preservation of existing project agent overrides and native launch behavior
+
+Later activated milestones must add regression tests for:
+
+- Explicit role metadata when introduced
 - Exact task review ranges
 - Parallel task commit ownership
 - Scoped-repair eligibility, repair-worker escalation, and design-aware re-review
@@ -840,7 +854,7 @@ No test may claim compatibility with the current installed Superpowers catalog b
 
 ### QR-006
 
-Policy-provider failures must not corrupt Crew task state.
+Superpowers adapter failures must not corrupt Crew task state or leave partially applied policy. The same requirement applies to any future extracted provider boundary.
 
 ### QR-007
 
@@ -848,35 +862,45 @@ Project-local policy code or configuration must obey Pi project trust rules.
 
 ### QR-008
 
-Extensions and policy providers must be treated as trusted executable code and documented accordingly.
+Extensions and the concrete Superpowers adapter must be treated as trusted executable code and documented accordingly. The same rule applies to any future policy provider.
 
 ## 14. Initial Eval Requirements
 
-The initial product must use a small, maintainable eval suite rather than building a general-purpose benchmark platform. It must cover three representative workflows:
+The Integration MVP must use focused rendering tests plus a minimal live acceptance set rather than building a general-purpose benchmark platform:
+
+1. One representative Crew worker can access and follow its selected installed methodology.
+2. One representative dispatched Crew agent does not start nested orchestration.
+3. Native behavior remains unchanged when Superpowers is absent.
+
+The existing long-term eval definitions remain valuable roadmap fixtures:
 
 1. Several independent tasks that can run in parallel
 2. Parallel tasks that share an exported interface
 3. A review returning `NEEDS_WORK` followed by scoped repair and re-review
 
-Each eval must have a resettable repository fixture, a defined task, known acceptance checks, and a simple results record. All three task definitions and acceptance checks must be written before implementing the related product behavior, but the fixtures and baselines should be built incrementally alongside the relevant rollout phase. The integrated fork should be evaluated directly and compared with stock pi-messenger on the same tasks. A stock Superpowers-only run may be recorded as a useful reference, but it is not required for every eval or release gate.
+Each activated eval must have a resettable repository fixture, a defined task, known acceptance checks, and a simple results record. Build and baseline a fixture only when its related behavior is active; do not require review/repair fixtures to block the Integration MVP. The integrated fork should be evaluated directly and compared with stock pi-messenger where the comparison answers a current milestone question. A stock Superpowers-only run may be recorded as a useful reference, but it is not required for every eval or release gate.
 
 Initial eval results should record:
 
 - Whether the requested work and automated checks pass
 - Important findings and escaped defects
-- Correct task-review and integration-review scope
-- Whether scoped repair resolves the original finding
+- Correct task-review and integration-review scope when that roadmap behavior is under evaluation
+- Whether scoped repair resolves the original finding when repair is under evaluation
 - Unexpected nested orchestration
 - Agent sessions, retries, review cycles, human interventions, and wall-clock duration
 - Existing provider usage metadata when readily available
 
 The eval tooling should remain simple: small fixtures, reset scripts, acceptance checks, and a Markdown or structured results file. It must not become a product telemetry system or a separate benchmark platform.
 
-Provider failures, quota handling, large output access, worker crashes, and orchestrator recovery must be covered primarily by deterministic unit and integration tests. They may become model evals later if real failures show that deterministic tests are insufficient.
+When their roadmap milestones activate, provider failures, quota handling, large output access, worker crashes, and orchestrator recovery must be covered primarily by deterministic unit and integration tests. They may become model evals later if real failures show that deterministic tests are insufficient.
 
 ## 15. Rollout Plan
 
-The numbered phases below are roadmap themes, not single implementation units. Their lettered and decimal milestones are the independently planned and reviewed delivery units. Each milestone must leave the repository in a safe, working, migrated, and independently testable state; no milestone may rely on unfinished later work to remain safe. Existing Phase 1A and Phase 1B design documents are umbrella designs whose implementation is divided into the milestones below. Each milestone receives its own implementation plan, and a separate design document when its remaining architectural decisions warrant one.
+The numbered phases below identify the active delivery sequence; later sections labeled as future roadmap themes are not active implementation commitments. Milestones are independently planned and reviewed delivery units. Each milestone must leave the repository safe, working, migrated, and independently testable; no milestone may rely on unfinished later work to remain safe. Each active milestone receives its own implementation plan and a separate design when architectural decisions remain.
+
+The existing Phase 1A and Phase 1B execution designs are preserved as design research, not active implementation contracts. Their experimental branch remains unmerged by default. Before that worktree is modified or removed, preserve unfinished Task 4 work as an explicitly labeled WIP commit or patch. Restarting work derived from those designs requires a new evidence-based scope decision and explicit design approval.
+
+A milestone must be rescoping-reviewed before implementation when it has more than one operational outcome, introduces more than one durable lifecycle state, combines persistence/migration/provider invocation/recovery, touches substantially more than 1–4 production files, or is expected to exceed roughly 200–400 production lines. These are review triggers rather than rigid limits. Implementation-plan tasks should carry one focused RED/GREEN cycle, one coherent reviewer gate, and one commit.
 
 ## Phase 0: Baseline and fork hygiene
 
@@ -894,77 +918,126 @@ The numbered phases below are roadmap themes, not single implementation units. T
 - The independent-parallel-task smoke eval and stock baseline are usable.
 - No Superpowers content is copied.
 
-## Phase 1: Execution correctness, reliability, and observability
+## Phase 1: Concrete Superpowers Integration MVP
 
-### Phase 1A: Execution correctness
+Phase 1 delivers the motivating integration while preserving native pi-messenger execution behavior. Each milestone is vertical, independently useful, and reviewed before the next begins. A narrowly scoped native-runtime fix is allowed only when a focused failing test proves it blocks MVP acceptance or creates an immediate safety problem.
 
-#### Milestone 1A.1: Identity and scheduler foundation
+### Milestone 1.1: Discovery and complete native fallback
 
-- Add immutable plan run identity and an exclusive controller lease.
-- Persist the versioned scheduler record and pure authorization state machine.
-- Fail closed after controller restart, lease loss, replan, or run-identity change.
-- Add deterministic scheduler-idle and reconciliation test hooks.
+- Discover the separately installed stock Superpowers package through Pi-supported resource or command metadata.
+- Resolve the small set of required MVP skills by actual installed name and path without copying skill bodies.
+- When Superpowers is absent, remain silently inactive and preserve native pi-messenger behavior.
+- When Superpowers appears present but required resources cannot be resolved, emit one actionable warning and apply no integration policy.
+- Build the complete adapter result before changing a launch prompt so failed activation cannot leave partial policy.
 
-#### Milestone 1A.2: Durable attempt, completion, and review lifecycle
+#### Exit criteria
 
-- Add the durable attempt, completion, cancellation, and legacy-review state primitives before activating the unified scheduler.
-- Give every dispatch a durable `attempt_id` and process identity.
-- Make `task.done` an attempt-scoped, idempotent compare-and-set operation that enters durable `review_pending` when review is enabled.
-- Add durable review claims and commit outcomes against the active controller, attempt, and claim token.
-- Persist cancellation intent and apply deterministic completion, review, cancellation, and close precedence.
-- Make attempt charging and cancellation rollback occur at most once.
-- Prevent dependencies from unlocking before a successful review, and reconcile stale claims and late or duplicate outcomes safely.
+- Supported resources activate the adapter deterministically.
+- Superpowers absence leaves existing launch prompts and behavior unchanged.
+- Missing required resources produce complete native fallback, not partial guidance.
+- Existing pi-messenger tests remain green.
 
-#### Milestone 1A.3: Unified dispatch and scheduler activation
+### Milestone 1.2: Worker, repair, and reviewer guidance
 
-- Activate wave, continuous, targeted, idle, and paused authorization semantics only after the durable attempt and review lifecycle is available.
-- Route commands, overlay actions, ordinary workers, and lobby workers through one scheduler-owned launch path.
-- Enforce concurrency, dependency, reservation, outstanding-review, and authorization checks in one place.
-- Preserve the required built-in and extension tool contract, including `pi_messenger`.
-- Verify complete wave drain, retry, review, cancellation, and restart behavior through the unified scheduler.
+- Add a concrete role-to-skill mapping for feature workers, bug/failing-test workers, repair workers, and reviewers.
+- Render compact Crew ownership invariants, selected installed skill references, short selection reasons, and prohibited workflows.
+- Give feature workers TDD and verification guidance.
+- Give bug/failing-test workers systematic debugging, TDD, and verification guidance.
+- Give repair workers code-review-response guidance plus relevant implementation and verification discipline.
+- Give reviewers evidence-validation guidance without nested reviewer dispatch.
+- Never recommend SDD, executing-plans, parallel-dispatch, nested worktrees, or branch-finishing workflows to an ordinary Crew role unless its assigned task explicitly requests that workflow.
+- Preserve existing task prompts, project agent overrides, launch behavior, task state, review behavior, and scheduling.
 
-### Phase 1B: Minimal reliability and observability
+#### Exit criteria
 
-#### Milestone 1B.1: Process metadata and pure failure classification
+- Each supported role receives only its intended starting guidance.
+- Rendered guidance is smaller than the existing global role matrix.
+- Selected paths come from the installed package rather than hardcoded copies.
+- Crew remains the sole orchestration and task authority.
 
-- Validate explicit Crew role, task, attempt, and policy-provider metadata before spawn.
-- Add the pure failure classifier, sanitized reason keys, retry fingerprints, and strict `Retry-After` parsing.
-- Keep classifier output observational in this milestone; do not activate quota suppression or other lifecycle transitions until their durable destinations exist.
+### Milestone 1.3: Planner compatibility
 
-#### Milestone 1B.2: Durable pause and recovery foundations
+- Design planner-specific adaptation separately from worker guidance.
+- Apply planning and decomposition principles without blindly loading a complete workflow that starts another human approval loop, planner, executor, or controller.
+- Keep existing Crew planning output and task state authoritative.
+- Add focused planner rendering and behavior tests before enabling planner guidance.
 
-- Add the durable `paused` task state, versioned pause records, and canonical quota-record schema.
-- Implement plan-wide embargo, task-scoped pause, workspace-identity, and recovery-record primitives behind inactive controller boundaries.
-- Add restart reconciliation for pause records and failure fingerprints without activating quota suppression or creating unrecoverable embargoes.
-- Keep existing runtime failure behavior unchanged until the complete recovery protocol is available.
+#### Exit criteria
 
-#### Milestone 1B.3: Recovery protocol and failure-policy activation
+- Planner guidance improves decomposition discipline without starting competing orchestration.
+- Existing autonomous planning behavior remains operable without an added approval loop.
 
-- Add explicit `recover` claims, recovery tokens, and single-owner recovery authorization.
-- Implement the dormant-child launch barrier and its crash-boundary reconciliation.
-- Validate bounded workspace identity and unfinished-file ownership before recovery.
-- Reacquire reservations and commit recovery results without claiming to preserve private model reasoning.
-- Activate plan-wide quota embargoes, task-scoped protocol pauses, durable-state capture, and safe reservation release only with the recovery path available.
-- Activate quota and authentication retry suppression and strictly bounded guided rate-limit retries against the complete durable lifecycle.
+### Milestone 1.4: Inspectability and acceptance
 
-#### Milestone 1B.4: Bounded observability
+- Expose active, inactive, or fallback status plus selected skills, resolved paths, short reasons, and prohibited workflows through tests and minimal Crew status.
+- Keep the selection record per launch; do not add durable manifest persistence unless evidence shows post-launch inspection requires it.
+- Add deterministic rendering tests for every supported MVP role.
+- Add one representative live worker acceptance check for methodology availability.
+- Add one representative live acceptance check that a dispatched Crew agent does not start nested orchestration.
+- Verify native behavior with Superpowers absent and actionable complete fallback with required resources missing.
 
-- Prevent parent-process accumulated-event and message-snapshot retention.
-- Implement off-by-default compact and explicitly opted-in raw diagnostic artifacts.
-- Enforce per-run and total storage caps, retention, permissions, and privacy rules.
-- Fix raw artifact snapshot amplification without treating diagnostics as complete-output storage.
+#### Exit criteria
+
+- Focused rendering tests pass for every supported MVP role.
+- Representative live acceptance demonstrates useful methodology access and no nested orchestration.
+- Native behavior remains unchanged without Superpowers.
+- No scheduler, lease, attempt, review, repair, pause, recovery, artifact, planning, or routing redesign was imported unless separately approved as a focused blocker fix.
+
+## Phase 2: Evaluate the delivered integration
+
+Phase 2 gathers evidence before selecting broader Crew work. It does not create a general benchmark or telemetry platform.
+
+- Measure methodology adherence in representative Crew runs.
+- Check whether nested orchestration occurs despite the ownership policy.
+- Compare prompt size with the prior broad role matrix.
+- Verify native fallback and project agent overrides in real use.
+- Record concrete execution, review, repair, reliability, or context failures observed during integrated use.
+- Rank later work by severity, frequency, user value, and architectural dependency.
 
 ### Exit criteria
 
-- The controller does not duplicate dispatch, completion, cancellation, or review lifecycle work across competing sessions or restart boundaries.
-- Commands, overlay actions, ordinary workers, and lobby workers use the same scheduler and required tool contract.
-- Artifact growth and parent memory are bounded in stress tests.
-- Quota failures do not retry.
-- Simulated quota exhaustion preserves durable task and repository state, releases reservations safely, and resumes through a validated recovery path.
-- Recovery does not claim to preserve private model reasoning.
-- Role detection does not depend on headings.
+- The Integration MVP has a reviewed results record.
+- Later milestones are prioritized from observed evidence and known independently reproduced defects.
+- No broad subsystem rewrite is approved solely because it was described in the long-term requirements catalog.
 
-## Phase 2: Correct review scope
+## Future roadmap theme: Evidence-selected execution correctness, reliability, and observability
+
+This theme preserves known execution requirements without making them prerequisites for integration. Approve only focused milestones justified by Integration MVP evidence or an independently reproduced immediate safety defect.
+
+### Milestone E1: Focused blocker corrections
+
+Known evidenced backlog items include launcher tool-contract inconsistency, ambiguous task-owned Git changes, shared-worktree/index behavior, incorrect review ranges, cross-checkout reservation scoping, and reservation enforcement that cannot cover shell writes. These remain traceable roadmap items, not automatic MVP prerequisites. The required `pi_messenger` tool contract is the clearest candidate for a focused MVP blocker correction if acceptance reproduces it.
+
+- Reproduce one concrete defect with a focused failing test.
+- Implement the smallest independently reviewable correction.
+- Preserve native execution semantics outside the tested defect.
+- Prefer isolated fixes such as the required `pi_messenger` tool contract over importing replacement controller machinery.
+
+### Milestone E2: Execution ownership redesign, if justified
+
+- Create a separate design only if evidence shows multiple defects share the same controller/ownership root cause.
+- Split identity, scheduling, attempts, completion, reviews, cancellation, adapters, and migration into separate vertical milestones.
+- Do not activate a replacement scheduler until its required durable lifecycle is complete and independently tested.
+
+### Milestone E3: Recovery and failure policy, if justified
+
+- Add pause, recovery, retry suppression, reservation recovery, and crash reconciliation only for approved observed failure classes.
+- Deliver each recovery path end to end; do not add inactive pause or recovery schemas as standalone foundations.
+- Never claim to preserve private model reasoning that was not durably recorded.
+
+### Milestone E4: Bounded observability
+
+- Address measured parent-memory or artifact-growth defects independently of scheduler replacement.
+- Keep artifacts off by default, bounded, and separate from active complete-output access.
+- Add retention, permissions, privacy, and stress tests with the behavior they protect.
+
+### Exit criteria
+
+- Every activated milestone cites its evidence and leaves unrelated native behavior unchanged.
+- No execution redesign is treated as an integration prerequisite.
+- Durable lifecycle additions include their activation, recovery, migration, and focused tests in approved reviewable units.
+
+## Future roadmap theme: Correct review scope
 
 ### Milestone 2A: Task-owned change tracking
 
@@ -991,23 +1064,22 @@ The numbered phases below are roadmap themes, not single implementation units. T
 - Review packages are bounded and reproducible.
 - The shared-interface eval passes its acceptance checks and has recorded comparative results.
 
-## Phase 3: Repair lifecycle
+## Future roadmap theme: Repair lifecycle
 
-### Milestone 3A: Repair eligibility contract
+### Milestone R1: Repair eligibility contract
 
 - Implement the review-repair eval fixture and record its stock pi-messenger baseline before changing repair behavior.
 - Define structured findings and the design-validity gate that distinguishes eligible `NEEDS_WORK` from `MAJOR_RETHINK`.
 - Define the bounded repair package and required reviewer confirmation.
 
-### Milestone 3B: Dormant repair foundations
+### Milestone R2: Scoped repair, re-review, and escalation activation
 
-- Add `initial` and `repair` attempt kinds, repair-package persistence, and repair-owned evidence primitives.
-- Add repair-worker escalation results for deeper problems without dispatching repair attempts yet.
-- Keep scoped repair activation disabled until repair-aware re-review and loop breakers are available.
+This milestone must deliver an end-to-end usable repair behavior; it must not add dormant repair persistence before activation is ready.
 
-### Milestone 3C: Scoped repair, re-review, and escalation activation
-
-- Activate one scoped repair for eligible localized findings.
+- Add `initial` and `repair` attempt kinds only as part of activating the scoped repair path.
+- Persist the bounded repair package and repair-owned evidence consumed by that path.
+- Add repair-worker escalation results and consume them in the same milestone.
+- Keep activation off until repair-aware re-review and loop breakers are complete, then activate one scoped repair for eligible localized findings.
 - Record repair-owned commits and required targeted test evidence.
 - Allow the repair worker to escalate deeper problems to `MAJOR_RETHINK`.
 - Implement finding-focused re-review with a design sanity check.
@@ -1023,49 +1095,30 @@ The numbered phases below are roadmap themes, not single implementation units. T
 - Review loops are bounded.
 - The review-repair eval passes its acceptance checks and has recorded comparative results.
 
-## Phase 4: Policy-provider API and Superpowers adapter v2
+## Conditional future roadmap theme: Generic policy-provider extraction
 
-### Milestone 4A: Generic policy-provider API
+Do not implement this theme for the Integration MVP. Consider it only after a second provider is approved or the delivered concrete Superpowers adapter demonstrates stable duplicated lifecycle boundaries.
 
-- Add lifecycle-specific provider interfaces and a provider registry.
+### Milestone P1: Provider boundary extraction
+
+- Extract only interfaces already proven by the concrete adapter.
+- Add a provider registry only when more than one provider must be selected.
 - Isolate provider failures from Crew task state.
-- Preserve safe native behavior when no policy provider is active.
+- Preserve complete native fallback when no provider is active.
 
-### Milestone 4B: Superpowers discovery and compatibility
+### Milestone P2: Additional provider acceptance
 
-- Discover the separately installed stock Superpowers package and loaded skills dynamically.
-- Detect versions and enforce configured compatibility behavior.
-- Distinguish known lifecycle-critical skills from unknown discoverable skills without granting orchestration permissions.
-
-### Milestone 4C: Policy manifests
-
-- Create an inspectable manifest for every Crew role, task, and attempt.
-- Select only phase-relevant starting skills and record their paths and selection reasons.
-- Validate required skill paths before launch while preserving discovery of additional relevant skills.
-
-### Milestone 4D: Crew prompt integration
-
-- Replace the hardcoded role matrix with compact shared invariants and role-specific policy.
-- Add a Crew-specific bootstrap and direct relevant-skill selection.
-- Prevent nested controllers, nested plan executors, nested worktrees, and unauthorized branch-finishing workflows.
-
-### Milestone 4E: Live compatibility acceptance
-
-- Test representative roles and task types with both extensions loaded.
-- Verify absent, supported, and unsupported Superpowers behavior.
-- Verify spawned-worker policy visibility, compaction behavior, and nested-orchestration prevention.
-- Expose provider and compatibility status through Crew status and tests.
+- Test each approved provider against the same bounded role/policy contract.
+- Verify provider selection cannot create competing orchestration authorities.
+- Document compatibility and migration only for providers that actually ship.
 
 ### Exit criteria
 
-- Stock Superpowers remains separately installed and updateable.
-- Adding an unrelated Superpowers skill does not require editing a global skill-count assertion.
-- Every Crew agent's selected starting skills and selection reasons are inspectable.
-- Rendering tests and live acceptance tests demonstrate correct guidance for representative agent roles and task types.
-- Crew agents do not start nested controllers.
-- Policy prompts are smaller than the current adapter matrix.
+- At least two concrete providers or demonstrated duplication justify the shared API.
+- Extraction does not expand the Superpowers prompt or lifecycle scope.
+- Native behavior remains unchanged with no active provider.
 
-## Phase 5: Context and planning efficiency
+## Future roadmap theme: Context and planning efficiency
 
 ### Milestone 5A: Structured planning
 
@@ -1080,7 +1133,7 @@ The numbered phases below are roadmap themes, not single implementation units. T
 - Add the commit-keyed repository manifest.
 - Ensure workers still inspect task-relevant source directly.
 
-### Milestone 5C: Relevant skill delivery
+### Milestone 5C: Broader skill and context delivery
 
 - Inject full metadata only for recommended skills.
 - Preserve a compact index or query path for other discoverable skills.
@@ -1100,7 +1153,7 @@ The numbered phases below are roadmap themes, not single implementation units. T
 - Relevant skill paths remain discoverable.
 - Large command output remains fully accessible to active workers and reviewers even when it cannot fit into one prompt.
 
-## Phase 6: Routing and coordination
+## Future roadmap theme: Routing and coordination
 
 ### Milestone 6A: Quality-first routing
 
@@ -1125,7 +1178,7 @@ The numbered phases below are roadmap themes, not single implementation units. T
 - Agents can communicate useful findings without artificial message limits.
 - High-risk work retains strong review.
 
-## Phase 7: Independent packaging and compatibility maintenance
+## Future roadmap theme: Independent packaging and compatibility maintenance
 
 ### Milestone 7A: Supported package and installation
 
@@ -1155,13 +1208,20 @@ The numbered phases below are roadmap themes, not single implementation units. T
 
 ## 16. Migration and Backward Compatibility
 
-- Existing policy-mode configuration must migrate to automatic compatibility-layer activation or produce a clear deprecation warning.
-- Existing task and plan files should remain readable or have a deterministic migration.
-- Existing `artifacts.enabled` configuration should map to the new artifact mode with a deprecation warning if names change.
+### Integration MVP
+
+- The MVP must not change task, plan, scheduler, review, attempt, or artifact schemas.
 - Existing worker and reviewer model configuration must continue to work.
 - Existing project-level agent overrides must continue to load.
-- If exact task commit ownership is unavailable for an old in-progress task, the system must request manual review scope rather than guessing.
-- The current global `crew-superpowers-policy.ts` extension must be removable once adapter v2 is packaged and verified.
+- Existing native behavior must remain unchanged when Superpowers is absent or the adapter falls back.
+- Existing policy-mode configuration may produce a deprecation warning, but no migration should be required merely to test the concrete adapter.
+- The current global `crew-superpowers-policy.ts` extension must remain removable and must not be loaded twice with the packaged adapter.
+
+### Deferred roadmap migrations
+
+- A future activated milestone that changes task or plan files must provide deterministic migration and fail-closed compatibility behavior.
+- Future artifact configuration changes must map existing `artifacts.enabled` configuration or produce a clear deprecation warning.
+- Future exact-review work must request manual scope rather than guess when commit ownership is unavailable.
 
 ## 17. Risks and Mitigations
 
@@ -1249,50 +1309,71 @@ A greenfield replacement should be considered only if evidence shows that mainta
 
 Use these rules when requirements compete:
 
-1. Correctness before model-use reduction.
-2. Remove duplicate context before reducing review quality.
-3. Deterministic controller behavior before LLM-authored coordination.
-4. Explicit integration review before broad task-review diffs.
-5. Scoped repair before full restart for minor findings.
-6. Full re-plan or block before endlessly repairing a major design failure.
-7. Stock external policy content before copied prompts.
-8. Optional complexity before mandatory complexity.
-9. Measurement before claims of savings.
-10. Maintainable modular boundaries before deep unrelated rewrites.
+1. Deliver the concrete integration before building a generalized platform.
+2. Preserve native execution behavior unless a focused reproduced blocker or immediate safety defect justifies a separate correction.
+3. Correctness before model-use reduction.
+4. Remove duplicate context before reducing review quality.
+5. Deterministic controller behavior before LLM-authored coordination when that controller behavior is in an approved milestone.
+6. Explicit integration review before broad task-review diffs.
+7. Scoped repair before full restart for minor findings.
+8. Full re-plan or block before endlessly repairing a major design failure.
+9. Stock external policy content before copied prompts.
+10. Optional complexity before mandatory complexity.
+11. Measurement before claims of savings.
+12. Maintainable modular boundaries before deep unrelated rewrites.
+13. Extract a generic abstraction only after concrete behavior demonstrates its boundary.
 
 ## 20. Launch Criteria
 
-Super Pi Messenger may be called an initial usable release when:
+### 20.1 Integration MVP
 
-- Artifact storage and memory growth are bounded.
-- Explicit role/task/attempt metadata is used.
-- Task-owned review diffs are correct under parallel waves.
-- Integration review exists.
-- Scoped repair is allowed only after explicit design-validity confirmation, and deeper problems escalate to `MAJOR_RETHINK`.
-- Scoped repair and re-review are bounded.
-- Quota/auth failures do not retry.
-- Provider-forced quota pauses preserve durable task and repository state for validated recovery without claiming to preserve interrupted model reasoning.
-- Superpowers skills are dynamically discovered.
-- Every Crew agent has a validated, inspectable policy manifest.
-- Rendering and live acceptance tests cover representative role, task-type, and attempt combinations.
-- No Superpowers skill bodies are vendored.
-- Nested orchestration is prevented in unit and live tests.
-- The compatibility layer activates automatically when both add-ons are installed.
-- Agents can communicate useful findings without artificial message limits.
-- Complete raw tool and test output remains accessible throughout implementation and review.
+Super Pi Messenger may ship its first usable integration when:
+
+- Stock Superpowers remains separately installed and no skill bodies are copied.
+- Required installed skills are resolved dynamically by actual path.
+- Feature, bug/failing-test, repair, and reviewer roles receive only their intended compact starting guidance.
+- Planner guidance, if enabled, does not start a second approval or execution workflow.
+- Crew remains the sole orchestration and task authority.
+- Superpowers absence preserves native pi-messenger behavior without warning.
+- Missing required resources produce one actionable warning and complete native fallback.
+- Selected skills, paths, reasons, and prohibited workflows are inspectable through tests and minimal status.
+- Existing pi-messenger tests and project agent overrides remain green.
+- Focused rendering tests cover every supported MVP role.
+- Representative live acceptance demonstrates methodology availability and no nested orchestration.
 - Documentation explains ownership inside and outside Crew.
-- The initial eval suite shows correct behavior and a meaningful benefit on at least one representative parallel workload without unacceptable quality regression.
+- No broad scheduler, lease, attempt, review, repair, pause, recovery, artifact, planning, routing, or generic-provider redesign is imported without separate approval as a focused blocker correction.
+
+### 20.2 Enhanced Crew release
+
+An Enhanced Crew release may add only activated, independently reviewed milestones. Its criteria are defined by those milestones and may include exact task review scope, integration review, bounded repair, focused execution fixes, failure classification, recovery, or observability. It must preserve Integration MVP behavior and requirement traceability.
+
+### 20.3 Full product vision
+
+The full long-term product may additionally require:
+
+- Correct task-owned review diffs under parallel waves
+- Explicit integration and optional final review
+- Design-validity-gated scoped repair and bounded re-review
+- Evidence-selected execution correctness and recovery
+- Quota/auth retry suppression and validated durable recovery
+- Bounded artifact and parent-memory growth
+- Complete active output access
+- Context, planning, routing, coordination, packaging, and compatibility improvements
+- Meaningful benefit on representative parallel workloads without unacceptable quality regression
 
 ## 21. Post-Launch Evaluation
 
-After real use, evaluate:
+After Integration MVP use, evaluate:
 
-- Whether users invoke Crew for appropriate workloads
-- Whether integration review catches issues lost by task-scoped review
-- Whether scoped repair converges more efficiently than full retries
+- Whether representative Crew agents can access and follow selected methodology
+- Whether nested orchestration occurs despite the ownership policy
+- Prompt size and clarity compared with the prior broad role matrix
+- Native fallback and project agent override behavior
+- Which execution, review, repair, reliability, or context failures occur often enough to justify later milestones
 - Whether dynamic Superpowers compatibility survives updates
-- Whether structured routine status and flexible communication work well together
 - Whether fork maintenance remains manageable
+
+After later milestones activate, also evaluate whether integration review catches cross-task defects, scoped repair converges efficiently, recovery works safely, and structured status preserves useful communication.
 
 A greenfield orchestration engine should be considered only if post-launch evidence shows that pi-messenger's internal architecture blocks core requirements across multiple independent subsystems and maintaining the fork costs more than replacing the necessary runtime.
 
@@ -1307,6 +1388,6 @@ Relevant upstream report:
 
 ## 23. Final Product Statement
 
-Super Pi Messenger will not attempt to merge two complete orchestration systems. It will preserve pi-messenger as the multi-agent execution substrate, preserve Superpowers as an independently updated methodology source, and connect them through an always-active compatibility layer backed by deterministic review, repair, and failure handling.
+Super Pi Messenger will first connect existing pi-messenger Crew roles to the separately installed stock Superpowers methodology through a thin concrete adapter. Pi-messenger remains the execution substrate and sole Crew orchestrator; Superpowers supplies compact role-appropriate engineering discipline; native behavior remains available when the adapter is inactive or falls back.
 
-The product is successful if both installed add-ons behave as one coherent system: pi-messenger owns Crew orchestration, Superpowers supplies engineering discipline, and agents retain the freedom to communicate when they judge it useful.
+The first release is successful when both installed add-ons behave coherently without requiring an execution-engine rewrite. Review, repair, reliability, recovery, observability, context, routing, packaging, and generic-provider improvements remain long-term evidence-gated product goals rather than prerequisites for first value.
