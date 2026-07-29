@@ -44,6 +44,25 @@ describe("Superpowers package validation", () => {
     expect(getSuperpowersState()).toEqual({ status: "inactive" });
   });
 
+  it("ignores an unrelated skill with official-source metadata", () => {
+    const unrelatedSkill = {
+      name: "unrelated-skill",
+      description: "An unrelated skill from the official package",
+      filePath: "/tmp/unrelated-skill/SKILL.md",
+      baseDir: "/tmp/unrelated-skill",
+      sourceInfo: {
+        path: "/tmp/unrelated-skill/SKILL.md",
+        source: "git:github.com/obra/superpowers",
+        scope: "user",
+        origin: "package",
+        baseDir: "/tmp/unrelated-skill",
+      },
+      disableModelInvocation: false,
+    } satisfies Skill;
+
+    expect(captureSuperpowersSkills([unrelatedSkill])).toEqual({ status: "inactive" });
+  });
+
   it("accepts one official Git package with the required stock files", () => {
     const fixture = track(createStockSuperpowersFixture());
     expect(captureSuperpowersSkills(fixture.skills)).toMatchObject({
@@ -95,6 +114,19 @@ describe("Superpowers package validation", () => {
     const second = track(createStockSuperpowersFixture());
 
     expect(captureSuperpowersSkills([...first.skills, ...second.skills])).toMatchObject({
+      status: "fallback",
+      reason: "ambiguous",
+    });
+  });
+
+  it("falls back when the same required skill object is repeated", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    const repeatedSkill = fixture.skills.find(
+      (skill) => skill.name === "test-driven-development",
+    );
+    if (!repeatedSkill) throw new Error("fixture is missing test-driven-development");
+
+    expect(captureSuperpowersSkills([...fixture.skills, repeatedSkill])).toMatchObject({
       status: "fallback",
       reason: "ambiguous",
     });

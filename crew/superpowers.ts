@@ -21,6 +21,7 @@ export type SuperpowersState =
 
 const SUPPORTED_MAJOR = 6;
 const REQUIRED_NAMES = ["test-driven-development", "verification-before-completion"] as const;
+const STOCK_NAMES = ["using-superpowers", ...REQUIRED_NAMES] as const;
 const STOCK_BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
 
 let superpowersState: SuperpowersState = { status: "inactive" };
@@ -56,7 +57,10 @@ function fallback(
 
 export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersState {
   try {
-    const officialSkills = skills.filter((skill) => isOfficialSource(skill.sourceInfo.source));
+    const officialSkills = skills.filter(
+      (skill) => isOfficialSource(skill.sourceInfo.source)
+        && STOCK_NAMES.some((name) => name === skill.name),
+    );
     const localSources = [...new Set(skills.map((skill) => skill.sourceInfo.source))].filter(
       (source) => path.isAbsolute(source)
         && REQUIRED_NAMES.every((name) => skills.some(
@@ -64,7 +68,7 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
         )),
     );
     const localSkills = skills.filter((skill) => localSources.includes(skill.sourceInfo.source));
-    const candidateSkills = [...new Set([...officialSkills, ...localSkills])];
+    const candidateSkills = [...officialSkills, ...localSkills];
 
     if (candidateSkills.length === 0) {
       superpowersState = { status: "inactive" };
@@ -90,11 +94,15 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
       return fallback("invalid Superpowers skill provenance");
     }
 
-    const baseDirs = candidateSkills.map((skill) => skill.sourceInfo.baseDir);
-    if (baseDirs.some((baseDir) => !baseDir)) {
-      return fallback("unable to validate official Superpowers package source");
+    const candidateRoots: string[] = [];
+    for (const skill of candidateSkills) {
+      const baseDir = skill.sourceInfo.baseDir;
+      if (!baseDir) {
+        return fallback("unable to validate official Superpowers package source");
+      }
+      const candidateRoot = fs.realpathSync(baseDir);
+      if (!candidateRoots.includes(candidateRoot)) candidateRoots.push(candidateRoot);
     }
-    const candidateRoots = [...new Set(baseDirs.map((baseDir) => fs.realpathSync(baseDir!)))];
     const hasDuplicateRequiredSkill = REQUIRED_NAMES.some(
       (name) => candidateSkills.filter((skill) => skill.name === name).length > 1,
     );
@@ -107,9 +115,10 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
     }
 
     const localSource = officialSkills.length === 0 ? localSources[0] : undefined;
-    const baseDir = baseDirs[0]!;
-
-    const packageRoot = fs.realpathSync(baseDir);
+    const packageRoot = candidateRoots[0];
+    if (packageRoot === undefined) {
+      return fallback("unable to validate official Superpowers package source");
+    }
     const packageJson = JSON.parse(
       fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"),
     ) as { name?: unknown; version?: unknown };
