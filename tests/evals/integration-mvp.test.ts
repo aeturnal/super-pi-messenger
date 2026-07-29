@@ -1,7 +1,20 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { resetIntegrationMvp } from "../../evals/scripts/reset-integration-mvp.mjs";
 
 const read = (path: string) =>
   readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
@@ -17,6 +30,34 @@ const stockSuperpowersExcerpts = [
   "Core principle: Evidence before claims, always.",
   "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE",
 ];
+
+const resetRoots: string[] = [];
+const resetMarker = {
+  schemaVersion: 1,
+  kind: "pi-super-messenger-eval-run",
+  fixture: "integration-mvp",
+};
+
+function createResetRepository() {
+  const repositoryRoot = mkdtempSync(join(tmpdir(), "integration-mvp-reset-"));
+  const runRoot = join(repositoryRoot, "evals", "runs", "integration-mvp");
+  mkdirSync(runRoot, { recursive: true });
+  resetRoots.push(repositoryRoot);
+  return { repositoryRoot, runRoot };
+}
+
+function invokeReset(repositoryRoot: string, destination: string) {
+  return () =>
+    resetIntegrationMvp({
+      repositoryRoot,
+      destination,
+      now: new Date("2026-07-29T00:00:00.000Z"),
+    });
+}
+
+afterEach(() => {
+  for (const root of resetRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 describe("Superpowers integration MVP acceptance contract", () => {
   it("fixes the supervised worker and reviewer evidence", () => {
@@ -130,5 +171,93 @@ describe("Superpowers integration MVP acceptance contract", () => {
       for (const excerpt of stockSuperpowersExcerpts)
         expect(fixture, `${path} copied stock prose`).not.toContain(excerpt);
     }
+  });
+});
+
+describe("reset destination guards", () => {
+  it.each([
+    ["the run root itself", (repositoryRoot: string, runRoot: string) => runRoot],
+    ["an outside path", (repositoryRoot: string) => join(repositoryRoot, "outside")],
+    [
+      "a sibling-prefix path",
+      (repositoryRoot: string) =>
+        join(repositoryRoot, "evals", "runs", "integration-mvp-sibling", "worktree"),
+    ],
+  ])("rejects %s without mutation", (_label, destinationFor) => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = destinationFor(repositoryRoot, runRoot);
+    const sentinel = join(runRoot, "sentinel.txt");
+    writeFileSync(sentinel, "preserve me\n");
+
+    expect(invokeReset(repositoryRoot, destination)).toThrow(/descendant of the integration run root/);
+    expect(readFileSync(sentinel, "utf8")).toBe("preserve me\n");
+    expect(existsSync(destination)).toBe(destination === runRoot);
+  });
+
+  it("rejects an existing non-directory destination without mutation", () => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = join(runRoot, "worktree");
+    writeFileSync(destination, "preserve file\n");
+
+    expect(invokeReset(repositoryRoot, destination)).toThrow(/existing destination must be a directory/i);
+    expect(readFileSync(destination, "utf8")).toBe("preserve file\n");
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["malformed", "{not json\n"],
+    ["wrong", JSON.stringify({ ...resetMarker, fixture: "other-fixture" })],
+  ])("rejects an existing destination with a %s marker without mutation", (_label, marker) => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = join(runRoot, "worktree");
+    const markerPath = join(destination, ".git", "pi-super-messenger-eval-marker.json");
+    const sentinel = join(destination, "sentinel.txt");
+    mkdirSync(join(destination, ".git"), { recursive: true });
+    writeFileSync(sentinel, "preserve directory\n");
+    if (marker !== undefined) writeFileSync(markerPath, marker);
+
+    expect(invokeReset(repositoryRoot, destination)).toThrow(/valid integration MVP marker/);
+    expect(readFileSync(sentinel, "utf8")).toBe("preserve directory\n");
+    if (marker === undefined) expect(existsSync(markerPath)).toBe(false);
+    else expect(readFileSync(markerPath, "utf8")).toBe(marker);
+  });
+
+  it("rejects a symlink marker without mutating the link or target", () => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = join(runRoot, "worktree");
+    const gitDirectory = join(destination, ".git");
+    const markerPath = join(gitDirectory, "pi-super-messenger-eval-marker.json");
+    const markerTarget = join(repositoryRoot, "marker-target.json");
+    mkdirSync(gitDirectory, { recursive: true });
+    writeFileSync(markerTarget, JSON.stringify(resetMarker));
+    symlinkSync(markerTarget, markerPath);
+
+    expect(invokeReset(repositoryRoot, destination)).toThrow(/valid integration MVP marker/);
+    expect(lstatSync(markerPath).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(markerPath)).toBe(markerTarget);
+    expect(readFileSync(markerTarget, "utf8")).toBe(JSON.stringify(resetMarker));
+  });
+
+  it("stops at the creation seam for a safe missing destination", () => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = join(runRoot, "worktree");
+
+    expect(invokeReset(repositoryRoot, destination)).toThrow(/creation is not implemented in Task 16/);
+    expect(existsSync(destination)).toBe(false);
+  });
+
+  it("stops at the creation seam without mutating a correctly marked destination", () => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = join(runRoot, "worktree");
+    const markerPath = join(destination, ".git", "pi-super-messenger-eval-marker.json");
+    const markerText = `${JSON.stringify(resetMarker, null, 2)}\n`;
+    const sentinel = join(destination, "sentinel.txt");
+    mkdirSync(join(destination, ".git"), { recursive: true });
+    writeFileSync(markerPath, markerText);
+    writeFileSync(sentinel, "preserve marked directory\n");
+
+    expect(invokeReset(repositoryRoot, destination)).toThrow(/creation is not implemented in Task 16/);
+    expect(readFileSync(markerPath, "utf8")).toBe(markerText);
+    expect(readFileSync(sentinel, "utf8")).toBe("preserve marked directory\n");
   });
 });
