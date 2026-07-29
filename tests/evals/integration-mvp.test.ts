@@ -81,6 +81,34 @@ describe("Superpowers integration MVP acceptance contract", () => {
     expect(plan.completed_count).toBe(0);
   });
 
+  it("preseeds the single Crew task and complete task brief", () => {
+    const task = JSON.parse(
+      read("evals/fixtures/integration-mvp/seed/.pi/messenger/crew/tasks/task-1.json"),
+    );
+    const brief = read(
+      "evals/fixtures/integration-mvp/seed/.pi/messenger/crew/tasks/task-1.md",
+    );
+
+    expect(task).toEqual({
+      id: "task-1",
+      title: "Implement clamp with test-first evidence",
+      status: "todo",
+      depends_on: [],
+      skills: ["project-style"],
+      created_at: "2026-07-29T00:00:00.000Z",
+      updated_at: "2026-07-29T00:00:00.000Z",
+      attempt_count: 0,
+    });
+    expect(brief).toContain("Read the `project-style` skill");
+    expect(brief).toContain("Observe the failing tests");
+    expect(brief).toContain("Implement only `clamp`");
+    expect(brief).toContain("Run fresh tests");
+    expect(brief).toContain("Commit the implementation");
+    expect(brief).toContain("Report completion through `pi_messenger`");
+    expect(brief).toContain("Do not start nested agents");
+    expect(brief).toContain("Do not create, switch to, or manage nested worktrees");
+  });
+
   it("starts with genuinely failing clamp tests", () => {
     const seed = fileURLToPath(
       new URL("../../evals/fixtures/integration-mvp/seed", import.meta.url),
