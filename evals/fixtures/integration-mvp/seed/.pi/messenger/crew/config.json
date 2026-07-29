@@ -1,0 +1,5 @@
+{
+  "review": { "enabled": true, "maxIterations": 1 },
+  "artifacts": { "enabled": true, "cleanupDays": 1 },
+  "concurrency": { "workers": 1, "max": 1 }
+}

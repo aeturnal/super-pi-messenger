@@ -65,6 +65,22 @@ describe("Superpowers integration MVP acceptance contract", () => {
     expect(skill).toBe(`---\nname: project-style\ndescription: Preserve the fixture's public module style.\n---\n\nKeep \`clamp\` as a named export. Do not add a default export.\n`);
   });
 
+  it("preseeds bounded Crew configuration and one incomplete task", () => {
+    const config = JSON.parse(
+      read("evals/fixtures/integration-mvp/seed/.pi/messenger/crew/config.json"),
+    );
+    const plan = JSON.parse(
+      read("evals/fixtures/integration-mvp/seed/.pi/messenger/crew/plan.json"),
+    );
+
+    expect(config.review.enabled).toBe(true);
+    expect(config.artifacts.enabled).toBe(true);
+    expect(config.concurrency.workers).toBe(1);
+    expect(config.concurrency.max).toBe(1);
+    expect(plan.task_count).toBe(1);
+    expect(plan.completed_count).toBe(0);
+  });
+
   it("starts with genuinely failing clamp tests", () => {
     const seed = fileURLToPath(
       new URL("../../evals/fixtures/integration-mvp/seed", import.meta.url),
