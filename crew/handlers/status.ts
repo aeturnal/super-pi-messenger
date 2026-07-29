@@ -10,6 +10,7 @@ import { discoverCrewAgents } from "../utils/discover.js";
 import { uninstallAgents } from "../utils/install.js";
 import { loadCrewConfig } from "../utils/config.js";
 import { formatDuration } from "../../lib.js";
+import { getSuperpowersStatusDetails, renderSuperpowersStatus } from "../superpowers.js";
 import * as store from "../store.js";
 import { autonomousState, getPlanningUpdateAgeMs, isAutonomousForCwd, isPlanningForCwd, isPlanningStalled, planningState, PLANNING_STALE_TIMEOUT_MS } from "../state.js";
 
@@ -19,6 +20,8 @@ import { autonomousState, getPlanningUpdateAgeMs, isAutonomousForCwd, isPlanning
 export async function execute(ctx: ExtensionContext) {
   const cwd = ctx.cwd ?? process.cwd();
   const plan = store.getPlan(cwd);
+  const superpowersText = renderSuperpowersStatus();
+  const superpowersDetails = getSuperpowersStatusDetails();
 
   if (!plan) {
     return result(`# Crew Status
@@ -28,9 +31,13 @@ export async function execute(ctx: ExtensionContext) {
 Create a plan:
   pi_messenger({ action: "plan" })                                        # Auto-discovers PRD.md
   pi_messenger({ action: "plan", prd: "docs/PRD.md" })                    # Explicit PRD path
-  pi_messenger({ action: "plan", prompt: "Scan the codebase for bugs" })   # Inline prompt`, {
+  pi_messenger({ action: "plan", prompt: "Scan the codebase for bugs" })   # Inline prompt
+
+## Superpowers
+${superpowersText}`, {
       mode: "status",
-      hasPlan: false
+      hasPlan: false,
+      superpowers: superpowersDetails
     });
   }
 
@@ -164,6 +171,8 @@ Create a plan:
     text += `\nWaiting for in-progress tasks to complete.`;
   }
 
+  text += `\n\n## Superpowers\n${superpowersText}`;
+
   return result(text, {
     mode: "status",
     hasPlan: true,
@@ -186,7 +195,8 @@ Create a plan:
       ageMs: getPlanningUpdateAgeMs(cwd),
       staleAfterMs: PLANNING_STALE_TIMEOUT_MS,
     },
-    autonomous: autonomousActive
+    autonomous: autonomousActive,
+    superpowers: superpowersDetails
   });
 }
 

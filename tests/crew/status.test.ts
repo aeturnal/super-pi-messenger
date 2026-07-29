@@ -1,10 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execute } from "../../crew/handlers/status.js";
 import { createPlan, createTask, startTask } from "../../crew/store.js";
+import { captureSuperpowersSkills, resetSuperpowersStateForTests } from "../../crew/superpowers.js";
 import { autonomousState, planningState, PLANNING_STALE_TIMEOUT_MS, startAutonomous, startPlanningRun, stopAutonomous } from "../../crew/state.js";
 import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+import { createStockSuperpowersFixture } from "../helpers/superpowers.js";
 
 function resetPlanningState(): void {
   planningState.active = false;
@@ -38,6 +40,54 @@ describe("crew.status planning health", () => {
   beforeEach(() => {
     resetPlanningState();
     resetAutonomousState();
+    resetSuperpowersStateForTests();
+  });
+  afterEach(resetSuperpowersStateForTests);
+
+  it("shows inactive integration status without a plan", async () => {
+    const { cwd } = createTempCrewDirs();
+
+    const response = await execute({ cwd } as any);
+    const text = response.content[0].text;
+
+    expect(text.match(/## Superpowers/g)).toHaveLength(1);
+    expect(text).toContain("## Superpowers\nSuperpowers integration: inactive");
+    expect(response.details.superpowers).toEqual({ status: "inactive" });
+  });
+
+  it("shows active integration status with a normal plan", async () => {
+    const { cwd } = createTempCrewDirs();
+    const fixture = createStockSuperpowersFixture();
+
+    try {
+      createPlan(cwd, "README.md");
+      captureSuperpowersSkills(fixture.skills);
+
+      const response = await execute({ cwd } as any);
+      const text = response.content[0].text;
+
+      expect(text.match(/## Superpowers/g)).toHaveLength(1);
+      expect(text).toContain([
+        "## Superpowers",
+        "Superpowers integration: active (6.2.0)",
+        "Worker: test-driven-development, verification-before-completion",
+        "Reviewer: verification-before-completion",
+        "Last launch: none",
+        "Restrictions: no nested orchestration or nested worktree management",
+      ].join("\n"));
+      expect(response.details.superpowers).toEqual({
+        status: "active",
+        version: "6.2.0",
+        packageRoot: fs.realpathSync(fixture.root),
+        mappings: {
+          worker: ["test-driven-development", "verification-before-completion"],
+          reviewer: ["verification-before-completion"],
+        },
+        latestLaunch: null,
+      });
+    } finally {
+      fixture.cleanup();
+    }
   });
 
   it("shows planning next-step guidance instead of all-complete when no tasks exist", async () => {
