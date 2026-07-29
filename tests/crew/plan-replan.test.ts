@@ -70,6 +70,26 @@ describe("plan with prompt (re-plan)", () => {
     expect(tasks[0].title).toBe("Task A");
   });
 
+  it("re-plans an empty existing plan with a fresh identity", async () => {
+    const existing = store.createPlan(tmpDir, "docs/PRD.md");
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: plannerOutput,
+      error: null,
+      progress: { toolCallCount: 0, tokens: 0 },
+    }]);
+
+    const r = await planHandler.execute(
+      { action: "plan", prompt: "focus on performance" },
+      mockCtx,
+      "agent",
+    );
+
+    expect(r.details?.error).toBeUndefined();
+    expect(store.getPlan(tmpDir)?.run_id).not.toBe(existing.run_id);
+  });
+
   it("rejects re-plan when tasks are in_progress", async () => {
     store.createPlan(tmpDir, "docs/PRD.md");
     const task = store.createTask(tmpDir, "Active task");

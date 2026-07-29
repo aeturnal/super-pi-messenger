@@ -136,18 +136,6 @@ function advancePhase(
   logFeedEvent(cwd, agentName, feedType, target, preview);
 }
 
-function wipeTasks(cwd: string): void {
-  const tasksDir = path.join(store.getCrewDir(cwd), "tasks");
-  if (fs.existsSync(tasksDir)) {
-    fs.rmSync(tasksDir, { recursive: true, force: true });
-  }
-  const blocksDir = path.join(store.getCrewDir(cwd), "blocks");
-  if (fs.existsSync(blocksDir)) {
-    fs.rmSync(blocksDir, { recursive: true, force: true });
-  }
-  store.updatePlan(cwd, { task_count: 0, completed_count: 0 });
-}
-
 function injectSteeringPrompt(cwd: string, prompt: string): void {
   const progressPath = getProgressPath(cwd);
   if (!fs.existsSync(progressPath)) return;
@@ -238,12 +226,15 @@ export async function execute(
           inProgress: inProgress.map(t => t.id),
         });
       }
-      wipeTasks(cwd);
+    }
+
+    if (prompt) {
+      store.deletePlan(cwd);
     }
 
     if (existingTasks.length === 0 && !prompt) {
       const crewDir = store.getCrewDir(cwd);
-      try { fs.rmSync(crewDir, { recursive: true, force: true }); } catch {}
+      fs.rmSync(crewDir, { recursive: true, force: true });
     }
   }
 
@@ -420,7 +411,7 @@ export async function execute(
   const outlineContent = sections
     ? `# Planning Outline\n\n## 1. PRD Understanding Summary\n${sections.prdSummary}\n\n## 2. Relevant Code/Docs/Resources Reviewed\n${sections.resourcesReviewed}\n\n## 3. Sequential Implementation Steps\n${sections.sequentialSteps}\n\n## 4. Parallelized Task Graph\n${sections.parallelTaskGraph}\n`
     : `# Planning Outline\n\nStructured sections were not detected. Full planner output is included below.\n\n${lastPlannerOutput}`;
-  try { setPlanningOutline(cwd, outlineContent); } catch {}
+  setPlanningOutline(cwd, outlineContent);
 
   if (tasks.length === 0) {
     store.setPlanSpec(cwd, lastPlannerOutput);

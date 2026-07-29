@@ -4,11 +4,13 @@
  * Simplified PRD-based storage: plan.json + tasks/*.json
  */
 
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
 import type { Plan, Task, TaskEvidence } from "./types.js";
 import { allocateTaskId } from "./id-allocator.js";
+import { atomicWriteJson } from "./execution/store.js";
 
 // =============================================================================
 // Directory Helpers
@@ -50,10 +52,7 @@ function readJson<T>(filePath: string): T | null {
 }
 
 function writeJson(filePath: string, data: unknown): void {
-  ensureDir(path.dirname(filePath));
-  const temp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(temp, JSON.stringify(data, null, 2));
-  fs.renameSync(temp, filePath);
+  atomicWriteJson(filePath, data);
 }
 
 function readText(filePath: string): string | null {
@@ -84,6 +83,7 @@ export function createPlan(cwd: string, prdPath: string, prompt?: string): Plan 
   const now = new Date().toISOString();
   
   const plan: Plan = {
+    run_id: randomUUID(),
     prd: prdPath,
     ...(prompt ? { prompt } : {}),
     created_at: now,
@@ -92,7 +92,23 @@ export function createPlan(cwd: string, prdPath: string, prompt?: string): Plan 
     completed_count: 0,
   };
 
-  writeJson(path.join(getCrewDir(cwd), "plan.json"), plan);
+  const planPath = path.join(getCrewDir(cwd), "plan.json");
+  const candidatePath = `${planPath}.candidate-${process.pid}-${randomUUID()}`;
+  ensureDir(path.dirname(planPath));
+  try {
+    fs.writeFileSync(candidatePath, JSON.stringify(plan, null, 2));
+    try {
+      fs.linkSync(candidatePath, planPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error("Crew plan already exists", { cause: error });
+      }
+      throw error;
+    }
+  } finally {
+    fs.rmSync(candidatePath, { force: true });
+  }
+  fs.rmSync(path.join(getCrewDir(cwd), "run-id.json"), { force: true });
   return plan;
 }
 

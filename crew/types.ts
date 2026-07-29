@@ -7,12 +7,14 @@
 import type { MaxOutputConfig } from "./utils/truncate.js";
 import type { AgentProgress } from "./utils/progress.js";
 import type { CrewAgentConfig } from "./utils/discover.js";
+import type { LegacyReviewState } from "./execution/types.js";
 
 // =============================================================================
 // Plan Types
 // =============================================================================
 
 export interface Plan {
+  run_id?: string;               // Immutable execution identity (added during migration)
   prd: string;                   // Path to PRD file (relative to cwd)
   prompt?: string;               // Inline prompt text (when no PRD file)
   created_at: string;            // ISO timestamp
@@ -25,7 +27,7 @@ export interface Plan {
 // Task Types
 // =============================================================================
 
-export type TaskStatus = "todo" | "in_progress" | "done" | "blocked";
+export type TaskStatus = "todo" | "in_progress" | "review_pending" | "done" | "blocked";
 
 export interface TaskEvidence {
   commits?: string[];            // Commit SHAs
@@ -50,7 +52,11 @@ export interface Task {
   summary?: string;              // Completion summary from task.done
   evidence?: TaskEvidence;       // Evidence from task.done
   blocked_reason?: string;       // Reason from task.block
+  blocked_code?: "protocol_incomplete" | "worker_crash";
   attempt_count: number;         // How many times attempted (for auto-block)
+  current_attempt_id?: string;
+  completion_attempt_id?: string;
+  legacy_review_state?: LegacyReviewState;
   review_count?: number;         // How many times reviewed
   last_review?: ReviewFeedback;  // Feedback from last review (for retry)
 }
