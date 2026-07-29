@@ -876,6 +876,8 @@ Provider failures, quota handling, large output access, worker crashes, and orch
 
 ## 15. Rollout Plan
 
+The numbered phases below are roadmap themes, not single implementation units. Their lettered and decimal milestones are the independently planned and reviewed delivery units. Each milestone must leave the repository in a safe, working, migrated, and independently testable state; no milestone may rely on unfinished later work to remain safe. Existing Phase 1A and Phase 1B design documents are umbrella designs whose implementation is divided into the milestones below. Each milestone receives its own implementation plan, and a separate design document when its remaining architectural decisions warrant one.
+
 ## Phase 0: Baseline and fork hygiene
 
 - Create the independently maintained fork and configure `origin` for it.
@@ -892,17 +894,71 @@ Provider failures, quota handling, large output access, worker crashes, and orch
 - The independent-parallel-task smoke eval and stock baseline are usable.
 - No Superpowers content is copied.
 
-## Phase 1: Reliability and observability
+## Phase 1: Execution correctness, reliability, and observability
 
-- Fix raw artifact snapshot amplification.
-- Implement actual artifact retention and caps.
-- Prevent parent-process accumulated-event retention.
-- Add explicit Crew role/task/attempt metadata.
-- Add failure classification, quota/auth retry suppression, and deterministic durable-state capture for provider-forced pauses.
+### Phase 1A: Execution correctness
+
+#### Milestone 1A.1: Identity and scheduler foundation
+
+- Add immutable plan run identity and an exclusive controller lease.
+- Persist the versioned scheduler record and pure authorization state machine.
+- Fail closed after controller restart, lease loss, replan, or run-identity change.
+- Add deterministic scheduler-idle and reconciliation test hooks.
+
+#### Milestone 1A.2: Durable attempt, completion, and review lifecycle
+
+- Add the durable attempt, completion, cancellation, and legacy-review state primitives before activating the unified scheduler.
+- Give every dispatch a durable `attempt_id` and process identity.
+- Make `task.done` an attempt-scoped, idempotent compare-and-set operation that enters durable `review_pending` when review is enabled.
+- Add durable review claims and commit outcomes against the active controller, attempt, and claim token.
+- Persist cancellation intent and apply deterministic completion, review, cancellation, and close precedence.
+- Make attempt charging and cancellation rollback occur at most once.
+- Prevent dependencies from unlocking before a successful review, and reconcile stale claims and late or duplicate outcomes safely.
+
+#### Milestone 1A.3: Unified dispatch and scheduler activation
+
+- Activate wave, continuous, targeted, idle, and paused authorization semantics only after the durable attempt and review lifecycle is available.
+- Route commands, overlay actions, ordinary workers, and lobby workers through one scheduler-owned launch path.
+- Enforce concurrency, dependency, reservation, outstanding-review, and authorization checks in one place.
+- Preserve the required built-in and extension tool contract, including `pi_messenger`.
+- Verify complete wave drain, retry, review, cancellation, and restart behavior through the unified scheduler.
+
+### Phase 1B: Minimal reliability and observability
+
+#### Milestone 1B.1: Process metadata and pure failure classification
+
+- Validate explicit Crew role, task, attempt, and policy-provider metadata before spawn.
+- Add the pure failure classifier, sanitized reason keys, retry fingerprints, and strict `Retry-After` parsing.
+- Keep classifier output observational in this milestone; do not activate quota suppression or other lifecycle transitions until their durable destinations exist.
+
+#### Milestone 1B.2: Durable pause and recovery foundations
+
+- Add the durable `paused` task state, versioned pause records, and canonical quota-record schema.
+- Implement plan-wide embargo, task-scoped pause, workspace-identity, and recovery-record primitives behind inactive controller boundaries.
+- Add restart reconciliation for pause records and failure fingerprints without activating quota suppression or creating unrecoverable embargoes.
+- Keep existing runtime failure behavior unchanged until the complete recovery protocol is available.
+
+#### Milestone 1B.3: Recovery protocol and failure-policy activation
+
+- Add explicit `recover` claims, recovery tokens, and single-owner recovery authorization.
+- Implement the dormant-child launch barrier and its crash-boundary reconciliation.
+- Validate bounded workspace identity and unfinished-file ownership before recovery.
+- Reacquire reservations and commit recovery results without claiming to preserve private model reasoning.
+- Activate plan-wide quota embargoes, task-scoped protocol pauses, durable-state capture, and safe reservation release only with the recovery path available.
+- Activate quota and authentication retry suppression and strictly bounded guided rate-limit retries against the complete durable lifecycle.
+
+#### Milestone 1B.4: Bounded observability
+
+- Prevent parent-process accumulated-event and message-snapshot retention.
+- Implement off-by-default compact and explicitly opted-in raw diagnostic artifacts.
+- Enforce per-run and total storage caps, retention, permissions, and privacy rules.
+- Fix raw artifact snapshot amplification without treating diagnostics as complete-output storage.
 
 ### Exit criteria
 
-- Artifact growth is bounded in stress tests.
+- The controller does not duplicate dispatch, completion, cancellation, or review lifecycle work across competing sessions or restart boundaries.
+- Commands, overlay actions, ordinary workers, and lobby workers use the same scheduler and required tool contract.
+- Artifact growth and parent memory are bounded in stress tests.
 - Quota failures do not retry.
 - Simulated quota exhaustion preserves durable task and repository state, releases reservations safely, and resumes through a validated recovery path.
 - Recovery does not claim to preserve private model reasoning.
@@ -910,12 +966,23 @@ Provider failures, quota handling, large output access, worker crashes, and orch
 
 ## Phase 2: Correct review scope
 
+### Milestone 2A: Task-owned change tracking
+
 - Implement the shared-interface eval fixture and record its stock pi-messenger baseline before changing review behavior.
-- Track task-owned commits.
-- Build exact task review packages.
-- Add structured review findings.
-- Add explicit wave-level integration review.
-- Add optional final branch review.
+- Track and validate task-owned commits, final commit, changed files, and test evidence.
+- Detect overlapping or ambiguous ownership and fail safely instead of guessing review scope.
+
+### Milestone 2B: Task review packages
+
+- Build bounded, reproducible review packages containing the exact task-owned diff and evidence.
+- Add structured findings and verdicts with actionable evidence.
+- Preserve review coverage while avoiding unrelated wave changes.
+
+### Milestone 2C: Integration and final review
+
+- Add explicit wave-level integration review for shared files, interfaces, and dependency contracts.
+- Attribute integration findings to affected tasks when possible.
+- Add configurable final branch review without replacing task-scoped review.
 
 ### Exit criteria
 
@@ -926,13 +993,26 @@ Provider failures, quota handling, large output access, worker crashes, and orch
 
 ## Phase 3: Repair lifecycle
 
+### Milestone 3A: Repair eligibility contract
+
 - Implement the review-repair eval fixture and record its stock pi-messenger baseline before changing repair behavior.
-- Add `initial` and `repair` attempt kinds.
-- Define and enforce the design-validity gate for `NEEDS_WORK` repair eligibility.
-- Implement one scoped repair for eligible `NEEDS_WORK` findings.
-- Allow repair workers to escalate deeper problems to `MAJOR_RETHINK`.
-- Implement design-aware scoped re-review.
-- Add breakers and `MAJOR_RETHINK` re-plan/block behavior.
+- Define structured findings and the design-validity gate that distinguishes eligible `NEEDS_WORK` from `MAJOR_RETHINK`.
+- Define the bounded repair package and required reviewer confirmation.
+
+### Milestone 3B: Dormant repair foundations
+
+- Add `initial` and `repair` attempt kinds, repair-package persistence, and repair-owned evidence primitives.
+- Add repair-worker escalation results for deeper problems without dispatching repair attempts yet.
+- Keep scoped repair activation disabled until repair-aware re-review and loop breakers are available.
+
+### Milestone 3C: Scoped repair, re-review, and escalation activation
+
+- Activate one scoped repair for eligible localized findings.
+- Record repair-owned commits and required targeted test evidence.
+- Allow the repair worker to escalate deeper problems to `MAJOR_RETHINK`.
+- Implement finding-focused re-review with a design sanity check.
+- Add repeated-finding breakers and enforce the one-repair default.
+- Route invalid designs and failed repairs to explicit re-planning or blocking.
 
 ### Exit criteria
 
@@ -945,14 +1025,36 @@ Provider failures, quota handling, large output access, worker crashes, and orch
 
 ## Phase 4: Policy-provider API and Superpowers adapter v2
 
-- Add the generic policy-provider interface.
-- Implement the Superpowers provider and safe native fallback behavior.
-- Discover loaded skills dynamically.
-- Add version compatibility checks.
-- Create and validate an inspectable policy manifest for every Crew agent.
-- Select only phase-relevant starting skills while allowing agents to discover additional relevant skills.
-- Replace the current hardcoded role matrix with compact invariants.
-- Resolve the `using-superpowers` dispatched-agent contradiction by using a Crew-specific bootstrap and direct relevant-skill selection.
+### Milestone 4A: Generic policy-provider API
+
+- Add lifecycle-specific provider interfaces and a provider registry.
+- Isolate provider failures from Crew task state.
+- Preserve safe native behavior when no policy provider is active.
+
+### Milestone 4B: Superpowers discovery and compatibility
+
+- Discover the separately installed stock Superpowers package and loaded skills dynamically.
+- Detect versions and enforce configured compatibility behavior.
+- Distinguish known lifecycle-critical skills from unknown discoverable skills without granting orchestration permissions.
+
+### Milestone 4C: Policy manifests
+
+- Create an inspectable manifest for every Crew role, task, and attempt.
+- Select only phase-relevant starting skills and record their paths and selection reasons.
+- Validate required skill paths before launch while preserving discovery of additional relevant skills.
+
+### Milestone 4D: Crew prompt integration
+
+- Replace the hardcoded role matrix with compact shared invariants and role-specific policy.
+- Add a Crew-specific bootstrap and direct relevant-skill selection.
+- Prevent nested controllers, nested plan executors, nested worktrees, and unauthorized branch-finishing workflows.
+
+### Milestone 4E: Live compatibility acceptance
+
+- Test representative roles and task types with both extensions loaded.
+- Verify absent, supported, and unsupported Superpowers behavior.
+- Verify spawned-worker policy visibility, compaction behavior, and nested-orchestration prevention.
+- Expose provider and compatibility status through Crew status and tests.
 
 ### Exit criteria
 
@@ -965,13 +1067,30 @@ Provider failures, quota handling, large output access, worker crashes, and orch
 
 ## Phase 5: Context and planning efficiency
 
-- Add canonical structured planner output.
-- Generate Markdown from structured plans.
-- Add adaptive plan review.
-- Add task-spec versioning and deduplication.
-- Add commit-keyed repository manifest.
-- Add relevant-only skill injection.
-- Preserve complete raw tool and test output with explicit truncation markers and chunked access.
+### Milestone 5A: Structured planning
+
+- Add one canonical structured planner output.
+- Generate human-readable Markdown deterministically.
+- Validate schemas, dependencies, cycles, and redundant transitive dependencies without an LLM.
+- Make plan review adaptive and stop refinement immediately on `SHIP`.
+
+### Milestone 5B: Task and repository context
+
+- Add task-spec versioning, hashing, and deduplication.
+- Add the commit-keyed repository manifest.
+- Ensure workers still inspect task-relevant source directly.
+
+### Milestone 5C: Relevant skill delivery
+
+- Inject full metadata only for recommended skills.
+- Preserve a compact index or query path for other discoverable skills.
+- Avoid repeating complete skill catalogs in every agent prompt.
+
+### Milestone 5D: Complete output access
+
+- Preserve complete raw tool and test output while related work and review remain active.
+- Mark displayed truncation explicitly and provide chunked read/search access to the original output.
+- Keep summaries additive and apply retention only after related work and review complete.
 
 ### Exit criteria
 
@@ -983,10 +1102,21 @@ Provider failures, quota handling, large output access, worker crashes, and orch
 
 ## Phase 6: Routing and coordination
 
-- Add quality-first reviewer/model routing.
-- Use structured events for routine lifecycle status.
-- Preserve agent judgment about when free-form communication is useful.
-- Add optional low-risk review batching only after eval evidence.
+### Milestone 6A: Quality-first routing
+
+- Add quality-first reviewer and model routing without silently skipping review based on diff size.
+- Preserve strong review for high-risk paths, public interfaces, and sensitive changes.
+
+### Milestone 6B: Structured status and flexible communication
+
+- Use deterministic structured events for routine lifecycle status.
+- Preserve agent judgment about useful direct messages and broadcasts.
+- Remove repetitive automated chatter without imposing artificial communication quotas.
+
+### Milestone 6C: Evidence-gated review batching
+
+- Add optional low-risk review batching only after earlier eval evidence supports it.
+- Keep batching disabled for work whose risk or interfaces require independent review.
 
 ### Exit criteria
 
@@ -997,10 +1127,21 @@ Provider failures, quota handling, large output access, worker crashes, and orch
 
 ## Phase 7: Independent packaging and compatibility maintenance
 
+### Milestone 7A: Supported package and installation
+
 - Package the adapter through Pi's supported installation mechanism.
-- Establish independent versioning, releases, changelog, and support documentation for the fork.
+- Preserve the separately installed stock Superpowers dependency and avoid duplicate extension loading.
+- Define deterministic installation, migration, and removal behavior.
+
+### Milestone 7B: Compatibility CI and version policy
+
 - Add compatibility CI against supported pinned and current Superpowers releases.
-- Document the supported Pi and Superpowers version ranges.
+- Document supported Pi and Superpowers version ranges.
+- Detect compatibility failures before publishing a supported release.
+
+### Milestone 7C: Independent release and maintenance
+
+- Establish independent versioning, releases, changelog, and support documentation for the fork.
 - Monitor pi-messenger upstream without depending on new releases or contribution acceptance.
 - Evaluate upstream changes individually and import only those that remain useful and compatible.
 
