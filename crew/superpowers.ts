@@ -50,13 +50,13 @@ function fallback(reason: string, version?: string): SuperpowersState {
 }
 
 export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersState {
-  if (skills.length === 0) {
-    superpowersState = { status: "inactive" };
-    return superpowersState;
-  }
-
   try {
     const officialSkills = skills.filter((skill) => isOfficialSource(skill.sourceInfo.source));
+    if (officialSkills.length === 0) {
+      superpowersState = { status: "inactive" };
+      return superpowersState;
+    }
+
     const baseDir = officialSkills[0]?.sourceInfo.baseDir;
     if (!baseDir) return fallback("unable to validate official Superpowers package source");
 

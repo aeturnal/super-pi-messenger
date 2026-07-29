@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import type { Skill } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   captureSuperpowersSkills,
@@ -22,7 +23,23 @@ describe("Superpowers package validation", () => {
   afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
 
   it("is inactive and silent when Superpowers is absent", () => {
+    const unrelatedSkill = {
+      name: "unrelated-skill",
+      description: "An unrelated installed Pi skill",
+      filePath: "/tmp/unrelated-skill/SKILL.md",
+      baseDir: "/tmp/unrelated-skill",
+      sourceInfo: {
+        path: "/tmp/unrelated-skill/SKILL.md",
+        source: "git:github.com/example/unrelated-skill",
+        scope: "user",
+        origin: "package",
+        baseDir: "/tmp/unrelated-skill",
+      },
+      disableModelInvocation: false,
+    } satisfies Skill;
+
     expect(captureSuperpowersSkills([])).toEqual({ status: "inactive" });
+    expect(captureSuperpowersSkills([unrelatedSkill])).toEqual({ status: "inactive" });
     expect(getSuperpowersState()).toEqual({ status: "inactive" });
   });
 
