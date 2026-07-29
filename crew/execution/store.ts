@@ -28,6 +28,7 @@ export function schedulerPath(cwd: string): string {
 }
 
 export function attemptPath(cwd: string, attemptId: string): string {
+  if (!isUuid(attemptId)) throw new Error("Invalid attempt ID");
   return path.join(crewDirectory(cwd), "attempts", `${attemptId}.json`);
 }
 

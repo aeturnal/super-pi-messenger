@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateMemorableName } from "../lib.js";
 import { resolveThinking, modelHasThinkingSuffix, pushModelArgs } from "./agents.js";
+import { buildPiToolArgs } from "./execution/tool-contract.js";
 import { discoverCrewAgents } from "./utils/discover.js";
 import { loadCrewConfig, type CrewConfig } from "./utils/config.js";
 import {
@@ -36,7 +37,6 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const EXTENSION_DIR = path.resolve(__dirname, "..");
-const BUILTIN_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 
 export const LOBBY_TOKEN_BUDGETS: Record<string, number> = {
   none: 10_000,
@@ -80,21 +80,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
     args.push("--thinking", thinking);
   }
 
-  if (workerConfig.tools?.length) {
-    const builtinTools: string[] = [];
-    const extensionPaths: string[] = [];
-    for (const tool of workerConfig.tools) {
-      if (tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js")) {
-        extensionPaths.push(tool);
-      } else if (BUILTIN_TOOLS.has(tool)) {
-        builtinTools.push(tool);
-      }
-    }
-    if (builtinTools.length > 0) args.push("--tools", builtinTools.join(","));
-    for (const ext of extensionPaths) args.push("--extension", ext);
-  }
-
-  args.push("--extension", EXTENSION_DIR);
+  args.push(...buildPiToolArgs(workerConfig, EXTENSION_DIR));
 
   let promptTmpDir: string | null = null;
   if (workerConfig.systemPrompt) {
@@ -126,6 +112,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
     cwd,
     proc,
     taskId,
+    attemptId: null,
     startedAt: Date.now(),
     assignedTaskId: null,
     coordination: config.coordination ?? "chatty",
@@ -164,7 +151,9 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
           }
         }
       }
-    } catch {}
+    } catch (error) {
+      void error; // Lobby progress parsing is best-effort.
+    }
   });
 
   proc.on("close", (exitCode) => {
@@ -172,7 +161,11 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
     removeLiveWorker(cwd, displayId);
     unregisterWorker(cwd, taskId);
     if (worker.promptTmpDir) {
-      try { fs.rmSync(worker.promptTmpDir, { recursive: true, force: true }); } catch {}
+      try {
+        fs.rmSync(worker.promptTmpDir, { recursive: true, force: true });
+      } catch (error) {
+        void error; // Temporary prompt cleanup is best-effort.
+      }
     }
     if (worker.aliveFile) {
       try { fs.unlinkSync(worker.aliveFile); } catch {}
@@ -291,7 +284,11 @@ export function shutdownLobbyWorkers(cwd: string): void {
     removeLiveWorker(cwd, displayId);
     unregisterWorker(cwd, worker.taskId);
     if (worker.promptTmpDir) {
-      try { fs.rmSync(worker.promptTmpDir, { recursive: true, force: true }); } catch {}
+      try {
+        fs.rmSync(worker.promptTmpDir, { recursive: true, force: true });
+      } catch (error) {
+        void error; // Temporary prompt cleanup is best-effort.
+      }
     }
     if (worker.aliveFile) {
       try { fs.unlinkSync(worker.aliveFile); } catch {}
@@ -356,7 +353,11 @@ export function removeLobbyWorkerByIndex(cwd: string): boolean {
   removeLiveWorker(cwd, worker.taskId);
   unregisterWorker(cwd, worker.taskId);
   if (worker.promptTmpDir) {
-    try { fs.rmSync(worker.promptTmpDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(worker.promptTmpDir, { recursive: true, force: true });
+    } catch (error) {
+      void error; // Temporary prompt cleanup is best-effort.
+    }
   }
   if (worker.aliveFile) {
     try { fs.unlinkSync(worker.aliveFile); } catch {}

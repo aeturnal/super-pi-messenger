@@ -11,6 +11,9 @@ import { loadCrewConfig } from "./utils/config.js";
 import { discoverCrewSkills } from "./utils/discover.js";
 import { buildWorkerPrompt } from "./prompt.js";
 import { logFeedEvent } from "../feed.js";
+export { launchAttempt } from "./execution/launcher.js";
+export { resolveLobbyAttemptIdentity } from "./execution/lobby-assignment.js";
+export { reconcileChildClose } from "./execution/attempts.js";
 import {
   spawnWorkerForTask,
   getAvailableLobbyWorkers,

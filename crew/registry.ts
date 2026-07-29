@@ -13,6 +13,7 @@ interface BaseWorkerEntry {
   name: string;
   cwd: string;
   taskId: string;
+  attemptId: string | null;
 }
 
 export interface RegularWorker extends BaseWorkerEntry {
@@ -55,12 +56,26 @@ export function findWorkerByTask(cwd: string, taskId: string): WorkerEntry | nul
   return null;
 }
 
+export function findWorkerByAttempt(cwd: string, attemptId: string): WorkerEntry | null {
+  for (const entry of workers.values()) {
+    if (entry.cwd === cwd && entry.attemptId === attemptId) return entry;
+  }
+  return null;
+}
+
+export function unregisterWorkerByAttempt(cwd: string, attemptId: string): void {
+  for (const [key, entry] of workers.entries()) {
+    if (entry.cwd === cwd && entry.attemptId === attemptId) workers.delete(key);
+  }
+}
+
 export function hasActiveWorker(cwd: string, taskId: string): boolean {
   const entry = findWorkerByTask(cwd, taskId);
   if (!entry) return false;
   return entry.proc.exitCode === null && !entry.proc.killed;
 }
 
+/** @deprecated Task 5 removes execution callers; retained for non-execution compatibility only. */
 export function killWorkerByTask(cwd: string, taskId: string): boolean {
   const entry = findWorkerByTask(cwd, taskId);
   if (!entry) return false;
@@ -76,6 +91,7 @@ export function killWorkerByTask(cwd: string, taskId: string): boolean {
   return false;
 }
 
+/** @deprecated Task 5 routes scheduler shutdown through durable controller cancellation. */
 export function killAll(cwd?: string): void {
   for (const [key, entry] of workers.entries()) {
     if (cwd && entry.cwd !== cwd) continue;

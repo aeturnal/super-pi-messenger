@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import * as crewStore from "../../crew/store.js";
 import {
-  createAttempt, ensurePlanRunId, readAttempt, readSchedulerRecord,
+  attemptPath, createAttempt, ensurePlanRunId, readAttempt, readSchedulerRecord,
   updateAttempt, writeSchedulerRecord,
 } from "../../crew/execution/store.js";
 import type { AttemptRecord, SchedulerRecord } from "../../crew/execution/types.js";
@@ -150,6 +150,21 @@ describe("execution persistence", () => {
     updateAttempt(cwd, attempt.attemptId, current => ({ ...current, rollbackApplied: true }));
     expect(readAttempt(cwd, attempt.attemptId)?.rollbackApplied).toBe(true);
   });
+
+  it.each(["../escape", "not-a-uuid", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/child"])(
+    "rejects unsafe attempt ID %s before resolving an attempt path",
+    attemptId => {
+      const { cwd } = createTempCrewDirs();
+      expect(() => attemptPath(cwd, attemptId)).toThrow("Invalid attempt ID");
+      expect(() => readAttempt(cwd, attemptId)).toThrow("Invalid attempt ID");
+      expect(() => updateAttempt(cwd, attemptId, current => current)).toThrow("Invalid attempt ID");
+      expect(() => createAttempt(cwd, {
+        version: 1, attemptId, runId, taskId: "task-1", controllerId: "controller-a",
+        leaseEpoch: 1, workerName: "worker-a", pid: null, startedAt: now, state: "starting",
+        attemptCharged: true, rollbackApplied: false, cancellation: null,
+      })).toThrow("Invalid attempt ID");
+    },
+  );
 
   it("normalizes absent additive task fields without changing old status", () => {
     const { cwd, tasksDir } = createTempCrewDirs();

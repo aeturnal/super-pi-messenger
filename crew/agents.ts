@@ -32,11 +32,12 @@ import { autonomousState, waitForConcurrencyChange } from "./state.js";
 import { registerWorker, unregisterWorker, killAll } from "./registry.js";
 import type { AgentTask, AgentResult } from "./types.js";
 import { generateMemorableName } from "../lib.js";
+import { buildPiToolArgs } from "./execution/tool-contract.js";
+export { buildPiToolArgs };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const EXTENSION_DIR = path.resolve(__dirname, "..");
-const BUILTIN_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 
 export interface SpawnOptions {
   onProgress?: (results: AgentResult[]) => void;
@@ -214,27 +215,7 @@ async function runAgent(
       args.push("--thinking", thinking);
     }
 
-    if (agentConfig?.tools?.length) {
-      const builtinTools: string[] = [];
-      const extensionPaths: string[] = [];
-      for (const tool of agentConfig.tools) {
-        if (tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js")) {
-          extensionPaths.push(tool);
-        } else if (BUILTIN_TOOLS.has(tool)) {
-          builtinTools.push(tool);
-        }
-      }
-
-      if (builtinTools.length > 0) {
-        args.push("--tools", builtinTools.join(","));
-      }
-      for (const extensionPath of extensionPaths) {
-        args.push("--extension", extensionPath);
-      }
-    }
-
-    // Pass extension so workers can use pi_messenger
-    args.push("--extension", EXTENSION_DIR);
+    args.push(...buildPiToolArgs(agentConfig, EXTENSION_DIR));
 
     let promptTmpDir: string | null = null;
     if (agentConfig?.systemPrompt) {
@@ -260,7 +241,7 @@ async function runAgent(
       ...(env ? { env } : {}),
     });
     if (task.taskId) {
-      registerWorker({ type: "worker", proc, name: workerName, cwd, taskId: task.taskId });
+      registerWorker({ type: "worker", proc, name: workerName, cwd, taskId: task.taskId, attemptId: null });
     }
     let gracefulShutdownRequested = false;
     let discoveredWorkerName: string | null = null;
@@ -297,7 +278,9 @@ async function runAgent(
             }
           }
         }
-      } catch {}
+      } catch (error) {
+        void error; // Progress parsing is best-effort; child close still owns final classification.
+      }
     });
 
     let stderr = "";
@@ -328,11 +311,17 @@ async function runAgent(
             truncated: truncation.truncated,
             error: progress.error,
           });
-        } catch {}
+        } catch (error) {
+          void error; // Artifact persistence must not prevent child-close reconciliation.
+        }
       }
 
       if (promptTmpDir) {
-        try { fs.rmSync(promptTmpDir, { recursive: true, force: true }); } catch {}
+        try {
+          fs.rmSync(promptTmpDir, { recursive: true, force: true });
+        } catch (error) {
+          void error; // Temporary prompt cleanup is best-effort.
+        }
       }
 
       resolve({
