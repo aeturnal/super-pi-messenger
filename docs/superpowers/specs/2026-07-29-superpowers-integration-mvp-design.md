@@ -20,7 +20,7 @@ Specialized bug, repair, planner, analyst, and integration-reviewer guidance is 
 The implementation has two narrow parts:
 
 1. A concrete parent-side adapter selects and renders Superpowers guidance at the existing `spawnAgents()` boundary.
-2. A child-only compatibility guard suppresses the stock standalone Superpowers bootstrap in active supported Crew children.
+2. A child-only compatibility guard suppresses the stock standalone Superpowers bootstrap and any exact marked legacy Crew policy block in active supported Crew children.
 
 A focused module, tentatively `crew/superpowers.ts`, owns resource normalization, provenance checks, compatibility state, role selection, per-launch records, rendering, warning deduplication, and the latest in-memory status snapshot. Its selection and rendering logic should remain pure; a small state wrapper may hold the current catalog and latest launch record.
 
@@ -130,7 +130,8 @@ For active supported launches only, the parent adds a tiny final CLI extension t
 
 - requires the adapter activation flag and a supported `PI_CREW_ROLE`;
 - removes only a context message containing the exact stock marker `superpowers:using-superpowers bootstrap for pi`;
-- leaves every other message untouched;
+- removes only an appended legacy system-prompt block beginning with `<!-- crew-superpowers-policy:` when that old global compatibility extension is still loaded;
+- leaves every other message and system-prompt content untouched;
 - does not alter Pi's loaded skills or commands;
 - does not run in outer interactive sessions, unsupported Crew roles, inactive mode, or fallback mode; and
 - never modifies files in the stock Superpowers installation.
@@ -189,8 +190,8 @@ Implementation follows focused TDD.
 
 ### Guard tests
 
-- The guard removes only the exact stock bootstrap message in an active supported Crew child.
-- It preserves adjacent user, system, compaction, and tool messages.
+- The guard removes only the exact stock bootstrap message and exact marked legacy policy suffix in an active supported Crew child.
+- It preserves adjacent user, system, compaction, tool, and unrelated appended-prompt content.
 - It does nothing without the activation flag, for unsupported roles, or when the marker is absent.
 
 ### Status and warning tests
