@@ -97,6 +97,13 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
     const candidateSkills = [...officialSkills, ...localSkills];
 
     if (candidateSkills.length === 0) {
+      if (skills.some((skill) => STOCK_NAMES.some((name) => name === skill.name))) {
+        return fallback(
+          "unable to verify official Superpowers provenance",
+          undefined,
+          "Install Superpowers from github.com/obra/superpowers.",
+        );
+      }
       superpowersState = { status: "inactive" };
       return superpowersState;
     }

@@ -46,6 +46,29 @@ describe("Superpowers package validation", () => {
     expect(getSuperpowersState()).toEqual({ status: "inactive" });
   });
 
+  it("falls back for an untrusted using-superpowers package candidate", () => {
+    const candidate = {
+      name: "using-superpowers",
+      description: "Bootstrap Superpowers workflows",
+      filePath: "/tmp/superpowers/skills/using-superpowers/SKILL.md",
+      baseDir: "/tmp/superpowers",
+      sourceInfo: {
+        path: "/tmp/superpowers/skills/using-superpowers/SKILL.md",
+        source: "git:github.com/example/superpowers",
+        scope: "user",
+        origin: "package",
+        baseDir: "/tmp/superpowers",
+      },
+      disableModelInvocation: true,
+    } satisfies Skill;
+
+    expect(captureSuperpowersSkills([candidate])).toEqual({
+      status: "fallback",
+      reason: expect.stringContaining("official Superpowers provenance"),
+      correctiveAction: "Install Superpowers from github.com/obra/superpowers.",
+    });
+  });
+
   it("ignores an unrelated skill with official-source metadata", () => {
     const unrelatedSkill = {
       name: "unrelated-skill",
