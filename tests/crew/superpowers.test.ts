@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   captureSuperpowersSkills,
   getSuperpowersState,
+  getSuperpowersStatusDetails,
   prepareSuperpowersLaunch,
   renderSuperpowersGuidance,
+  renderSuperpowersStatus,
   resetSuperpowersStateForTests,
 } from "../../crew/superpowers.js";
 import {
@@ -24,6 +26,13 @@ describe("Superpowers package validation", () => {
 
   beforeEach(resetSuperpowersStateForTests);
   afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
+
+  it("renders compact inactive status without a warning", () => {
+    expect(renderSuperpowersStatus()).toBe("Superpowers integration: inactive");
+    expect(renderSuperpowersStatus()).not.toContain("⚠");
+    expect(renderSuperpowersStatus().length).toBeLessThan(80);
+    expect(getSuperpowersStatusDetails()).toEqual({ status: "inactive" });
+  });
 
   it("is inactive and silent when Superpowers is absent", () => {
     const unrelatedSkill = {
@@ -157,6 +166,30 @@ describe("Superpowers package validation", () => {
     });
   });
 
+  it("renders bounded fallback status observationally", () => {
+    const fixture = track(createStockSuperpowersFixture({ version: "7.0.0" }));
+    const fallbackState = captureSuperpowersSkills(fixture.skills);
+
+    const expectedText = [
+      "Superpowers integration: fallback (7.0.0)",
+      "Reason: unsupported Superpowers major version",
+      "Action: Reinstall the official Superpowers package.",
+    ].join("\n");
+    const expectedDetails = {
+      status: "fallback",
+      reason: "unsupported Superpowers major version",
+      correctiveAction: "Reinstall the official Superpowers package.",
+      version: "7.0.0",
+    };
+
+    expect(renderSuperpowersStatus()).toBe(expectedText);
+    expect(renderSuperpowersStatus().length).toBeLessThan(300);
+    expect(getSuperpowersStatusDetails()).toEqual(expectedDetails);
+    expect(renderSuperpowersStatus()).toBe(expectedText);
+    expect(getSuperpowersStatusDetails()).toEqual(expectedDetails);
+    expect(getSuperpowersState()).toBe(fallbackState);
+  });
+
   it.each([
     [{ version: "invalid" }, "invalid Superpowers version"],
     [{ version: "7.0.0" }, "unsupported Superpowers major version"],
@@ -167,6 +200,42 @@ describe("Superpowers package validation", () => {
     expect(captureSuperpowersSkills(fixture.skills)).toMatchObject({
       status: "fallback",
       reason: expect.stringContaining(reason),
+    });
+  });
+
+  it("renders active mappings and the latest launch without persisting reset state", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    captureSuperpowersSkills(fixture.skills);
+    expect(prepareSuperpowersLaunch("worker", "task-1")).toBeDefined();
+    expect(prepareSuperpowersLaunch("planner", "ignored")).toBeUndefined();
+
+    expect(renderSuperpowersStatus()).toBe([
+      "Superpowers integration: active (6.2.0)",
+      "Worker: test-driven-development, verification-before-completion",
+      "Reviewer: verification-before-completion",
+      "Last launch: worker task-1",
+      "Restrictions: no nested orchestration or nested worktree management",
+    ].join("\n"));
+    expect(getSuperpowersStatusDetails()).toEqual({
+      status: "active",
+      version: "6.2.0",
+      packageRoot: fs.realpathSync(fixture.root),
+      mappings: {
+        worker: ["test-driven-development", "verification-before-completion"],
+        reviewer: ["verification-before-completion"],
+      },
+      latestLaunch: {
+        role: "worker",
+        assignmentId: "task-1",
+        selectedSkills: ["test-driven-development", "verification-before-completion"],
+      },
+    });
+
+    resetSuperpowersStateForTests();
+    captureSuperpowersSkills(fixture.skills);
+    expect(getSuperpowersStatusDetails()).toMatchObject({
+      status: "active",
+      latestLaunch: null,
     });
   });
 

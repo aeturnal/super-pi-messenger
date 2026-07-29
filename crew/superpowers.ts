@@ -51,6 +51,7 @@ const PROHIBITED_WORKFLOWS = [
 ];
 
 let superpowersState: SuperpowersState = { status: "inactive" };
+let latestActiveSelection: SuperpowersSelectionRecord | undefined;
 
 function normalizeOfficialSource(value: string): string {
   return value.trim()
@@ -232,6 +233,64 @@ export function getSuperpowersState(): SuperpowersState {
   return superpowersState;
 }
 
+export function renderSuperpowersStatus(): string {
+  if (superpowersState.status === "inactive") {
+    return "Superpowers integration: inactive";
+  }
+  if (superpowersState.status === "fallback") {
+    const version = superpowersState.version ? ` (${superpowersState.version})` : "";
+    return [
+      `Superpowers integration: fallback${version}`,
+      `Reason: ${superpowersState.reason}`,
+      `Action: ${superpowersState.correctiveAction}`,
+    ].join("\n");
+  }
+
+  const latestLaunch = latestActiveSelection
+    ? `${latestActiveSelection.role}${latestActiveSelection.assignmentId ? ` ${latestActiveSelection.assignmentId}` : ""}`
+    : "none";
+  return [
+    `Superpowers integration: active (${superpowersState.version})`,
+    `Worker: ${ROLE_RULES.worker.map(([name]) => name).join(", ")}`,
+    `Reviewer: ${ROLE_RULES.reviewer.map(([name]) => name).join(", ")}`,
+    `Last launch: ${latestLaunch}`,
+    "Restrictions: no nested orchestration or nested worktree management",
+  ].join("\n");
+}
+
+export function getSuperpowersStatusDetails(): Record<string, unknown> {
+  if (superpowersState.status === "inactive") {
+    return { status: "inactive" };
+  }
+  if (superpowersState.status === "fallback") {
+    return {
+      status: "fallback",
+      reason: superpowersState.reason,
+      correctiveAction: superpowersState.correctiveAction,
+      ...(superpowersState.version === undefined ? {} : { version: superpowersState.version }),
+    };
+  }
+
+  return {
+    status: "active",
+    version: superpowersState.version,
+    packageRoot: superpowersState.packageRoot,
+    mappings: {
+      worker: ROLE_RULES.worker.map(([name]) => name),
+      reviewer: ROLE_RULES.reviewer.map(([name]) => name),
+    },
+    latestLaunch: latestActiveSelection
+      ? {
+          role: latestActiveSelection.role,
+          ...(latestActiveSelection.assignmentId === undefined
+            ? {}
+            : { assignmentId: latestActiveSelection.assignmentId }),
+          selectedSkills: latestActiveSelection.selectedSkills.map((skill) => skill.name),
+        }
+      : null,
+  };
+}
+
 export function prepareSuperpowersLaunch(
   role: string,
   assignmentId?: string,
@@ -241,8 +300,7 @@ export function prepareSuperpowersLaunch(
   }
 
   const activeState = superpowersState;
-
-  return {
+  const selection: SuperpowersSelectionRecord = {
     status: "active",
     role,
     assignmentId,
@@ -254,6 +312,8 @@ export function prepareSuperpowersLaunch(
     })),
     prohibitedWorkflows: [...PROHIBITED_WORKFLOWS],
   };
+  latestActiveSelection = selection;
+  return selection;
 }
 
 export function renderSuperpowersGuidance(record: SuperpowersSelectionRecord): string {
@@ -268,4 +328,5 @@ export function renderSuperpowersGuidance(record: SuperpowersSelectionRecord): s
 
 export function resetSuperpowersStateForTests(): void {
   superpowersState = { status: "inactive" };
+  latestActiveSelection = undefined;
 }
