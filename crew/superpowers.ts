@@ -233,14 +233,16 @@ export function prepareSuperpowersLaunch(
     return undefined;
   }
 
+  const activeState = superpowersState;
+
   return {
     status: "active",
     role,
     assignmentId,
-    packageVersion: superpowersState.version,
-    packageRoot: superpowersState.packageRoot,
+    packageVersion: activeState.version,
+    packageRoot: activeState.packageRoot,
     selectedSkills: ROLE_RULES[role].map(([name, reason]) => ({
-      ...superpowersState.skills[name],
+      ...activeState.skills[name],
       reason,
     })),
     prohibitedWorkflows: [...PROHIBITED_WORKFLOWS],
