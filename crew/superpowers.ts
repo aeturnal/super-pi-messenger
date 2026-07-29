@@ -19,10 +19,36 @@ export type SuperpowersState =
       skills: Record<"test-driven-development" | "verification-before-completion", SkillRef>;
     };
 
+export type SupportedSuperpowersRole = "worker" | "reviewer";
+
+export interface SuperpowersSelectionRecord {
+  status: "active";
+  role: SupportedSuperpowersRole;
+  assignmentId?: string;
+  packageVersion: string;
+  packageRoot: string;
+  selectedSkills: Array<SkillRef & { reason: string }>;
+  prohibitedWorkflows: string[];
+}
+
 const SUPPORTED_MAJOR = 6;
 const REQUIRED_NAMES = ["test-driven-development", "verification-before-completion"] as const;
 const STOCK_NAMES = ["using-superpowers", ...REQUIRED_NAMES] as const;
 const STOCK_BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
+const ROLE_RULES = {
+  worker: [
+    ["test-driven-development", "Apply RED-GREEN-REFACTOR to behavior changes."],
+    ["verification-before-completion", "Run fresh checks before completion claims."],
+  ],
+  reviewer: [
+    ["verification-before-completion", "Verify evidence supporting the review verdict."],
+  ],
+} as const;
+const PROHIBITED_WORKFLOWS = [
+  "Do not start nested agents or SDD controllers.",
+  "Do not start plan executors or branch-finishing workflows.",
+  "Do not create, switch to, or manage nested worktrees; use the checkout assigned by Crew.",
+];
 
 let superpowersState: SuperpowersState = { status: "inactive" };
 
@@ -197,6 +223,38 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
 
 export function getSuperpowersState(): SuperpowersState {
   return superpowersState;
+}
+
+export function prepareSuperpowersLaunch(
+  role: string,
+  assignmentId?: string,
+): SuperpowersSelectionRecord | undefined {
+  if (superpowersState.status !== "active" || (role !== "worker" && role !== "reviewer")) {
+    return undefined;
+  }
+
+  return {
+    status: "active",
+    role,
+    assignmentId,
+    packageVersion: superpowersState.version,
+    packageRoot: superpowersState.packageRoot,
+    selectedSkills: ROLE_RULES[role].map(([name, reason]) => ({
+      ...superpowersState.skills[name],
+      reason,
+    })),
+    prohibitedWorkflows: [...PROHIBITED_WORKFLOWS],
+  };
+}
+
+export function renderSuperpowersGuidance(record: SuperpowersSelectionRecord): string {
+  return [
+    "Selected Superpowers skills:",
+    ...record.selectedSkills.map((skill) => `- ${skill.name}: ${skill.reason}`),
+    "Crew-owned workflow restrictions:",
+    ...record.prohibitedWorkflows.map((restriction) => `- ${restriction}`),
+    "Other relevant installed skills remain available.",
+  ].join("\n");
 }
 
 export function resetSuperpowersStateForTests(): void {

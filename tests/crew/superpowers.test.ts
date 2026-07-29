@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   captureSuperpowersSkills,
   getSuperpowersState,
+  prepareSuperpowersLaunch,
+  renderSuperpowersGuidance,
   resetSuperpowersStateForTests,
 } from "../../crew/superpowers.js";
 import {
@@ -143,5 +145,51 @@ describe("Superpowers package validation", () => {
       status: "fallback",
       reason: expect.stringContaining(reason),
     });
+  });
+
+  it("selects fixed skills in role order and preserves the assignment", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    captureSuperpowersSkills(fixture.skills);
+
+    const worker = prepareSuperpowersLaunch("worker", "task-1");
+    expect(worker?.selectedSkills.map((skill) => skill.name)).toEqual([
+      "test-driven-development",
+      "verification-before-completion",
+    ]);
+    expect(worker?.assignmentId).toBe("task-1");
+    expect(prepareSuperpowersLaunch("reviewer")?.selectedSkills.map((skill) => skill.name)).toEqual([
+      "verification-before-completion",
+    ]);
+    expect(prepareSuperpowersLaunch("planner")).toBeUndefined();
+  });
+
+  it("does not prepare role guidance from a non-active state", () => {
+    expect(prepareSuperpowersLaunch("worker", "task-1")).toBeUndefined();
+
+    const fixture = track(createStockSuperpowersFixture({ version: "7.0.0" }));
+    captureSuperpowersSkills(fixture.skills);
+    expect(prepareSuperpowersLaunch("worker", "task-1")).toBeUndefined();
+  });
+
+  it("renders compact guidance for only the selected skills and Crew-owned workflows", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    captureSuperpowersSkills(fixture.skills);
+    const worker = prepareSuperpowersLaunch("worker", "task-1");
+    const reviewer = prepareSuperpowersLaunch("reviewer");
+    if (!worker || !reviewer) throw new Error("active fixture did not prepare guidance");
+
+    const guidance = renderSuperpowersGuidance(worker);
+    expect(guidance).toContain("test-driven-development");
+    expect(guidance).toContain("verification-before-completion");
+    expect(guidance).toContain("Do not start nested agents or SDD controllers.");
+    expect(guidance).toContain("Do not start plan executors or branch-finishing workflows.");
+    expect(guidance).toContain(
+      "Do not create, switch to, or manage nested worktrees; use the checkout assigned by Crew.",
+    );
+    expect(guidance).toContain("Other relevant installed skills remain available");
+    expect(guidance).not.toContain("writing-plans");
+    expect(guidance.length).toBeLessThan(1_500);
+
+    expect(renderSuperpowersGuidance(reviewer)).not.toContain("test-driven-development");
   });
 });
