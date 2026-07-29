@@ -66,6 +66,7 @@ import { runLegacyAgentCleanupMigration } from "./crew/utils/install.js";
 import { getLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.js";
 import { shutdownAllWorkers } from "./crew/agents.js";
 import { shutdownLobbyWorkers } from "./crew/lobby.js";
+import { captureSuperpowersSkills } from "./crew/superpowers.js";
 
 let overlayTui: TUI | null = null;
 let overlayHandle: OverlayHandle | null = null;
@@ -799,6 +800,10 @@ Usage (action-based API - preferred):
   // ===========================================================================
   // Event Handlers
   // ===========================================================================
+
+  pi.on("before_agent_start", (event) => {
+    captureSuperpowersSkills(event.systemPromptOptions.skills ?? []);
+  });
 
   pi.on("session_start", async (_event, ctx) => {
     captureStatusContext(ctx);
