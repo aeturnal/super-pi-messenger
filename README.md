@@ -21,7 +21,7 @@ Super Pi Messenger is not yet published as an npm package. Install the current d
 pi install git:github.com/aeturnal/super-pi-messenger
 ```
 
-Superpowers remains a separate stock installation and source of truth. The packaged integration described by the product requirements is still under development.
+Superpowers remains a separate stock installation and source of truth.
 
 Crew agents ship with the extension (`crew/agents/*.md`) and are discovered automatically. The existing `pi-messenger-crew` skill and technical command names remain available during the compatibility period.
 
@@ -44,6 +44,17 @@ To remove stale crew agent copies from the shared legacy directory (`~/.pi/agent
 ```bash
 npx pi-messenger --crew-uninstall
 ```
+
+## Superpowers integration
+
+- Stock Superpowers is separately installed.
+- Workers start with `test-driven-development` and `verification-before-completion`; reviewers start with `verification-before-completion`.
+- Other Pi skills remain available.
+- Crew solely owns planning, dispatch, task state, review dispatch, and repository coordination.
+- Crew children cannot start nested orchestration or nested worktrees.
+- Crew status shows Superpowers integration as `active`, `inactive`, or `fallback`.
+- Stock Superpowers absence is silent; invalid installations warn once and continue with native Crew launch behavior.
+- The legacy global policy extension may be removed; during migration, only its exact marked suffix beginning `<!-- crew-superpowers-policy:` is ignored.
 
 ## Quick Start
 

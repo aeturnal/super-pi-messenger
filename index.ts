@@ -66,7 +66,7 @@ import { runLegacyAgentCleanupMigration } from "./crew/utils/install.js";
 import { getLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.js";
 import { shutdownAllWorkers } from "./crew/agents.js";
 import { shutdownLobbyWorkers } from "./crew/lobby.js";
-import { captureSuperpowersSkills } from "./crew/superpowers.js";
+import { captureSuperpowersSkills, takeSuperpowersWarning } from "./crew/superpowers.js";
 
 let overlayTui: TUI | null = null;
 let overlayHandle: OverlayHandle | null = null;
@@ -488,6 +488,21 @@ Usage (action-based API - preferred):
         { stuckThreshold: config.stuckThreshold, crewEventsInFeed: config.crewEventsInFeed, nameTheme, feedRetention: config.feedRetention },
         signal
       );
+      const superpowersWarning = takeSuperpowersWarning();
+      let deliveredResult = result;
+      if (superpowersWarning) {
+        const firstTextIndex = result.content.findIndex((block) => block.type === "text");
+        if (firstTextIndex !== -1) {
+          const content = [...result.content];
+          const firstText = content[firstTextIndex]!;
+          content[firstTextIndex] = {
+            ...firstText,
+            text: `⚠ ${superpowersWarning}\n\n${firstText.text}`,
+          };
+          deliveredResult = { ...result, content };
+          if (ctx.hasUI) ctx.ui.notify(superpowersWarning, "warning");
+        }
+      }
 
       if (action === "join" && state.registered && config.registrationContext) {
         sendRegistrationContext(ctx);
@@ -501,7 +516,7 @@ Usage (action-based API - preferred):
         overlayOpening = false;
       }
 
-      return result;
+      return deliveredResult;
     }
   });
 
