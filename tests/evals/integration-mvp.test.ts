@@ -1,4 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const read = (path: string) =>
@@ -61,6 +63,21 @@ describe("Superpowers integration MVP acceptance contract", () => {
     const skill = read(fixturePaths[1]);
 
     expect(skill).toBe(`---\nname: project-style\ndescription: Preserve the fixture's public module style.\n---\n\nKeep \`clamp\` as a named export. Do not add a default export.\n`);
+  });
+
+  it("starts with genuinely failing clamp tests", () => {
+    const seed = fileURLToPath(
+      new URL("../../evals/fixtures/integration-mvp/seed", import.meta.url),
+    );
+    const result = spawnSync("npm", ["test"], {
+      cwd: seed,
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1_048_576,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain("not implemented");
   });
 
   it("does not copy bounded stock Superpowers prose into fixture files", () => {

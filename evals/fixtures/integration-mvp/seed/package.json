@@ -1,0 +1,6 @@
+{
+  "name": "integration-mvp-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}
