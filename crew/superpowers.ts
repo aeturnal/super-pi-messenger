@@ -52,6 +52,8 @@ const PROHIBITED_WORKFLOWS = [
 
 let superpowersState: SuperpowersState = { status: "inactive" };
 let latestActiveSelection: SuperpowersSelectionRecord | undefined;
+let pendingSuperpowersWarning: string | undefined;
+let lastWarnedFallbackFingerprint: string | undefined;
 
 function normalizeOfficialSource(value: string): string {
   return value.trim()
@@ -295,9 +297,25 @@ export function prepareSuperpowersLaunch(
   role: string,
   assignmentId?: string,
 ): SuperpowersSelectionRecord | undefined {
-  if (superpowersState.status !== "active" || (role !== "worker" && role !== "reviewer")) {
+  if (role !== "worker" && role !== "reviewer") return undefined;
+
+  if (superpowersState.status === "fallback") {
+    const fingerprint = JSON.stringify([
+      superpowersState.reason,
+      superpowersState.correctiveAction,
+    ]);
+    if (fingerprint !== lastWarnedFallbackFingerprint) {
+      pendingSuperpowersWarning = [
+        `Superpowers integration fallback: ${superpowersState.reason}`,
+        `Action: ${superpowersState.correctiveAction}`,
+        "Crew will continue with native launch behavior.",
+      ].join("\n");
+      lastWarnedFallbackFingerprint = fingerprint;
+    }
     return undefined;
   }
+
+  if (superpowersState.status !== "active") return undefined;
 
   const activeState = superpowersState;
   const selection: SuperpowersSelectionRecord = {
@@ -316,6 +334,12 @@ export function prepareSuperpowersLaunch(
   return selection;
 }
 
+export function takeSuperpowersWarning(): string | undefined {
+  const warning = pendingSuperpowersWarning;
+  pendingSuperpowersWarning = undefined;
+  return warning;
+}
+
 export function renderSuperpowersGuidance(record: SuperpowersSelectionRecord): string {
   return [
     "Selected Superpowers skills:",
@@ -329,4 +353,6 @@ export function renderSuperpowersGuidance(record: SuperpowersSelectionRecord): s
 export function resetSuperpowersStateForTests(): void {
   superpowersState = { status: "inactive" };
   latestActiveSelection = undefined;
+  pendingSuperpowersWarning = undefined;
+  lastWarnedFallbackFingerprint = undefined;
 }

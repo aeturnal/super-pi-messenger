@@ -10,6 +10,7 @@ import {
   renderSuperpowersGuidance,
   renderSuperpowersStatus,
   resetSuperpowersStateForTests,
+  takeSuperpowersWarning,
 } from "../../crew/superpowers.js";
 import {
   createStockSuperpowersFixture,
@@ -253,6 +254,63 @@ describe("Superpowers package validation", () => {
       "verification-before-completion",
     ]);
     expect(prepareSuperpowersLaunch("planner")).toBeUndefined();
+  });
+
+  it("queues one actionable warning for repeated launches in the same fallback", () => {
+    const fixture = track(createStockSuperpowersFixture({ version: "7.0.0" }));
+    captureSuperpowersSkills(fixture.skills);
+
+    expect(prepareSuperpowersLaunch("worker", "task-1")).toBeUndefined();
+    const warning = takeSuperpowersWarning();
+    expect(warning).toContain("unsupported Superpowers major version");
+    expect(warning).toContain("Reinstall the official Superpowers package.");
+    expect(warning).toContain("Crew will continue with native launch behavior.");
+    expect(takeSuperpowersWarning()).toBeUndefined();
+
+    expect(prepareSuperpowersLaunch("reviewer", "review-1")).toBeUndefined();
+    expect(takeSuperpowersWarning()).toBeUndefined();
+  });
+
+  it("warns once after capture changes the fallback fingerprint", () => {
+    const unsupported = track(createStockSuperpowersFixture({ version: "7.0.0" }));
+    captureSuperpowersSkills(unsupported.skills);
+    prepareSuperpowersLaunch("worker");
+    expect(takeSuperpowersWarning()).toContain("unsupported Superpowers major version");
+
+    const incomplete = track(createStockSuperpowersFixture({ bootstrapMarker: false }));
+    captureSuperpowersSkills(incomplete.skills);
+    prepareSuperpowersLaunch("worker");
+    expect(takeSuperpowersWarning()).toContain("missing Superpowers bootstrap marker");
+
+    captureSuperpowersSkills(incomplete.skills);
+    prepareSuperpowersLaunch("worker");
+    expect(takeSuperpowersWarning()).toBeUndefined();
+  });
+
+  it("does not queue warnings from status rendering or unsupported roles", () => {
+    const fixture = track(createStockSuperpowersFixture({ version: "7.0.0" }));
+    captureSuperpowersSkills(fixture.skills);
+
+    renderSuperpowersStatus();
+    getSuperpowersStatusDetails();
+    prepareSuperpowersLaunch("planner");
+    expect(takeSuperpowersWarning()).toBeUndefined();
+
+    prepareSuperpowersLaunch("worker");
+    expect(takeSuperpowersWarning()).toContain("unsupported Superpowers major version");
+  });
+
+  it("resets the pending warning and last-warned fingerprint", () => {
+    const fixture = track(createStockSuperpowersFixture({ version: "7.0.0" }));
+    captureSuperpowersSkills(fixture.skills);
+    prepareSuperpowersLaunch("worker");
+
+    resetSuperpowersStateForTests();
+    expect(takeSuperpowersWarning()).toBeUndefined();
+
+    captureSuperpowersSkills(fixture.skills);
+    prepareSuperpowersLaunch("worker");
+    expect(takeSuperpowersWarning()).toContain("unsupported Superpowers major version");
   });
 
   it("does not prepare role guidance from a non-active state", () => {
