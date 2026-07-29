@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Skill } from "@earendil-works/pi-coding-agent";
@@ -39,11 +40,15 @@ function isOfficialSource(value: string): boolean {
   return normalizeOfficialSource(value) === "obra/superpowers";
 }
 
-function fallback(reason: string, version?: string): SuperpowersState {
+function fallback(
+  reason: string,
+  version?: string,
+  correctiveAction = "Reinstall the official Superpowers package.",
+): SuperpowersState {
   superpowersState = {
     status: "fallback",
     reason,
-    correctiveAction: "Reinstall the official Superpowers package.",
+    correctiveAction,
     ...(version === undefined ? {} : { version }),
   };
   return superpowersState;
@@ -52,13 +57,57 @@ function fallback(reason: string, version?: string): SuperpowersState {
 export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersState {
   try {
     const officialSkills = skills.filter((skill) => isOfficialSource(skill.sourceInfo.source));
-    if (officialSkills.length === 0) {
+    const localSources = [...new Set(skills.map((skill) => skill.sourceInfo.source))].filter(
+      (source) => path.isAbsolute(source)
+        && REQUIRED_NAMES.every((name) => skills.some(
+          (skill) => skill.sourceInfo.source === source && skill.name === name,
+        )),
+    );
+    const localSkills = skills.filter((skill) => localSources.includes(skill.sourceInfo.source));
+    const candidateSkills = [...new Set([...officialSkills, ...localSkills])];
+
+    if (candidateSkills.length === 0) {
       superpowersState = { status: "inactive" };
       return superpowersState;
     }
 
-    const baseDir = officialSkills[0]?.sourceInfo.baseDir;
-    if (!baseDir) return fallback("unable to validate official Superpowers package source");
+    const hasProjectShadow = skills.some(
+      (skill) => REQUIRED_NAMES.some((name) => name === skill.name)
+        && (skill.sourceInfo.origin === "top-level" || skill.sourceInfo.scope === "project"),
+    );
+    if (hasProjectShadow) {
+      return fallback(
+        "shadowed",
+        undefined,
+        "Remove or rename the project skill shadowing the official Superpowers skill.",
+      );
+    }
+
+    if (candidateSkills.some(
+      (skill) => REQUIRED_NAMES.some((name) => name === skill.name)
+        && skill.sourceInfo.origin !== "package",
+    )) {
+      return fallback("invalid Superpowers skill provenance");
+    }
+
+    const baseDirs = candidateSkills.map((skill) => skill.sourceInfo.baseDir);
+    if (baseDirs.some((baseDir) => !baseDir)) {
+      return fallback("unable to validate official Superpowers package source");
+    }
+    const candidateRoots = [...new Set(baseDirs.map((baseDir) => fs.realpathSync(baseDir!)))];
+    const hasDuplicateRequiredSkill = REQUIRED_NAMES.some(
+      (name) => candidateSkills.filter((skill) => skill.name === name).length > 1,
+    );
+    if (candidateRoots.length !== 1 || hasDuplicateRequiredSkill) {
+      return fallback(
+        "ambiguous",
+        undefined,
+        "Remove duplicate Superpowers catalog entries and keep one official package root.",
+      );
+    }
+
+    const localSource = officialSkills.length === 0 ? localSources[0] : undefined;
+    const baseDir = baseDirs[0]!;
 
     const packageRoot = fs.realpathSync(baseDir);
     const packageJson = JSON.parse(
@@ -88,7 +137,7 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
 
     const requiredSkills = {} as Record<(typeof REQUIRED_NAMES)[number], SkillRef>;
     for (const name of REQUIRED_NAMES) {
-      const skill = officialSkills.find((candidate) => candidate.name === name);
+      const skill = candidateSkills.find((candidate) => candidate.name === name);
       if (!skill) return fallback(`missing required Superpowers skill: ${name}`, version);
 
       const skillBaseDir = skill.sourceInfo.baseDir;
@@ -107,6 +156,22 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
         description: skill.description,
         filePath: canonicalPath,
       };
+    }
+
+    if (localSource !== undefined) {
+      let origin: string;
+      try {
+        origin = execFileSync(
+          "git",
+          ["-C", packageRoot, "remote", "get-url", "origin"],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+        );
+      } catch {
+        return fallback("unable to verify local Superpowers Git origin", version);
+      }
+      if (!isOfficialSource(origin)) {
+        return fallback("local Superpowers Git origin is not official", version);
+      }
     }
 
     superpowersState = {
