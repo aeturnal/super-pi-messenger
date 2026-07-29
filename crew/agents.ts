@@ -247,12 +247,11 @@ async function runAgent(
     if (agentConfig?.systemPrompt || superpowersLaunch) {
       promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-agent-"));
       const promptPath = path.join(promptTmpDir, `${task.agent.replace(/[^\w.-]/g, "_")}.md`);
-      const guidance = superpowersLaunch
-        ? renderSuperpowersGuidance(superpowersLaunch)
-        : undefined;
-      const appendSystemPrompt = agentConfig?.systemPrompt
-        ? `${agentConfig.systemPrompt}${guidance ? `\n\n${guidance}` : ""}`
-        : guidance!;
+      let appendSystemPrompt = agentConfig?.systemPrompt ?? "";
+      if (superpowersLaunch) {
+        const guidance = renderSuperpowersGuidance(superpowersLaunch);
+        appendSystemPrompt += appendSystemPrompt ? `\n\n${guidance}` : guidance;
+      }
       fs.writeFileSync(promptPath, appendSystemPrompt, { mode: 0o600 });
       args.push("--append-system-prompt", promptPath);
     }
