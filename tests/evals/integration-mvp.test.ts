@@ -641,6 +641,7 @@ describe("integration MVP verifier", () => {
     ["worker", '"/usr/bin/pi" --no-session'],
     ["reviewer", "env -u X pi -p nested"],
     ["worker", "true & pi"],
+    ["worker", "echo '\\'; pi"],
   ])("rejects nested Pi in %s bash command segments", (role, command) => {
     const run = createCompletedIntegrationRun();
     const trace = role === "worker" ? run.workerTrace : run.reviewerTrace;

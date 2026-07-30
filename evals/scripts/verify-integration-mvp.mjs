@@ -36,6 +36,11 @@ function commandWords(command) {
 
   for (let index = 0; index < command.length; index += 1) {
     const character = command[index];
+    if (quote === "'") {
+      if (character === quote) quote = undefined;
+      else word += character;
+      continue;
+    }
     if (character === "\\") {
       hasWord = true;
       if (index + 1 < command.length) word += command[index += 1];
