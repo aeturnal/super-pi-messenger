@@ -147,6 +147,9 @@ export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree
   const artifactsDirectory = join(worktree, ".pi", "messenger", "crew", "artifacts");
   const worker = readCrewTrace(artifactsDirectory, "worker");
   const reviewer = readCrewTrace(artifactsDirectory, "reviewer");
+  if (worker.path === reviewer.path) {
+    throw new Error("Worker and reviewer traces must be distinct files");
+  }
 
   if (!hasReadEndingIn(worker.events, STOCK_TDD_SUFFIX)) {
     throw new Error(

@@ -483,6 +483,20 @@ describe("integration MVP verifier", () => {
     });
   });
 
+  it("trace discovery requires distinct worker and reviewer trace files", () => {
+    const run = createCompletedIntegrationRun();
+    rmSync(run.workerTrace);
+    rmSync(run.reviewerTrace);
+    writeTrace(
+      join(run.artifacts, "run_crew-worker_task-1_crew-reviewer_task-1.jsonl"),
+      requiredTraceEvents().worker,
+    );
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Worker and reviewer traces must be distinct files",
+    );
+  });
+
   it.each([
     ["missing worker", "worker", 0],
     ["duplicate reviewer", "reviewer", 2],
@@ -527,6 +541,46 @@ describe("integration MVP verifier", () => {
 
     expect(() => verifyIntegrationMvp(run)).toThrow(
       `Missing required ${role} trace evidence: ${description}`,
+    );
+  });
+
+  it("required worker evidence requires the exact pi_messenger tool name", () => {
+    const run = createCompletedIntegrationRun();
+    const events = requiredTraceEvents();
+    events.worker[3] = toolStart("pi_messenger_extra", {
+      action: "task.done",
+      id: "task-1",
+    });
+    writeTrace(run.workerTrace, events.worker);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Missing required worker trace evidence: pi_messenger start",
+    );
+  });
+
+  it("required worker evidence bounds the project-style skill suffix", () => {
+    const run = createCompletedIntegrationRun();
+    const events = requiredTraceEvents();
+    events.worker[2] = toolStart("read", {
+      path: "/tmp/.pi/skills/not-project-style/SKILL.md",
+    });
+    writeTrace(run.workerTrace, events.worker);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Missing required worker trace evidence: project-style read",
+    );
+  });
+
+  it("required worker evidence bounds the stock verification skill suffix", () => {
+    const run = createCompletedIntegrationRun();
+    const events = requiredTraceEvents();
+    events.worker[1] = toolStart("read", {
+      path: "/tmp/superpowers/skills/not-verification-before-completion/SKILL.md",
+    });
+    writeTrace(run.workerTrace, events.worker);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Missing required worker trace evidence: stock verification-before-completion read",
     );
   });
 
