@@ -298,8 +298,29 @@ export function verifyIntegrationMvp({ repositoryRoot, worktree }) {
   if (head.error || head.status !== 0) {
     throw new Error("Could not resolve integration run HEAD");
   }
-  if (head.stdout.trim() === seedCommit) {
-    throw new Error("Integration run HEAD must differ from seedCommit");
+  const headCommit = head.stdout.trim();
+  const committedImplementation = spawnSync(
+    "git",
+    ["diff", "--quiet", seedCommit, headCommit, "--", "src/clamp.mjs"],
+    { cwd: worktree, encoding: "utf8" },
+  );
+  if (committedImplementation.error || ![0, 1].includes(committedImplementation.status)) {
+    throw new Error("Could not compare integration implementation commits");
+  }
+  if (committedImplementation.status === 0) {
+    throw new Error("Integration run must commit src/clamp.mjs after seedCommit");
+  }
+
+  const sourceMatchesHead = spawnSync(
+    "git",
+    ["diff", "--quiet", headCommit, "--", "src/clamp.mjs"],
+    { cwd: worktree, encoding: "utf8" },
+  );
+  if (sourceMatchesHead.error || ![0, 1].includes(sourceMatchesHead.status)) {
+    throw new Error("Could not compare integration source with HEAD");
+  }
+  if (sourceMatchesHead.status === 1) {
+    throw new Error("Integration run src/clamp.mjs must match HEAD");
   }
 
   const tests = spawnSync("npm", ["test"], { cwd: worktree, encoding: "utf8" });

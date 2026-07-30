@@ -851,7 +851,55 @@ describe("integration MVP verifier", () => {
     const run = createCompletedIntegrationRun({ commitImplementation: false });
 
     expect(() => verifyIntegrationMvp(run)).toThrow(
-      "Integration run HEAD must differ from seedCommit",
+      "Integration run must commit src/clamp.mjs after seedCommit",
+    );
+  });
+
+  it("rejects an unrelated post-seed commit with an uncommitted passing implementation", () => {
+    const run = createCompletedIntegrationRun({ commitImplementation: false });
+    const committed = spawnSync("git", ["commit", "--allow-empty", "-m", "Unrelated change"], {
+      cwd: run.worktree,
+      encoding: "utf8",
+    });
+    expect(committed.status).toBe(0);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Integration run must commit src/clamp.mjs after seedCommit",
+    );
+  });
+
+  it("rejects passing source that differs from the committed implementation", () => {
+    const run = createCompletedIntegrationRun();
+    writeFileSync(
+      join(run.worktree, "src", "clamp.mjs"),
+      `export const clamp = (value, min, max) => {\n  if (min > max) throw new RangeError("min must not exceed max");\n  return Math.max(min, Math.min(max, value));\n};\n`,
+    );
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Integration run src/clamp.mjs must match HEAD",
+    );
+  });
+
+  it("rejects a manifest seedCommit that already contains the implementation", () => {
+    const run = createCompletedIntegrationRun();
+    const implementationCommit = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: run.worktree,
+      encoding: "utf8",
+    }).stdout.trim();
+    const committed = spawnSync("git", ["commit", "--allow-empty", "-m", "Later evidence"], {
+      cwd: run.worktree,
+      encoding: "utf8",
+    });
+    expect(committed.status).toBe(0);
+    const manifestPath = join(run.worktree, ".git", "pi-super-messenger-eval-run.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, seedCommit: implementationCommit })}\n`,
+    );
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Integration run must commit src/clamp.mjs after seedCommit",
     );
   });
 
@@ -893,6 +941,16 @@ describe("integration MVP verifier", () => {
       join(run.worktree, "src", "clamp.mjs"),
       `export function clamp() { throw new Error("broken"); }\n`,
     );
+    const staged = spawnSync("git", ["add", "--", "src/clamp.mjs"], {
+      cwd: run.worktree,
+      encoding: "utf8",
+    });
+    const committed = spawnSync("git", ["commit", "-m", "Break clamp"], {
+      cwd: run.worktree,
+      encoding: "utf8",
+    });
+    expect(staged.status).toBe(0);
+    expect(committed.status).toBe(0);
 
     expect(() => verifyIntegrationMvp(run)).toThrow("Fixture tests failed");
   });
