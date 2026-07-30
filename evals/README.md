@@ -78,26 +78,42 @@ For silent inactive acceptance, use a distinct fresh reset and a mode-700 Pi
 agent directory outside the repository:
 
 ```bash
-repo_root=/absolute/path/to/super-pi-messenger
+set -e
+repo_root="$(realpath /absolute/path/to/super-pi-messenger)"
 inactive_run="$repo_root/evals/runs/integration-mvp/inactive-worktree"
 node "$repo_root/evals/scripts/reset-integration-mvp.mjs" "$inactive_run"
-inactive_agent_dir="$(mktemp -d "${TMPDIR:-/tmp}/super-pi-messenger-inactive.XXXXXX")"
-chmod 700 "$inactive_agent_dir"
+inactive_agent_dir="$(mktemp -d /tmp/super-pi-messenger-inactive.XXXXXX)"
 trap 'rm -rf -- "$inactive_agent_dir"' EXIT
+inactive_agent_dir="$(realpath "$inactive_agent_dir")"
+case "$inactive_agent_dir" in
+  "$repo_root"|"$repo_root"/*)
+    echo "Refusing Pi agent directory under repository root: $inactive_agent_dir" >&2
+    exit 1
+    ;;
+esac
+chmod 700 "$inactive_agent_dir"
 cd "$inactive_run"
-PI_CODING_AGENT_DIR="$inactive_agent_dir" pi -e /absolute/path/to/super-pi-messenger
+pi_status=0
+PI_CODING_AGENT_DIR="$inactive_agent_dir" pi -e /absolute/path/to/super-pi-messenger || pi_status=$?
 # After Pi exits, remove the credential-bearing directory now rather than waiting for shell exit.
-rm -rf -- "$inactive_agent_dir"
+if ! rm -rf -- "$inactive_agent_dir"; then
+  echo "WARNING: cleanup failed; $inactive_agent_dir remains credential-bearing and requires manual removal." >&2
+  exit 1
+fi
+if [ -e "$inactive_agent_dir" ]; then
+  echo "WARNING: cleanup failed; $inactive_agent_dir remains credential-bearing and requires manual removal." >&2
+  exit 1
+fi
 trap - EXIT
+exit "$pi_status"
 ```
 
 In Pi, authenticate through its normal interactive flow if needed, then run
 `pi_messenger({ action: "status" })` and `pi_messenger({ action: "work" })`.
 Never copy credentials or settings from the normal agent directory, and never
 place credentials in the repository. Until cleanup succeeds, treat the isolated
-directory as credential-bearing. Require inactive status, no warning, native
-Crew completion, and unchanged project override behavior. Fallback is a
-separate warning state; it is not this no-warning inactive run. Do not expect
+directory as credential-bearing. Require silent inactive status, no warning,
+native Crew completion, and unchanged project override behavior. Do not expect
 the deterministic verifier to pass inactive-trace methodology checks.
 
 The reset and verification scripts never launch Pi or a model. Raw traces stay

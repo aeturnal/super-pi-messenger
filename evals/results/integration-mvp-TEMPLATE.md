@@ -3,8 +3,8 @@
 **Status:** `NOT RUN` | `INCOMPLETE` | `FAILED` | `PASSED`
 
 Use `not observable` for unavailable facts. Include only evidence that was
-reviewed and sanitized. Silent inactive acceptance is a no-warning run;
-fallback is a separate warning state and does not satisfy it.
+reviewed and sanitized. Silent inactive acceptance requires an inactive result
+with no warning.
 
 ## Run identity
 
