@@ -257,7 +257,8 @@ describe("Superpowers integration MVP acceptance contract", () => {
     expect(brief).toContain("Implement only `clamp`");
     expect(brief).toContain("Run fresh tests");
     expect(brief).toContain("Commit the implementation");
-    expect(brief).toContain("Report completion through `pi_messenger`");
+    expect(brief).toContain("pi_messenger({ action: \"task.done\"");
+    expect(brief).toContain("Do not invoke `review`");
     expect(brief).toContain("Do not start nested agents");
     expect(brief).toContain("Do not create, switch to, or manage nested worktrees");
   });
