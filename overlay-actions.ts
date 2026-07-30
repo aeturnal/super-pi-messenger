@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { matchesKey, type TUI } from "@earendil-works/pi-tui";
-import type { AgentMailMessage, Dirs, MessengerState } from "./lib.js";
-import { MAX_CHAT_HISTORY } from "./lib.js";
-import { sendMessageToAgent, getActiveAgents } from "./store.js";
-import { logFeedEvent } from "./feed.js";
-import * as crewStore from "./crew/store.js";
-import { executeTaskAction as runTaskAction } from "./crew/task-actions.js";
-import type { Task } from "./crew/types.js";
-import { getLiveWorkers } from "./crew/live-progress.js";
-import { hasActiveWorker } from "./crew/registry.js";
-import { cancelPlanningRun } from "./crew/state.js";
+import type { AgentMailMessage, Dirs, MessengerState } from "./lib.ts";
+import { MAX_CHAT_HISTORY } from "./lib.ts";
+import { sendMessageToAgent, getActiveAgents } from "./store.ts";
+import { logFeedEvent } from "./feed.ts";
+import * as crewStore from "./crew/store.ts";
+import { executeTaskAction as runTaskAction } from "./crew/task-actions.ts";
+import type { Task } from "./crew/types.ts";
+import { getLiveWorkers } from "./crew/live-progress.ts";
+import { hasActiveWorker } from "./crew/registry.ts";
+import { cancelPlanningRun } from "./crew/state.ts";
 
 interface ConfirmAction {
   type: "reset" | "cascade-reset" | "delete" | "cancel-planning";
@@ -235,7 +235,7 @@ export function handleRevisePromptInput(
     const vs = viewState;
     const t = tui;
     const fn = scope === "tree" ? "executeReviseTree" : "executeRevise";
-    import("./crew/handlers/revise.js")
+    import("./crew/handlers/revise.ts")
       .then(m => m[fn](cwd, task.id, prompt, agentName))
       .then(result => {
         setNotification(vs, t, result.success, result.message);

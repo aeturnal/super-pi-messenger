@@ -8,7 +8,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
-import { normalizeCwd } from "./state.js";
+import { normalizeCwd } from "./state.ts";
 
 export type PlanningPhase =
   | "idle"

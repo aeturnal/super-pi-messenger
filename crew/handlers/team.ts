@@ -1,15 +1,17 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { MessengerState } from "../../lib.js";
-import type { CrewParams } from "../types.js";
-import { result } from "../utils/result.js";
-import * as crewStore from "../store.js";
-import * as teamStore from "../team/store.js";
-import { TEAM_MEMORY_TYPES, type TeamMemoryType, type TeamProfile } from "../team/types.js";
+import type { MessengerState } from "../../lib.ts";
+import type { CrewParams } from "../types.ts";
+import { result } from "../utils/result.ts";
+import * as crewStore from "../store.ts";
+import * as teamStore from "../team/store.ts";
+import { TEAM_MEMORY_TYPES, type TeamMemoryType, type TeamProfile } from "../team/types.ts";
 
 export async function execute(op: string, params: CrewParams, state: MessengerState, ctx: ExtensionContext) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
 
   switch (op) {
+    case "setup":
+      return setup(cwd, params);
     case "profile.list":
       return profileList();
     case "profile.use":
@@ -37,6 +39,54 @@ export async function execute(op: string, params: CrewParams, state: MessengerSt
 
 function memoryType(value: unknown): TeamMemoryType | null {
   return typeof value === "string" && TEAM_MEMORY_TYPES.includes(value as TeamMemoryType) ? value as TeamMemoryType : null;
+}
+
+function starterCharter(profile: TeamProfile): string {
+  const roles = Object.keys(profile.roles ?? {}).sort();
+  const approval = profile.approval?.mode === "off"
+    ? "No approval gates are configured for this profile."
+    : `High-risk editing tasks need lead approval for: ${(profile.approval?.labels ?? ["security", "database", "api-contract", "destructive", "migration", "auth", "payment"]).join(", ")}.`;
+  return [
+    `Use the ${profile.name} Team profile for this project.`,
+    profile.description ? `Profile intent: ${profile.description}.` : null,
+    roles.length > 0 ? `Planner may assign these roles: ${roles.join(", ")}.` : null,
+    approval,
+    "Keep Team memory current with decisions, interface notes, risks, and handoffs.",
+  ].filter(Boolean).join("\n\n");
+}
+
+function setup(cwd: string, params: CrewParams) {
+  const name = params.name ?? "migration-squad";
+  if (!teamStore.isValidProfileName(name)) {
+    return result("Error: invalid team profile name. Use letters, numbers, underscore, or hyphen.", { mode: "team.setup", error: "invalid_name" });
+  }
+
+  const { team, profile, created } = teamStore.useProfile(cwd, name);
+  const existingCharter = teamStore.readCharter(cwd);
+  const customCharter = typeof params.message === "string" && params.message.trim().length > 0 ? params.message : undefined;
+  const charter = customCharter || !existingCharter
+    ? teamStore.writeCharter(cwd, profile.name, customCharter ?? starterCharter(profile))
+    : existingCharter;
+  const charterStatus = customCharter ? "updated" : existingCharter ? "kept" : "created";
+
+  const text = `Set up Team profile **${profile.name}**.
+
+Profile: ${created ? "created editable JSON" : "activated"}
+Charter: ${charterStatus}
+
+Next:
+- Plan with this Team context: \`pi_messenger({ action: "plan", prompt: "..." })\`
+- Check Team status: \`pi_messenger({ action: "team.status" })\`
+- Approve gated work with \`task.approve\`; reject with \`task.reject\` and feedback.`;
+
+  return result(text, {
+    mode: "team.setup",
+    team,
+    profile,
+    created,
+    charter,
+    charterStatus,
+  });
 }
 
 function profileList() {
@@ -156,13 +206,19 @@ function status(cwd: string) {
   const activeRoleNames = Object.keys(profile?.roles ?? {}).sort();
   const counts = teamStore.memoryCounts(cwd);
   const needsLead = teamStore.needsLeadTasks(cwd);
+  const rejected = teamStore.rejectedTasks(cwd);
   const approvalText = needsLead.length > 0
     ? `\nNeeds approval:\n${needsLead.map(t => `- ${t.id}: ${t.title} [${t.approval?.status ?? "pending"}]`).join("\n")}`
     : "\nNeeds approval: none";
-  const nextAction = needsLead.length > 0
-    ? `Approve with: pi_messenger({ action: "task.approve", id: "${needsLead[0].id}" })`
-    : team ? "Next: plan or run Crew work with this Team context." : "Next: activate a sample profile, e.g. migration-squad, review-squad, or research-squad.";
-  const text = `Team: ${team?.name ?? "(none)"}\nProfile: ${profile?.name ?? team?.profile ?? "(none)"}\nCharter: ${charter ? "present" : "missing"}\nActive roles: ${activeRoleNames.length > 0 ? activeRoleNames.join(", ") : "none"}\nMemory: decisions ${counts.decision}, interfaces ${counts.interface}, risks ${counts.risk}, handoffs ${counts.handoff}${approvalText}\n${nextAction}`;
+  const rejectedText = rejected.length > 0
+    ? `\nRejected tasks:\n${rejected.map(t => `- ${t.id}: ${t.title}${t.approval?.feedback ? ` — ${t.approval.feedback}` : ""}`).join("\n")}`
+    : "\nRejected tasks: none";
+  const nextAction = rejected.length > 0
+    ? `Revise rejected work with: pi_messenger({ action: "task.revise", id: "${rejected[0].id}", prompt: "Address approval feedback" })`
+    : needsLead.length > 0
+      ? `Approve with: pi_messenger({ action: "task.approve", id: "${needsLead[0].id}" })`
+      : team ? "Next: plan or run Crew work with this Team context." : "Next: activate a sample profile, e.g. migration-squad, review-squad, or research-squad.";
+  const text = `Team: ${team?.name ?? "(none)"}\nProfile: ${profile?.name ?? team?.profile ?? "(none)"}\nCharter: ${charter ? "present" : "missing"}\nActive roles: ${activeRoleNames.length > 0 ? activeRoleNames.join(", ") : "none"}\nMemory: decisions ${counts.decision}, interfaces ${counts.interface}, risks ${counts.risk}, handoffs ${counts.handoff}${approvalText}${rejectedText}\n${nextAction}`;
   return result(text, {
     mode: "team.status",
     team,
@@ -173,6 +229,7 @@ function status(cwd: string) {
     nextAction,
     memoryCounts: counts,
     needsLead: needsLead.map(t => ({ id: t.id, title: t.title, approval: t.approval })),
+    rejected: rejected.map(t => ({ id: t.id, title: t.title, approval: t.approval })),
     taskCount: crewStore.getTasks(cwd).length,
   });
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { OverlayRenderCoordinator } from "../overlay-coordinator.js";
+import { OverlayRenderCoordinator } from "../overlay-coordinator.ts";
 
 function createOverlayHarness() {
   let hidden = false;

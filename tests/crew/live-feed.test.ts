@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { FeedEvent } from "../../feed.js";
+import type { FeedEvent } from "../../feed.ts";
 
 vi.mock("@earendil-works/pi-tui", () => ({
   truncateToWidth: (s: string) => s,
@@ -10,11 +10,11 @@ const mockTheme = {
 };
 
 describe("renderFeedSection (pure formatter)", () => {
-  let renderFeedSection: typeof import("../../overlay-render.js").renderFeedSection;
+  let renderFeedSection: typeof import("../../overlay-render.ts").renderFeedSection;
 
   beforeEach(async () => {
     vi.resetModules();
-    const mod = await import("../../overlay-render.js");
+    const mod = await import("../../overlay-render.ts");
     renderFeedSection = mod.renderFeedSection;
   });
 

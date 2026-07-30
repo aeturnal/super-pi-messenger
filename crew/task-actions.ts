@@ -1,8 +1,8 @@
-import { logFeedEvent } from "../feed.js";
-import * as store from "./store.js";
-import { loadCrewConfig } from "./utils/config.js";
-import { killWorkerByTask } from "./registry.js";
-import type { Task } from "./types.js";
+import { logFeedEvent } from "../feed.ts";
+import * as store from "./store.ts";
+import { loadCrewConfig } from "./utils/config.ts";
+import { killWorkerByTask } from "./registry.ts";
+import type { Task } from "./types.ts";
 
 export type TaskAction = "start" | "block" | "unblock" | "reset" | "cascade-reset" | "delete" | "stop";
 

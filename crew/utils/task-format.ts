@@ -1,4 +1,4 @@
-import type { Task } from "../types.js";
+import type { Task } from "../types.ts";
 
 export function taskMetadataMarkers(task: Task): string {
   const markers = [

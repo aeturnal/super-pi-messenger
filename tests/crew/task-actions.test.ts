@@ -1,9 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import * as store from "../../crew/store.js";
-import { executeTaskAction } from "../../crew/task-actions.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+import * as store from "../../crew/store.ts";
+import { executeTaskAction } from "../../crew/task-actions.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 
 function writeCrewDependenciesConfig(cwd: string, dependencies: "advisory" | "strict"): void {
   const configPath = path.join(cwd, ".pi", "messenger", "crew", "config.json");

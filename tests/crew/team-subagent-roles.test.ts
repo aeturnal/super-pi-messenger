@@ -1,9 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
-import { discoverSubagentRoles } from "../../crew/team/subagent-roles.js";
-import * as teamStore from "../../crew/team/store.js";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import { discoverSubagentRoles } from "../../crew/team/subagent-roles.ts";
+import * as teamStore from "../../crew/team/store.ts";
 
 describe("team subagent role discovery", () => {
   it("merges builtin, user, project, and profile role metadata", () => {

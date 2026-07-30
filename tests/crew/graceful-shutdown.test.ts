@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.js";
-import { createMockContext } from "../helpers/mock-context.js";
+import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
 
 function writeWorkerAgent(cwd: string): void {
   const filePath = path.join(cwd, ".pi", "messenger", "crew", "agents", "crew-worker.md");
@@ -35,7 +35,7 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("raceTimeout returns true when promise resolves before timeout and false on timeout", async () => {
-    const { raceTimeout } = await import("../../crew/agents.js");
+    const { raceTimeout } = await import("../../crew/agents.ts");
 
     const fast = raceTimeout(new Promise<void>(resolve => {
       setTimeout(resolve, 5);
@@ -77,7 +77,7 @@ describe("crew/graceful shutdown", () => {
 
     vi.doMock("node:child_process", () => ({ spawn: spawnMock }));
 
-    const { spawnAgents } = await import("../../crew/agents.js");
+    const { spawnAgents } = await import("../../crew/agents.ts");
 
     writeWorkerAgent(dirs.cwd);
 
@@ -127,9 +127,9 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("result processing uses taskId and graceful shutdown branches correctly", async () => {
-    const store = await import("../../crew/store.js");
-    const agents = await import("../../crew/agents.js");
-    const workHandler = await import("../../crew/handlers/work.js");
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
     store.createPlan(dirs.cwd, "docs/PRD.md");
@@ -170,9 +170,9 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("graceful non-zero exit with done task is credited as success; crash blocks in autonomous mode", async () => {
-    const store = await import("../../crew/store.js");
-    const agents = await import("../../crew/agents.js");
-    const workHandler = await import("../../crew/handlers/work.js");
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
     store.createPlan(dirs.cwd, "docs/PRD.md");
@@ -242,10 +242,10 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("autonomous mode stops with manual reason when signal is aborted", async () => {
-    const store = await import("../../crew/store.js");
-    const agents = await import("../../crew/agents.js");
-    const workHandler = await import("../../crew/handlers/work.js");
-    const state = await import("../../crew/state.js");
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+    const state = await import("../../crew/state.ts");
 
     state.autonomousState.active = false;
     state.autonomousState.cwd = null;
@@ -301,10 +301,10 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("clamps fractional concurrency and passes all ready tasks to spawnAgents", async () => {
-    const store = await import("../../crew/store.js");
-    const agents = await import("../../crew/agents.js");
-    const state = await import("../../crew/state.js");
-    const workHandler = await import("../../crew/handlers/work.js");
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const state = await import("../../crew/state.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
     store.createPlan(dirs.cwd, "docs/PRD.md");
@@ -328,8 +328,8 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("reconciles completed_count before returning from a no-ready wave", async () => {
-    const store = await import("../../crew/store.js");
-    const workHandler = await import("../../crew/handlers/work.js");
+    const store = await import("../../crew/store.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
     store.createPlan(dirs.cwd, "docs/PRD.md");
@@ -356,9 +356,9 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("reconciles completed_count after worker results are processed", async () => {
-    const store = await import("../../crew/store.js");
-    const agents = await import("../../crew/agents.js");
-    const workHandler = await import("../../crew/handlers/work.js");
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
     store.createPlan(dirs.cwd, "docs/PRD.md");
@@ -401,9 +401,9 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("auto-blocks tasks that exceed maxAttemptsPerTask before assigning to workers", async () => {
-    const store = await import("../../crew/store.js");
-    const agents = await import("../../crew/agents.js");
-    const workHandler = await import("../../crew/handlers/work.js");
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
     store.createPlan(dirs.cwd, "docs/PRD.md");
@@ -428,9 +428,9 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("worker exit 0 with task still in_progress resets to todo", async () => {
-    const store = await import("../../crew/store.js");
-    const agents = await import("../../crew/agents.js");
-    const workHandler = await import("../../crew/handlers/work.js");
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
     store.createPlan(dirs.cwd, "docs/PRD.md");
@@ -471,9 +471,9 @@ describe("crew/graceful shutdown", () => {
   });
 
   it("graceful shutdown with non-zero exit and in_progress task resets to todo and reports failed", async () => {
-    const store = await import("../../crew/store.js");
-    const agents = await import("../../crew/agents.js");
-    const workHandler = await import("../../crew/handlers/work.js");
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
     store.createPlan(dirs.cwd, "docs/PRD.md");

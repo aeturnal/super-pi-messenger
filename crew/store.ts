@@ -7,9 +7,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import type { Plan, Task, TaskApproval, TaskApprovalDecisionStatus, TaskEvidence } from "./types.js";
-import { allocateTaskId } from "./id-allocator.js";
-import { normalizeRiskLabels } from "./utils/risk-labels.js";
+import type { Plan, Task, TaskApproval, TaskApprovalDecisionStatus, TaskEvidence } from "./types.ts";
+import { allocateTaskId } from "./id-allocator.ts";
+import { normalizeRiskLabels } from "./utils/risk-labels.ts";
 
 // =============================================================================
 // Directory Helpers

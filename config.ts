@@ -125,8 +125,7 @@ export function getAutoRegisterPaths(): string[] {
   }
 }
 
-export function loadConfig(cwd: string): MessengerConfig {
-  const projectPath = join(cwd, ".pi", "pi-messenger.json");
+function buildConfig(projectConfig?: Partial<MessengerConfig> | null): MessengerConfig {
   const extensionGlobalPath = join(homedir(), ".pi", "agent", "pi-messenger.json");
   const mainSettingsPath = join(homedir(), ".pi", "agent", "settings.json");
 
@@ -139,9 +138,6 @@ export function loadConfig(cwd: string): MessengerConfig {
 
   // Load extension-specific global config
   const extensionConfig = readJsonFile(extensionGlobalPath) as Partial<MessengerConfig> | null;
-
-  // Load project config (highest priority)
-  const projectConfig = readJsonFile(projectPath) as Partial<MessengerConfig> | null;
 
   const merged = { 
     ...DEFAULT_CONFIG, 
@@ -200,4 +196,14 @@ export function loadConfig(cwd: string): MessengerConfig {
     senderDetailsOnFirstContact: merged.senderDetailsOnFirstContact !== false,
     ...sharedFields,
   };
+}
+
+export function loadGlobalConfig(): MessengerConfig {
+  return buildConfig();
+}
+
+export function loadConfig(cwd: string): MessengerConfig {
+  const projectPath = join(cwd, ".pi", "pi-messenger.json");
+  const projectConfig = readJsonFile(projectPath) as Partial<MessengerConfig> | null;
+  return buildConfig(projectConfig);
 }

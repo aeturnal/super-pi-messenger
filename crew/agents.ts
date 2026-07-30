@@ -10,30 +10,30 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { discoverCrewAgents, type CrewAgentConfig } from "./utils/discover.js";
-import { truncateOutput } from "./utils/truncate.js";
+import { discoverCrewAgents, type CrewAgentConfig } from "./utils/discover.ts";
+import { truncateOutput } from "./utils/truncate.ts";
 import {
   createProgress,
   parseJsonlLine,
   updateProgress,
   getFinalOutput,
   type PiEvent,
-} from "./utils/progress.js";
+} from "./utils/progress.ts";
 import {
   getArtifactPaths,
   ensureArtifactsDir,
   writeArtifact,
   writeMetadata,
   appendJsonl
-} from "./utils/artifacts.js";
-import { loadCrewConfig, getTruncationForRole, type CrewConfig } from "./utils/config.js";
-import { removeLiveWorker, updateLiveWorker } from "./live-progress.js";
-import { autonomousState, waitForConcurrencyChange } from "./state.js";
-import { registerWorker, unregisterWorker, killAll } from "./registry.js";
-import type { AgentTask, AgentResult } from "./types.js";
-import { generateMemorableName } from "../lib.js";
-import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.js";
-import { prepareSuperpowersLaunch, renderSuperpowersGuidance } from "./superpowers.js";
+} from "./utils/artifacts.ts";
+import { loadCrewConfig, getTruncationForRole, type CrewConfig } from "./utils/config.ts";
+import { removeLiveWorker, updateLiveWorker } from "./live-progress.ts";
+import { autonomousState, waitForConcurrencyChange } from "./state.ts";
+import { registerWorker, unregisterWorker, killAll } from "./registry.ts";
+import type { AgentTask, AgentResult } from "./types.ts";
+import { generateMemorableName } from "../lib.ts";
+import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
+import { prepareSuperpowersLaunch, renderSuperpowersGuidance } from "./superpowers.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -6,7 +6,7 @@
  */
 
 import type { ChildProcess } from "node:child_process";
-import type { CoordinationLevel } from "./utils/config.js";
+import type { CoordinationLevel } from "./utils/config.ts";
 
 interface BaseWorkerEntry {
   proc: ChildProcess;

@@ -21,7 +21,7 @@ vi.mock("node:child_process", () => ({
   }),
 }));
 
-vi.mock("../../crew/store.js", () => ({
+vi.mock("../../crew/store.ts", () => ({
   getPlan: vi.fn(() => ({ prd: "docs/PRD.md" })),
   getCrewDir: vi.fn((cwd: string) => `${cwd}/.pi/messenger/crew`),
   getTask: vi.fn(() => null),
@@ -30,11 +30,11 @@ vi.mock("../../crew/store.js", () => ({
   appendTaskProgress: vi.fn(),
 }));
 
-vi.mock("../../feed.js", () => ({
+vi.mock("../../feed.ts", () => ({
   logFeedEvent: vi.fn(),
 }));
 
-vi.mock("../../crew/utils/config.js", () => ({
+vi.mock("../../crew/utils/config.ts", () => ({
   loadCrewConfig: vi.fn(() => ({
     concurrency: { workers: 4 },
     models: {},
@@ -44,7 +44,7 @@ vi.mock("../../crew/utils/config.js", () => ({
   })),
 }));
 
-vi.mock("../../crew/utils/discover.js", () => ({
+vi.mock("../../crew/utils/discover.ts", () => ({
   discoverCrewAgents: vi.fn(() => [{
     name: "crew-worker",
     description: "worker",
@@ -57,12 +57,12 @@ vi.mock("../../crew/utils/discover.js", () => ({
   }]),
 }));
 
-vi.mock("../../crew/live-progress.js", () => ({
+vi.mock("../../crew/live-progress.ts", () => ({
   updateLiveWorker: vi.fn(),
   removeLiveWorker: vi.fn(),
 }));
 
-vi.mock("../../lib.js", async () => {
+vi.mock("../../lib.ts", async () => {
   let counter = 0;
   return {
     generateMemorableName: () => `TestWorker${++counter}`,
@@ -76,13 +76,13 @@ function createTestCwd(): string {
 }
 
 describe("lobby workers", () => {
-  let lobby: typeof import("../../crew/lobby.js");
-  let liveProgress: typeof import("../../crew/live-progress.js");
+  let lobby: typeof import("../../crew/lobby.ts");
+  let liveProgress: typeof import("../../crew/live-progress.ts");
 
   beforeEach(async () => {
     vi.resetModules();
-    lobby = await import("../../crew/lobby.js");
-    liveProgress = await import("../../crew/live-progress.js");
+    lobby = await import("../../crew/lobby.ts");
+    liveProgress = await import("../../crew/live-progress.ts");
   });
 
   it("spawns a lobby worker and registers it in live progress", () => {
@@ -109,10 +109,32 @@ describe("lobby workers", () => {
   });
 
   it("returns null if no crew-worker agent is discovered", async () => {
-    const discover = await import("../../crew/utils/discover.js");
+    const discover = await import("../../crew/utils/discover.ts");
     vi.mocked(discover.discoverCrewAgents).mockReturnValueOnce([]);
     const worker = lobby.spawnLobbyWorker("/test/cwd");
     expect(worker).toBeNull();
+  });
+
+  it("passes bare .js tool entries as extension paths", async () => {
+    const discover = await import("../../crew/utils/discover.ts");
+    vi.mocked(discover.discoverCrewAgents).mockReturnValueOnce([{
+      name: "crew-worker",
+      description: "worker",
+      systemPrompt: "# Crew Worker\nYou implement tasks.",
+      tools: ["read", "custom-tool.js"],
+      source: "extension",
+      filePath: "/ext/crew-worker.md",
+      crewRole: "worker",
+    }]);
+
+    lobby.spawnLobbyWorker("/test/cwd");
+
+    const { spawn } = await import("node:child_process");
+    const args = vi.mocked(spawn).mock.calls[0][1] as string[];
+    const extensionIdx = args.indexOf("--extension");
+
+    expect(extensionIdx).toBeGreaterThan(-1);
+    expect(args[extensionIdx + 1]).toBe("custom-tool.js");
   });
 
   it("counts available lobby workers for a cwd", () => {
@@ -211,7 +233,7 @@ describe("lobby workers", () => {
     expect(assigned).toBe(true);
     expect(fs.existsSync(worker.aliveFile!)).toBe(false);
 
-    const storeModule = await import("../../crew/store.js");
+    const storeModule = await import("../../crew/store.ts");
     vi.mocked(storeModule.getTask).mockReturnValueOnce({
       id: "task-keepalive-direct", title: "Direct assign", status: "todo", attempt_count: 0,
       depends_on: [], description: "", created_at: "", milestone: false,
@@ -273,8 +295,8 @@ describe("lobby workers", () => {
   });
 
   it("close handler resets orphaned in_progress task to todo", async () => {
-    const storeModule = await import("../../crew/store.js");
-    const feedModule = await import("../../feed.js");
+    const storeModule = await import("../../crew/store.ts");
+    const feedModule = await import("../../feed.ts");
 
     const worker = lobby.spawnLobbyWorker("/test/cwd")!;
     worker.assignedTaskId = "task-1";
@@ -305,8 +327,8 @@ describe("lobby workers", () => {
   });
 
   it("close handler blocks task when max attempts exceeded", async () => {
-    const storeModule = await import("../../crew/store.js");
-    const configModule = await import("../../crew/utils/config.js");
+    const storeModule = await import("../../crew/store.ts");
+    const configModule = await import("../../crew/utils/config.ts");
     vi.mocked(configModule.loadCrewConfig).mockReturnValue({
       concurrency: { workers: 4 },
       models: {},
@@ -335,7 +357,7 @@ describe("lobby workers", () => {
   });
 
   it("close handler skips recovery if task already completed", async () => {
-    const storeModule = await import("../../crew/store.js");
+    const storeModule = await import("../../crew/store.ts");
     vi.mocked(storeModule.getTask).mockReturnValue({
       id: "task-3", title: "Done", status: "done", attempt_count: 1,
       depends_on: [], description: "", created_at: "", milestone: false,
@@ -353,7 +375,7 @@ describe("lobby workers", () => {
   });
 
   it("close handler skips reset if task reassigned to another worker", async () => {
-    const storeModule = await import("../../crew/store.js");
+    const storeModule = await import("../../crew/store.ts");
 
     const worker = lobby.spawnLobbyWorker("/test/cwd")!;
     worker.assignedTaskId = "task-4";
@@ -383,8 +405,8 @@ describe("lobby workers", () => {
   });
 
   it("spawnWorkerForTask spawns and immediately assigns", async () => {
-    const storeModule = await import("../../crew/store.js");
-    const feedModule = await import("../../feed.js");
+    const storeModule = await import("../../crew/store.ts");
+    const feedModule = await import("../../feed.ts");
     vi.mocked(storeModule.getTask).mockReturnValueOnce({
       id: "task-5", title: "Build something", status: "todo", attempt_count: 0,
       depends_on: [], description: "", created_at: "", milestone: false,
@@ -409,7 +431,7 @@ describe("lobby workers", () => {
   });
 
   it("spawnWorkerForTask returns null if task already claimed", async () => {
-    const storeModule = await import("../../crew/store.js");
+    const storeModule = await import("../../crew/store.ts");
     vi.mocked(storeModule.getTask).mockReturnValueOnce({
       id: "task-6", title: "Claimed", status: "in_progress", attempt_count: 1,
       depends_on: [], description: "", created_at: "", milestone: false,
@@ -420,7 +442,7 @@ describe("lobby workers", () => {
   });
 
   it("builds minimal lobby prompt without chat instructions", async () => {
-    const config = await import("../../crew/utils/config.js");
+    const config = await import("../../crew/utils/config.ts");
     vi.mocked(config.loadCrewConfig).mockReturnValue({
       concurrency: { workers: 4 },
       models: {},

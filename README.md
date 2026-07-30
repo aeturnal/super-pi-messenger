@@ -189,23 +189,24 @@ Reject the migration task; it needs rollback tests.
 The agent maps those requests to Team actions. If a task needs approval, the agent should ask in plain language and continue after you approve. The tool calls are mainly for agents and power users:
 
 ```typescript
-pi_messenger({ action: "team.profile.use", name: "migration-squad" })
-pi_messenger({ action: "team.charter.create", name: "migration-squad", message: "Ship risky migrations through scout → worker → reviewer." })
+pi_messenger({ action: "team.setup", name: "migration-squad" })
 pi_messenger({ action: "team.memory.note", type: "decision", message: "Auth API changes require reviewer sign-off." })
 pi_messenger({ action: "team.roles" })
 pi_messenger({ action: "team.status" })
 ```
 
-When Team is active, planner task JSON may include `role` and `riskLabels`. Tasks persist those as `role`, `risk_labels`, and `approval`; existing tasks without those fields still work. Workers receive bounded Team role, charter, memory, and approval context. `work` skips tasks that require approval but are not approved and returns them under `needsApproval`; approve or reject them with `task.approve` / `task.reject`.
+`team.setup` activates the profile, saves an editable JSON copy if needed, creates a starter charter when the project does not have one, and returns the next planning/status commands.
+
+When Team is active, planner task JSON may include `role` and `riskLabels`. Tasks persist those as `role`, `risk_labels`, and `approval`; existing tasks without those fields still work. Workers receive bounded Team role, charter, memory, and approval context. `work` skips tasks that require approval but are not approved and returns pending approvals under `needsApproval`; rejected tasks are surfaced separately with `task.revise` / `task.revise-tree` guidance.
 
 Team's built-in role names follow the packaged `pi-subagents` vocabulary where possible: `context-builder`, `delegate`, `oracle`, `planner`, `researcher`, `reviewer`, `scout`, and `worker`. Roles resolve from those built-in defaults, the active profile, and optional filesystem metadata from `pi-subagents` markdown files when present. `pi-messenger` only reads those files; it does not require or call the subagent extension, and Crew still uses its own Crew agents for execution.
 
 Built-in sample profiles are available immediately and are saved as editable JSON the first time you activate them:
 
 ```typescript
-pi_messenger({ action: "team.profile.use", name: "migration-squad" }) // migrations with approval gates
-pi_messenger({ action: "team.profile.use", name: "review-squad" })    // scout/reviewer/worker cleanup flow
-pi_messenger({ action: "team.profile.use", name: "research-squad" })  // research-first planning flow
+pi_messenger({ action: "team.setup", name: "migration-squad" }) // migrations with approval gates
+pi_messenger({ action: "team.setup", name: "review-squad" })    // scout/reviewer/worker cleanup flow
+pi_messenger({ action: "team.setup", name: "research-squad" })  // research-first planning flow
 ```
 
 A saved profile looks like this:
@@ -362,6 +363,7 @@ Agent definitions live in `crew/agents/` within the extension. To customize one 
 
 | Action | Description |
 |--------|-------------|
+| `team.setup` | Activate a profile, create a starter charter if missing, and show next steps (`name` optional, defaults to `migration-squad`) |
 | `team.profile.list` | List built-in samples and saved reusable JSON team profiles |
 | `team.profile.use` | Activate a profile (`name` required; saves a sample/default profile if missing) |
 | `team.profile.save` | Save the active profile under `name` |
@@ -373,7 +375,7 @@ Agent definitions live in `crew/agents/` within the extension. To customize one 
 | `team.roles` | Resolve Team roles from packaged-vocabulary defaults, profile config, and optional subagent metadata |
 | `team.status` | Summarize team/profile/charter, roles, memory counts, and needs-lead tasks |
 
-Approval-gated tasks use the Crew task commands `task.approve` and `task.reject`.
+Approval-gated tasks use the Crew task commands `task.approve` and `task.reject`. Rejected tasks stay blocked from work and are surfaced with `task.revise` / `task.revise-tree` next steps.
 
 ### Swarm (Spec-Based)
 

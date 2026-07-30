@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildWorkerPrompt } from "../../crew/prompt.js";
-import * as teamStore from "../../crew/team/store.js";
-import type { Task } from "../../crew/types.js";
-import type { CrewSkillInfo } from "../../crew/utils/discover.js";
-import type { CrewConfig } from "../../crew/utils/config.js";
+import { buildWorkerPrompt } from "../../crew/prompt.ts";
+import * as teamStore from "../../crew/team/store.ts";
+import type { Task } from "../../crew/types.ts";
+import type { CrewSkillInfo } from "../../crew/utils/discover.ts";
+import type { CrewConfig } from "../../crew/utils/config.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.js";
+import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.ts";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

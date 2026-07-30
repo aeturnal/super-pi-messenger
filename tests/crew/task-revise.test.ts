@@ -1,28 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 
-vi.mock("../../crew/agents.js", () => ({
+vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
 }));
 
 describe("executeRevise", () => {
-  let executeRevise: typeof import("../../crew/handlers/task.js").executeRevise;
+  let executeRevise: typeof import("../../crew/handlers/task.ts").executeRevise;
   let spawnAgents: ReturnType<typeof vi.fn>;
-  let store: typeof import("../../crew/store.js");
-  let state: typeof import("../../crew/state.js");
-  let liveProgress: typeof import("../../crew/live-progress.js");
+  let store: typeof import("../../crew/store.ts");
+  let state: typeof import("../../crew/state.ts");
+  let liveProgress: typeof import("../../crew/live-progress.ts");
   let tmpDir: string;
 
   beforeEach(async () => {
     vi.resetModules();
-    const mod = await import("../../crew/handlers/revise.js");
+    const mod = await import("../../crew/handlers/revise.ts");
     executeRevise = mod.executeRevise;
-    store = await import("../../crew/store.js");
-    state = await import("../../crew/state.js");
-    liveProgress = await import("../../crew/live-progress.js");
-    const agents = await import("../../crew/agents.js");
+    store = await import("../../crew/store.ts");
+    state = await import("../../crew/state.ts");
+    liveProgress = await import("../../crew/live-progress.ts");
+    const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
     const dirs = createTempCrewDirs();

@@ -7,11 +7,11 @@
  * time — no runtime worker state.
  */
 
-import type { Task } from "../types.js";
-import type { CrewConfig } from "../utils/config.js";
-import { readFeedEvents, type FeedEvent } from "../../feed.js";
-import * as store from "../store.js";
-import * as teamStore from "../team/store.js";
+import type { Task } from "../types.ts";
+import type { CrewConfig } from "../utils/config.ts";
+import { readFeedEvents, type FeedEvent } from "../../feed.ts";
+import * as store from "../store.ts";
+import * as teamStore from "../team/store.ts";
 
 interface CoordinationPromptOptions {
   readOnly?: boolean;
@@ -173,7 +173,8 @@ These tasks are being worked on by other workers in this wave. Discover their ag
     const ready = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" })
       .filter(t => t.id !== task.id && !concurrentIds.has(t.id));
     const claimable = ready.filter(t => !teamStore.taskNeedsApproval(t));
-    const needsApproval = ready.filter(teamStore.taskNeedsApproval);
+    const needsApproval = ready.filter(teamStore.taskPendingApproval);
+    const rejected = ready.filter(teamStore.taskNeedsRevision);
     if (claimable.length > 0) {
       out += `## Ready Tasks
 
@@ -191,6 +192,14 @@ ${options.readOnly ? "After completing your current task, only claim one of thes
 These tasks are ready but require lead approval before anyone can claim them:
 `;
       for (const t of needsApproval) out += `- ${t.id}: ${t.title} — awaiting controller approval\n`;
+      out += "\n";
+    }
+    if (rejected.length > 0) {
+      out += `## Rejected Tasks Needing Revision
+
+These tasks need revision before they can be approved or claimed:
+`;
+      for (const t of rejected) out += `- ${t.id}: ${t.title}${t.approval?.feedback ? ` — ${t.approval.feedback}` : ""} — revise with \`pi_messenger({ action: "task.revise", id: "${t.id}", prompt: "Address approval feedback" })\`\n`;
       out += "\n";
     }
   }

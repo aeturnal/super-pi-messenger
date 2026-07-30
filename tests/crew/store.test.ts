@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import * as store from "../../crew/store.js";
-import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.js";
+import * as store from "../../crew/store.ts";
+import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.ts";
 
 describe("crew/store", () => {
   let dirs: TempCrewDirs;

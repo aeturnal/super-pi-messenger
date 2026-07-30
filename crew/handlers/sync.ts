@@ -6,18 +6,18 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { CrewParams } from "../types.js";
-import { result } from "../utils/result.js";
-import { spawnAgents } from "../agents.js";
-import { discoverCrewAgents } from "../utils/discover.js";
-import { loadCrewConfig } from "../utils/config.js";
-import * as store from "../store.js";
+import type { CrewParams } from "../types.ts";
+import { result } from "../utils/result.ts";
+import { spawnAgents } from "../agents.ts";
+import { discoverCrewAgents } from "../utils/discover.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import * as store from "../store.ts";
 
 export async function execute(
   params: CrewParams,
   ctx: ExtensionContext
 ) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
   const { target } = params;
 
   if (!target) {

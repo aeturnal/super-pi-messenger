@@ -62,16 +62,15 @@ Re-planning rejects if any tasks are `in_progress` — stop or complete them fir
 
 ### Optional: Activate Team Context
 ```typescript
-pi_messenger({ action: "team.profile.use", name: "migration-squad" })
-pi_messenger({ action: "team.profile.use", name: "review-squad" })
-pi_messenger({ action: "team.profile.use", name: "research-squad" })
-pi_messenger({ action: "team.charter.create", name: "research-squad", message: "Research first, then plan the implementation." })
+pi_messenger({ action: "team.setup", name: "migration-squad" })
+pi_messenger({ action: "team.setup", name: "review-squad" })
+pi_messenger({ action: "team.setup", name: "research-squad", message: "Research first, then plan the implementation." })
 pi_messenger({ action: "team.memory.note", type: "decision", message: "Use cursor pagination for task history" })
 pi_messenger({ action: "team.roles" })
 pi_messenger({ action: "team.status" })
 ```
 
-Team is optional. Crew remains the execution engine. Team role names follow the packaged `pi-subagents` vocabulary where possible (`context-builder`, `delegate`, `oracle`, `planner`, `researcher`, `reviewer`, `scout`, `worker`). `pi-messenger` may read subagent markdown metadata from disk when present, but it does not require or invoke subagents. Active Team profiles let the planner tag tasks with `role` and `riskLabels`, then inject role, charter, and memory context into worker prompts. High-risk tasks wait for `task.approve`; `task.reject` records feedback. Built-in samples (`migration-squad`, `review-squad`, `research-squad`) are saved as editable JSON the first time you activate them.
+Team is optional. Use `team.setup` for first-run setup: it activates a profile, saves editable JSON if needed, creates a starter charter when missing, and returns next steps. Crew remains the execution engine. Team role names follow the packaged `pi-subagents` vocabulary where possible (`context-builder`, `delegate`, `oracle`, `planner`, `researcher`, `reviewer`, `scout`, `worker`). `pi-messenger` may read subagent markdown metadata from disk when present, but it does not require or invoke subagents. Active Team profiles let the planner tag tasks with `role` and `riskLabels`, then inject role, charter, and memory context into worker prompts. High-risk tasks wait for `task.approve`; `task.reject` records feedback and rejected tasks surface `task.revise` / `task.revise-tree` next steps.
 
 ### 3. Work on Tasks
 ```typescript

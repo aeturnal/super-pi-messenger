@@ -4,9 +4,9 @@
  * Simplified PRD-based workflow types.
  */
 
-import type { MaxOutputConfig } from "./utils/truncate.js";
-import type { AgentProgress } from "./utils/progress.js";
-import type { CrewAgentConfig } from "./utils/discover.js";
+import type { MaxOutputConfig } from "./utils/truncate.ts";
+import type { AgentProgress } from "./utils/progress.ts";
+import type { CrewAgentConfig } from "./utils/discover.ts";
 
 // =============================================================================
 // Plan Types

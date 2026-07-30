@@ -12,18 +12,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { generateMemorableName } from "../lib.js";
-import { resolveThinking, modelHasThinkingSuffix, pushModelArgs } from "./agents.js";
-import { discoverCrewAgents } from "./utils/discover.js";
-import { loadCrewConfig, type CrewConfig } from "./utils/config.js";
+import { generateMemorableName } from "../lib.ts";
+import { resolveThinking, modelHasThinkingSuffix, pushModelArgs } from "./agents.ts";
+import { discoverCrewAgents } from "./utils/discover.ts";
+import { loadCrewConfig, type CrewConfig } from "./utils/config.ts";
 import {
   createProgress,
   parseJsonlLine,
   updateProgress,
-} from "./utils/progress.js";
-import { updateLiveWorker, removeLiveWorker } from "./live-progress.js";
-import * as store from "./store.js";
-import { logFeedEvent } from "../feed.js";
+} from "./utils/progress.ts";
+import { updateLiveWorker, removeLiveWorker } from "./live-progress.ts";
+import * as store from "./store.ts";
+import { logFeedEvent } from "../feed.ts";
 import {
   registerWorker,
   unregisterWorker,
@@ -31,7 +31,7 @@ import {
   getAvailableLobbyWorkers as registryGetAvailableLobbyWorkers,
   getLobbyWorkerCount as registryGetLobbyWorkerCount,
   type LobbyWorkerEntry,
-} from "./registry.js";
+} from "./registry.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

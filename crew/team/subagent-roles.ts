@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import type { TeamRoleDefinition } from "./types.js";
-import { canonicalPackagedTeamRole, isValidTeamName } from "../utils/team-roles.js";
+import type { TeamRoleDefinition } from "./types.ts";
+import { canonicalPackagedTeamRole, isValidTeamName } from "../utils/team-roles.ts";
 
 export interface DiscoverSubagentRoleOptions {
   homeDir?: string;

@@ -1,29 +1,29 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Dirs } from "../../lib.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
-import { createMockContext } from "../helpers/mock-context.js";
+import type { Dirs } from "../../lib.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
 
-vi.mock("../../crew/agents.js", () => ({
+vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
   resolveModel: vi.fn((...models: Array<string | undefined>) => models.find(Boolean)),
 }));
 
 describe("work with Team approval", () => {
-  let workHandler: typeof import("../../crew/handlers/work.js");
-  let agents: typeof import("../../crew/agents.js");
-  let store: typeof import("../../crew/store.js");
-  let teamStore: typeof import("../../crew/team/store.js");
+  let workHandler: typeof import("../../crew/handlers/work.ts");
+  let agents: typeof import("../../crew/agents.ts");
+  let store: typeof import("../../crew/store.ts");
+  let teamStore: typeof import("../../crew/team/store.ts");
   let cwd: string;
   let dirs: Dirs;
 
   beforeEach(async () => {
     vi.resetModules();
-    workHandler = await import("../../crew/handlers/work.js");
-    agents = await import("../../crew/agents.js");
-    store = await import("../../crew/store.js");
-    teamStore = await import("../../crew/team/store.js");
+    workHandler = await import("../../crew/handlers/work.ts");
+    agents = await import("../../crew/agents.ts");
+    store = await import("../../crew/store.ts");
+    teamStore = await import("../../crew/team/store.ts");
 
     cwd = createTempCrewDirs().cwd;
     process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(cwd, "profiles");
@@ -103,6 +103,22 @@ describe("work with Team approval", () => {
     expect(agents.spawnAgents).toHaveBeenCalledTimes(1);
     const task = vi.mocked(agents.spawnAgents).mock.calls[0][0][0];
     expect(task.modelOverride).toBe("role-model");
+  });
+
+  it("reports rejected ready tasks separately from pending approvals", async () => {
+    store.createPlan(cwd, "docs/PRD.md");
+    const rejected = store.createTask(cwd, "Rejected auth", "", [], {
+      approval: { required: true, status: "rejected", feedback: "needs rollback tests" },
+    });
+
+    const response = await workHandler.execute({}, dirs, createMockContext(cwd), vi.fn());
+
+    expect(response.details.needsApproval).toEqual([]);
+    expect(response.details.rejected).toEqual([
+      { id: rejected.id, title: rejected.title, approval: { required: true, status: "rejected", feedback: "needs rollback tests" } },
+    ]);
+    expect(response.content[0].text).toContain("Rejected tasks need revision");
+    expect(response.content[0].text).toContain('pi_messenger({ action: "task.revise", id: "task-1", prompt: "Address approval feedback" })');
   });
 
   it("reports approval-gated tasks unlocked after a wave", async () => {

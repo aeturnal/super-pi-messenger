@@ -8,13 +8,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { CrewParams } from "../types.js";
-import { result } from "../utils/result.js";
-import { spawnAgents } from "../agents.js";
-import { discoverCrewAgents, discoverCrewSkills, type CrewSkillInfo } from "../utils/discover.js";
-import { loadCrewConfig } from "../utils/config.js";
-import { parseVerdict, type ParsedReview } from "../utils/verdict.js";
-import { logFeedEvent } from "../../feed.js";
+import type { CrewParams } from "../types.ts";
+import { result } from "../utils/result.ts";
+import { spawnAgents } from "../agents.ts";
+import { discoverCrewAgents, discoverCrewSkills, type CrewSkillInfo } from "../utils/discover.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import { parseVerdict, type ParsedReview } from "../utils/verdict.ts";
+import { logFeedEvent } from "../../feed.ts";
 import {
   finishPlanningRun,
   isPlanningCancelled,
@@ -24,12 +24,12 @@ import {
   setPlanningPhase,
   startPlanningRun,
   type PlanningPhase,
-} from "../state.js";
-import { getLiveWorkers } from "../live-progress.js";
-import * as store from "../store.js";
-import * as teamStore from "../team/store.js";
-import type { TeamProfile, TeamRoleDefinition } from "../team/types.js";
-import { taskMetadataMarkers } from "../utils/task-format.js";
+} from "../state.ts";
+import { getLiveWorkers } from "../live-progress.ts";
+import * as store from "../store.ts";
+import * as teamStore from "../team/store.ts";
+import type { TeamProfile, TeamRoleDefinition } from "../team/types.ts";
+import { taskMetadataMarkers } from "../utils/task-format.ts";
 
 const PRD_PATTERNS = [
   "PRD.md", "prd.md",
@@ -206,7 +206,7 @@ export async function execute(
   agentName: string,
   onProgress?: () => void,
 ) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
   const { prd, prompt } = params;
   const reportProgress = () => onProgress?.();
   resetPlanningCancellation();

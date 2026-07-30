@@ -1,10 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import * as store from "../../crew/store.js";
-import { readFeedEvents, isCrewEvent } from "../../feed.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
-import type { ReviewFeedback, Task } from "../../crew/types.js";
+import * as store from "../../crew/store.ts";
+import { readFeedEvents, isCrewEvent } from "../../feed.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import type { ReviewFeedback, Task } from "../../crew/types.ts";
 
 function completedTask(cwd: string, title: string, deps: string[] = []): Task {
   const task = store.createTask(cwd, title, `Spec for ${title}`, deps);

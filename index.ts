@@ -35,15 +35,15 @@ import {
   generateAutoStatus,
   computeStatus,
   agentHasTask,
-} from "./lib.js";
-import * as store from "./store.js";
-import * as handlers from "./handlers.js";
-import { MessengerOverlay, type OverlayCallbacks } from "./overlay.js";
-import { MessengerConfigOverlay } from "./config-overlay.js";
-import { loadConfig, matchesAutoRegisterPath, type MessengerConfig } from "./config.js";
-import { executeCrewAction } from "./crew/index.js";
-import { logFeedEvent, pruneFeed } from "./feed.js";
-import type { CrewParams } from "./crew/types.js";
+} from "./lib.ts";
+import * as store from "./store.ts";
+import * as handlers from "./handlers.ts";
+import { MessengerOverlay, type OverlayCallbacks } from "./overlay.ts";
+import { MessengerConfigOverlay } from "./config-overlay.ts";
+import { loadConfig, loadGlobalConfig, matchesAutoRegisterPath, type MessengerConfig } from "./config.ts";
+import { executeCrewAction } from "./crew/index.ts";
+import { logFeedEvent, pruneFeed } from "./feed.ts";
+import type { CrewParams } from "./crew/types.ts";
 import {
   autonomousState,
   clearPlanningState,
@@ -59,17 +59,17 @@ import {
   restorePlanningState,
   stopAutonomous,
   isAutonomousForCwd,
-} from "./crew/state.js";
-import { loadCrewConfig } from "./crew/utils/config.js";
-import * as crewStore from "./crew/store.js";
-import * as teamStore from "./crew/team/store.js";
-import { runLegacyAgentCleanupMigration } from "./crew/utils/install.js";
-import { getLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.js";
-import { shutdownAllWorkers } from "./crew/agents.js";
-import { shutdownLobbyWorkers } from "./crew/lobby.js";
-import { captureSuperpowersSkills, takeSuperpowersWarning } from "./crew/superpowers.js";
-import { applySuperpowersOuterPolicy } from "./crew/superpowers-policy.js";
-import { SUPERPOWERS_CHILD_FLAG } from "./crew/superpowers-guard.js";
+} from "./crew/state.ts";
+import { loadCrewConfig } from "./crew/utils/config.ts";
+import * as crewStore from "./crew/store.ts";
+import * as teamStore from "./crew/team/store.ts";
+import { runLegacyAgentCleanupMigration } from "./crew/utils/install.ts";
+import { getLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.ts";
+import { shutdownAllWorkers } from "./crew/agents.ts";
+import { shutdownLobbyWorkers } from "./crew/lobby.ts";
+import { captureSuperpowersSkills, takeSuperpowersWarning } from "./crew/superpowers.ts";
+import { applySuperpowersOuterPolicy } from "./crew/superpowers-policy.ts";
+import { SUPERPOWERS_CHILD_FLAG } from "./crew/superpowers-guard.ts";
 
 let overlayTui: TUI | null = null;
 let overlayHandle: OverlayHandle | null = null;
@@ -84,7 +84,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
   // State & Configuration
   // ===========================================================================
 
-  let config: MessengerConfig = loadConfig(process.cwd());
+  let config: MessengerConfig = loadGlobalConfig();
 
   const state: MessengerState = {
     agentName: process.env.PI_AGENT_NAME || "",
@@ -99,7 +99,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
     broadcastHistory: [],
     seenSenders: new Map(),
     model: "",
-    cwd: process.cwd(),
+    cwd: "",
     gitBranch: undefined,
     spec: undefined,
     scopeToFolder: config.scopeToFolder,
@@ -211,7 +211,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
 
         if (!notifiedStuck.has(agent.name)) {
           notifiedStuck.add(agent.name);
-          logFeedEvent(ctx.cwd ?? process.cwd(), agent.name, "stuck");
+          logFeedEvent(ctx.cwd, agent.name, "stuck");
 
           const idleStr = computed.idleFor ?? "unknown";
           const taskInfo = hasTask ? " with task in progress" : " with reservation";
@@ -263,7 +263,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
       const countStr = theme.fg("dim", ` (${count} peer${count === 1 ? "" : "s"})`);
       const unreadStr = totalUnread > 0 ? theme.fg("accent", ` ●${totalUnread}`) : "";
 
-      const planningCwd = ctx.cwd ?? process.cwd();
+      const planningCwd = ctx.cwd;
       const planningStr =
         isPlanningForCwd(planningCwd)
           ? theme.fg(
@@ -279,7 +279,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
       // Add crew status if autonomous mode is active
       let crewStr = "";
       if (autonomousState.active) {
-        const cwd = ctx.cwd ?? process.cwd();
+        const cwd = ctx.cwd;
         const plan = crewStore.getPlan(cwd);
         if (plan) {
           const workerCount = getLiveWorkers(cwd).size;
@@ -412,7 +412,7 @@ Usage (action-based API - preferred):
   pi_messenger({ action: "task.split", id: "task-3", subtasks: [...] }) → Execute split
   pi_messenger({ action: "task.start", id: "task-1" })          → Start task
   pi_messenger({ action: "task.approve", id: "task-1" })        → Approve gated task
-  pi_messenger({ action: "task.reject", id: "task-1", reason: "..." }) → Reject gated task
+  pi_messenger({ action: "task.reject", id: "task-1", reason: "..." }) → Reject gated task and feed revision
   pi_messenger({ action: "task.done", id: "task-1", summary: "..." })
   pi_messenger({ action: "task.reset", id: "task-1" })          → Reset task
   
@@ -420,6 +420,7 @@ Usage (action-based API - preferred):
   pi_messenger({ action: "review", target: "task-1" })          → Review impl
 
   // Team: Optional role-aware layer around Crew
+  pi_messenger({ action: "team.setup", name: "migration-squad" }) → Activate profile, create starter charter, show next steps
   pi_messenger({ action: "team.profile.list" })                 → List built-in and saved team profiles
   pi_messenger({ action: "team.profile.use", name: "migration-squad" }) → Activate a team profile
   pi_messenger({ action: "team.charter.show" })                 → Show project team charter
@@ -468,7 +469,7 @@ Usage (action-based API - preferred):
       cascade: Type.Optional(Type.Boolean({ description: "For task.reset - also reset dependent tasks" })),
       limit: Type.Optional(Type.Number({ description: "Number of events to return (for feed action, default 20)" })),
       paths: Type.Optional(Type.Array(Type.String(), { description: "Paths for reserve/release actions" })),
-      name: Type.Optional(Type.String({ description: "Name for rename action or Team profile/charter commands" })),
+      name: Type.Optional(Type.String({ description: "Name for rename action or Team setup/profile/charter commands" })),
 
       // ═══════════════════════════════════════════════════════════════════════
       // MESSAGING & COORDINATION PARAMETERS
@@ -476,7 +477,7 @@ Usage (action-based API - preferred):
       spec: Type.Optional(Type.String({ description: "Path to spec/plan file" })),
       notes: Type.Optional(Type.String({ description: "Completion notes" })),
       to: Type.Optional(Type.Any({ description: "Target agent name (string) or multiple names (array)" })),
-      message: Type.Optional(Type.String({ description: "Message to send, Team charter text, or Team memory note" })),
+      message: Type.Optional(Type.String({ description: "Message to send, Team setup/charter text, or Team memory note" })),
       replyTo: Type.Optional(Type.String({ description: "Message ID if this is a reply" })),
       reason: Type.Optional(Type.String({ description: "Reason for reservation, claim, task block, or approval rejection feedback" })),
       autoRegisterPath: Type.Optional(StringEnum(["add", "remove", "list"], { description: "Manage auto-register paths: add/remove current folder, or list all" }))
@@ -488,7 +489,7 @@ Usage (action-based API - preferred):
 
       const action = params.action;
       if (!action) {
-        return handlers.executeStatus(state, dirs, ctx.cwd ?? process.cwd());
+        return handlers.executeStatus(state, dirs, ctx.cwd);
       }
 
       const result = await executeCrewAction(
@@ -549,7 +550,7 @@ Usage (action-based API - preferred):
       if (args[0] === "config") {
         await ctx.ui.custom<void>(
           (tui, theme, _keybindings, done) => {
-            return new MessengerConfigOverlay(tui, theme, done);
+            return new MessengerConfigOverlay(tui, theme, done, ctx.cwd);
           },
           { overlay: true }
         );
@@ -587,7 +588,7 @@ Usage (action-based API - preferred):
       const snapshot = await ctx.ui.custom<string | undefined>(
         (tui, theme, _keybindings, done) => {
           overlayTui = tui;
-          return new MessengerOverlay(tui, theme, state, dirs, done, callbacks);
+          return new MessengerOverlay(tui, theme, state, dirs, done, callbacks, ctx.cwd);
         },
         {
           overlay: true,
@@ -686,11 +687,11 @@ Usage (action-based API - preferred):
     if (files.length > 20) files.shift();
   }
 
-  function debouncedLogEdit(filePath: string): void {
+  function debouncedLogEdit(filePath: string, cwd: string): void {
     const existing = pendingEdits.get(filePath);
     if (existing) clearTimeout(existing);
     pendingEdits.set(filePath, setTimeout(() => {
-      logFeedEvent(process.cwd(), state.agentName, "edit", filePath);
+      logFeedEvent(cwd, state.agentName, "edit", filePath);
       pendingEdits.delete(filePath);
     }, EDIT_DEBOUNCE_MS));
   }
@@ -767,7 +768,7 @@ Usage (action-based API - preferred):
       const path = input.path as string;
       if (path) {
         setCurrentActivity(`editing ${shortenPath(path)}`);
-        debouncedLogEdit(path);
+        debouncedLogEdit(path, ctx.cwd);
         trackRecentEdit();
       }
     } else if (toolName === "read") {
@@ -806,7 +807,7 @@ Usage (action-based API - preferred):
     if (toolName === "bash") {
       const command = input.command as string;
       if (command) {
-        const cwd = ctx.cwd ?? process.cwd();
+        const cwd = ctx.cwd;
         if (isGitCommit(command)) {
           const msg = extractCommitMessage(command);
           logFeedEvent(cwd, state.agentName, "commit", undefined, msg);
@@ -844,7 +845,7 @@ Usage (action-based API - preferred):
 
   pi.on("session_start", async (_event, ctx) => {
     captureStatusContext(ctx);
-    state.cwd = ctx.cwd ?? process.cwd();
+    state.cwd = ctx.cwd;
     config = loadConfig(state.cwd);
     state.scopeToFolder = config.scopeToFolder;
     nameTheme.theme = config.nameTheme;
@@ -895,7 +896,7 @@ Usage (action-based API - preferred):
   }
 
   function maybeAutoOpenCrewOverlay(ctx: ExtensionContext): void {
-    const cwd = ctx.cwd ?? process.cwd();
+    const cwd = ctx.cwd;
     if (config.autoOverlayPlanning) {
       markPlanningOverlayPending(cwd);
     }
@@ -935,7 +936,7 @@ Usage (action-based API - preferred):
     ctx.ui.custom<string | undefined>(
       (tui, theme, _keybindings, done) => {
         overlayTui = tui;
-        return new MessengerOverlay(tui, theme, state, dirs, done, callbacks);
+        return new MessengerOverlay(tui, theme, state, dirs, done, callbacks, ctx.cwd);
       },
       {
         overlay: true,
@@ -971,7 +972,7 @@ Usage (action-based API - preferred):
 
   pi.on("session_tree", async (_event, ctx) => {
     captureStatusContext(ctx);
-    const { staleCleared } = restorePlanningState(ctx.cwd ?? process.cwd());
+    const { staleCleared } = restorePlanningState(ctx.cwd);
     if (staleCleared && ctx.hasUI) {
       ctx.ui.notify("Stale planning state cleared (planner process exited)", "warning");
     }
@@ -984,7 +985,7 @@ Usage (action-based API - preferred):
     store.processAllPendingMessages(state, dirs, deliverMessage);
     const lobbyId = process.env.PI_LOBBY_ID;
     if (lobbyId) {
-      const cwd = ctx.cwd ?? process.cwd();
+      const cwd = ctx.cwd;
       const aliveFile = join(cwd, ".pi", "messenger", "crew", `lobby-${lobbyId}.alive`);
       if (fs.existsSync(aliveFile)) {
         pi.sendMessage({
@@ -1051,9 +1052,13 @@ Usage (action-based API - preferred):
         return;
       }
       if (readyTasks.length > 0) {
+        const rejected = readyTasks.filter(teamStore.taskNeedsRevision);
+        const pending = readyTasks.filter(teamStore.taskPendingApproval);
         pi.sendMessage({
-          customType: "crew_auto_work_needs_approval",
-          content: `Plan complete — ${readyTasks.length} ready task(s) need lead approval before autonomous work can start.`,
+          customType: rejected.length > 0 ? "crew_auto_work_needs_revision" : "crew_auto_work_needs_approval",
+          content: rejected.length > 0
+            ? `Plan complete — ${rejected.length} ready task(s) need revision before autonomous work can start.`
+            : `Plan complete — ${pending.length} ready task(s) need lead approval before autonomous work can start.`,
           display: true,
         });
         return;
@@ -1066,7 +1071,7 @@ Usage (action-based API - preferred):
       return;
     }
 
-    const currentCwd = ctx.cwd ?? process.cwd();
+    const currentCwd = ctx.cwd;
     if (!isAutonomousForCwd(currentCwd)) {
       resetAutonomousContinueGuard();
       return;
@@ -1095,7 +1100,8 @@ Usage (action-based API - preferred):
       // No ready tasks - check if all done or blocked
       const allTasks = crewStore.getTasks(cwd);
       const allDone = allTasks.every(t => t.status === "done");
-      const needsApproval = readyTasks.filter(teamStore.taskNeedsApproval);
+      const needsApproval = readyTasks.filter(teamStore.taskPendingApproval);
+      const rejected = readyTasks.filter(teamStore.taskNeedsRevision);
 
       stopAutonomous(allDone ? "completed" : "blocked");
       pi.appendEntry("crew-state", autonomousState);
@@ -1105,6 +1111,8 @@ Usage (action-based API - preferred):
       if (ctx.hasUI) {
         if (allDone) {
           ctx.ui.notify(`✅ All tasks complete for ${plan?.prd ?? "plan"}!`, "info");
+        } else if (rejected.length > 0) {
+          ctx.ui.notify(`Autonomous stopped: ${rejected.length} task(s) need revision`, "warning");
         } else if (needsApproval.length > 0) {
           ctx.ui.notify(`Autonomous stopped: ${needsApproval.length} task(s) need lead approval`, "warning");
         } else {
@@ -1147,20 +1155,23 @@ Usage (action-based API - preferred):
     // The steer message will trigger the LLM to call work again
   });
 
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (_event, ctx) => {
     latestCtx = null;
     lastRenderedStatus = undefined;
-    shutdownLobbyWorkers(process.cwd());
+    const cwd = ctx.cwd || state.cwd;
+    if (cwd) {
+      shutdownLobbyWorkers(cwd);
+    }
     shutdownAllWorkers();
     stopStatusHeartbeat();
     overlayOpening = false;
     overlayHandle = null;
     overlayTui = null;
-    if (isPlanningForCwd(process.cwd()) && planningState.pid === process.pid) {
-      clearPlanningState(process.cwd());
+    if (cwd && isPlanningForCwd(cwd) && planningState.pid === process.pid) {
+      clearPlanningState(cwd);
     }
-    if (state.registered) {
-      logFeedEvent(process.cwd(), state.agentName, "leave");
+    if (cwd && state.registered) {
+      logFeedEvent(cwd, state.agentName, "leave");
     }
     if (state.registryFlushTimer) {
       clearTimeout(state.registryFlushTimer);

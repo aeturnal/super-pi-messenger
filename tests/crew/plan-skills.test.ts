@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 
-vi.mock("../../crew/agents.js", () => ({
+vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
 }));
 
 describe("plan with skills", () => {
-  let planHandler: typeof import("../../crew/handlers/plan.js");
+  let planHandler: typeof import("../../crew/handlers/plan.ts");
   let spawnAgents: ReturnType<typeof vi.fn>;
-  let store: typeof import("../../crew/store.js");
-  let state: typeof import("../../crew/state.js");
+  let store: typeof import("../../crew/store.ts");
+  let state: typeof import("../../crew/state.ts");
   let tmpDir: string;
   let mockCtx: any;
 
@@ -27,10 +27,10 @@ describe("plan with skills", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    planHandler = await import("../../crew/handlers/plan.js");
-    store = await import("../../crew/store.js");
-    state = await import("../../crew/state.js");
-    const agents = await import("../../crew/agents.js");
+    planHandler = await import("../../crew/handlers/plan.ts");
+    store = await import("../../crew/store.ts");
+    state = await import("../../crew/state.ts");
+    const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
     const dirs = createTempCrewDirs();
@@ -125,7 +125,7 @@ describe("plan with skills", () => {
 
   it("persists planner-tagged Team role and risk labels with approval", async () => {
     process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(tmpDir, "profiles");
-    const teamStore = await import("../../crew/team/store.js");
+    const teamStore = await import("../../crew/team/store.ts");
     teamStore.useProfile(tmpDir, "migration-squad");
 
     spawnAgents.mockResolvedValue([{
@@ -157,7 +157,7 @@ describe("plan with skills", () => {
 
   it("does not promise auto-start when all ready tasks need approval", async () => {
     process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(tmpDir, "profiles");
-    const teamStore = await import("../../crew/team/store.js");
+    const teamStore = await import("../../crew/team/store.ts");
     teamStore.useProfile(tmpDir, "migration-squad");
 
     spawnAgents.mockResolvedValue([{
@@ -177,7 +177,7 @@ describe("plan with skills", () => {
 
   it("injects Team role catalog into planner prompt when active", async () => {
     process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(tmpDir, "profiles");
-    const teamStore = await import("../../crew/team/store.js");
+    const teamStore = await import("../../crew/team/store.ts");
     teamStore.useProfile(tmpDir, "migration-squad");
 
     spawnAgents.mockResolvedValue([{
@@ -202,7 +202,7 @@ describe("plan with skills", () => {
 
   it("shows default approval labels in planner prompt when profile omits labels", async () => {
     process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(tmpDir, "profiles");
-    const teamStore = await import("../../crew/team/store.js");
+    const teamStore = await import("../../crew/team/store.ts");
     teamStore.saveProfile({
       name: "default-gates",
       roles: { worker: { description: "Edit work" } },

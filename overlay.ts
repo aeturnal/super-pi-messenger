@@ -10,12 +10,12 @@ import {
   formatDuration,
   type MessengerState,
   type Dirs,
-} from "./lib.js";
-import * as crewStore from "./crew/store.js";
-import { adjustConcurrency, autonomousState, isAutonomousForCwd, isPlanningForCwd, planningState } from "./crew/state.js";
-import { loadCrewConfig, cycleCoordinationLevel, setCoordinationOverride } from "./crew/utils/config.js";
-import { readFeedEvents, type FeedEvent, type FeedEventType } from "./feed.js";
-import type { Task } from "./crew/types.js";
+} from "./lib.ts";
+import * as crewStore from "./crew/store.ts";
+import { adjustConcurrency, autonomousState, isAutonomousForCwd, isPlanningForCwd, planningState } from "./crew/state.ts";
+import { loadCrewConfig, cycleCoordinationLevel, setCoordinationOverride } from "./crew/utils/config.ts";
+import { readFeedEvents, type FeedEvent, type FeedEventType } from "./feed.ts";
+import type { Task } from "./crew/types.ts";
 import {
   renderStatusBar,
   renderWorkersSection,
@@ -28,7 +28,7 @@ import {
   renderPlanningState,
   renderDetailView,
   navigateTask,
-} from "./overlay-render.js";
+} from "./overlay-render.ts";
 import {
   createCrewViewState,
   handleConfirmInput,
@@ -38,13 +38,13 @@ import {
   handleCrewKeyBinding,
   setNotification,
   type CrewViewState,
-} from "./overlay-actions.js";
-import { getLiveWorkers, hasLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.js";
-import { loadConfig } from "./config.js";
-import { discoverCrewAgents } from "./crew/utils/discover.js";
-import { spawnSingleWorker, spawnWorkersForReadyTasks } from "./crew/spawn.js";
-import * as teamStore from "./crew/team/store.js";
-import { spawnLobbyWorker, removeLobbyWorkerByIndex, cleanupUnassignedAliveFiles } from "./crew/lobby.js";
+} from "./overlay-actions.ts";
+import { getLiveWorkers, hasLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.ts";
+import { loadConfig } from "./config.ts";
+import { discoverCrewAgents } from "./crew/utils/discover.ts";
+import { spawnSingleWorker, spawnWorkersForReadyTasks } from "./crew/spawn.ts";
+import * as teamStore from "./crew/team/store.ts";
+import { spawnLobbyWorker, removeLobbyWorkerByIndex, cleanupUnassignedAliveFiles } from "./crew/lobby.ts";
 
 export interface OverlayCallbacks {
   onBackground?: (snapshot: string) => void;
@@ -75,8 +75,9 @@ export class MessengerOverlay implements Component, Focusable {
     private dirs: Dirs,
     private done: (snapshot?: string) => void,
     private callbacks: OverlayCallbacks,
+    cwd: string,
   ) {
-    this.cwd = process.cwd();
+    this.cwd = cwd;
     const cfg = loadConfig(this.cwd);
     this.stuckThresholdMs = cfg.stuckThreshold * 1000;
 
@@ -109,7 +110,8 @@ export class MessengerOverlay implements Component, Focusable {
       }
     }
     if (teamStore.taskNeedsApproval(task)) {
-      setNotification(this.crewViewState, this.tui, false, `${task.id} needs lead approval`);
+      const message = teamStore.taskNeedsRevision(task) ? `${task.id} needs revision` : `${task.id} needs lead approval`;
+      setNotification(this.crewViewState, this.tui, false, message);
       this.tui.requestRender();
       return;
     }
@@ -126,9 +128,11 @@ export class MessengerOverlay implements Component, Focusable {
   private spawnWorkerForReadyTask(task: Task, newConcurrency: number): void {
     const worker = spawnSingleWorker(this.cwd, task.id);
     if (!worker) {
-      const message = teamStore.taskNeedsApproval(task)
-        ? `${task.id} needs lead approval`
-        : `Failed to spawn worker for ${task.id}`;
+      const message = teamStore.taskNeedsRevision(task)
+        ? `${task.id} needs revision`
+        : teamStore.taskNeedsApproval(task)
+          ? `${task.id} needs lead approval`
+          : `Failed to spawn worker for ${task.id}`;
       setNotification(this.crewViewState, this.tui, false, message);
       this.tui.requestRender();
       return;
@@ -159,7 +163,12 @@ export class MessengerOverlay implements Component, Focusable {
         this.tui.requestRender();
       }
     } else if (readyTasks.length > 0) {
-      setNotification(this.crewViewState, this.tui, false, `Plan ready — ${readyTasks.length} task${readyTasks.length > 1 ? "s" : ""} need lead approval`);
+      const rejected = readyTasks.filter(teamStore.taskNeedsRevision);
+      const pending = readyTasks.filter(teamStore.taskPendingApproval);
+      const message = rejected.length > 0
+        ? `Plan ready — ${rejected.length} task${rejected.length > 1 ? "s" : ""} need revision`
+        : `Plan ready — ${pending.length} task${pending.length > 1 ? "s" : ""} need lead approval`;
+      setNotification(this.crewViewState, this.tui, false, message);
       this.tui.requestRender();
     }
 

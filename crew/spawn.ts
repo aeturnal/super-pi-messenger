@@ -6,17 +6,17 @@
  */
 
 import { join } from "node:path";
-import * as store from "./store.js";
-import { loadCrewConfig } from "./utils/config.js";
-import { discoverCrewSkills } from "./utils/discover.js";
-import { buildWorkerPrompt } from "./prompt.js";
-import * as teamStore from "./team/store.js";
-import { logFeedEvent } from "../feed.js";
+import * as store from "./store.ts";
+import { loadCrewConfig } from "./utils/config.ts";
+import { discoverCrewSkills } from "./utils/discover.ts";
+import { buildWorkerPrompt } from "./prompt.ts";
+import * as teamStore from "./team/store.ts";
+import { logFeedEvent } from "../feed.ts";
 import {
   spawnWorkerForTask,
   getAvailableLobbyWorkers,
   assignTaskToLobbyWorker,
-} from "./lobby.js";
+} from "./lobby.ts";
 
 export interface SpawnResult {
   assigned: number;

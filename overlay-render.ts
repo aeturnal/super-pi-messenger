@@ -12,10 +12,10 @@ import {
   agentHasTask,
   type Dirs,
   type MessengerState,
-} from "./lib.js";
-import * as store from "./store.js";
-import * as crewStore from "./crew/store.js";
-import * as teamStore from "./crew/team/store.js";
+} from "./lib.ts";
+import * as store from "./store.ts";
+import * as crewStore from "./crew/store.ts";
+import * as teamStore from "./crew/team/store.ts";
 import {
   autonomousState,
   getPlanningUpdateAgeMs,
@@ -24,16 +24,16 @@ import {
   isPlanningStalled,
   planningState,
   PLANNING_STALE_TIMEOUT_MS,
-} from "./crew/state.js";
-import type { Task } from "./crew/types.js";
-import { getLiveWorkers, type LiveWorkerInfo } from "./crew/live-progress.js";
-import type { ToolEntry } from "./crew/utils/progress.js";
-import { formatFeedLine as sharedFormatFeedLine, sanitizeFeedEvent, type FeedEvent } from "./feed.js";
-import { discoverCrewAgents } from "./crew/utils/discover.js";
-import { loadConfig } from "./config.js";
-import { loadCrewConfig } from "./crew/utils/config.js";
-import { getLobbyWorkerCount } from "./crew/lobby.js";
-import type { CrewViewState } from "./overlay-actions.js";
+} from "./crew/state.ts";
+import type { Task } from "./crew/types.ts";
+import { getLiveWorkers, type LiveWorkerInfo } from "./crew/live-progress.ts";
+import type { ToolEntry } from "./crew/utils/progress.ts";
+import { formatFeedLine as sharedFormatFeedLine, sanitizeFeedEvent, type FeedEvent } from "./feed.ts";
+import { discoverCrewAgents } from "./crew/utils/discover.ts";
+import { loadConfig } from "./config.ts";
+import { loadCrewConfig } from "./crew/utils/config.ts";
+import { getLobbyWorkerCount } from "./crew/lobby.ts";
+import type { CrewViewState } from "./overlay-actions.ts";
 
 const STATUS_ICONS: Record<string, string> = { done: "✓", in_progress: "●", todo: "○", blocked: "✗" };
 
@@ -120,6 +120,7 @@ export function renderStatusBar(theme: Theme, cwd: string, width: number): strin
   const ready = crewStore.getReadyTasks(cwd, { advisory: crewConfig.dependencies === "advisory" });
   const team = teamStore.getActiveTeam(cwd);
   const needsLead = teamStore.needsLeadTasks(cwd).length;
+  const rejected = teamStore.rejectedTasks(cwd).length;
   const progress = `${plan.completed_count}/${plan.task_count}`;
   const planLabel = crewStore.getPlanLabel(plan, 40);
   let base = `📋 ${planLabel}: ${progress}`;
@@ -133,7 +134,7 @@ export function renderStatusBar(theme: Theme, cwd: string, width: number): strin
   base += ` │ ${crewConfig.dependencies} │ ${coordLevel}`;
   if (team) {
     const profileText = team.profile && team.profile !== team.name ? `/${team.profile}` : "";
-    base += ` │ Team: ${team.name}${profileText}${needsLead > 0 ? ` │ Needs lead: ${needsLead}` : ""}`;
+    base += ` │ Team: ${team.name}${profileText}${needsLead > 0 ? ` │ Needs lead: ${needsLead}` : ""}${rejected > 0 ? ` │ Rejected: ${rejected}` : ""}`;
   }
 
   if (!autonomousActive) {

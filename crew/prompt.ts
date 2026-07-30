@@ -5,13 +5,13 @@
  * Pure function: reads from store, returns a string.
  */
 
-import type { Task } from "./types.js";
-import type { CrewConfig } from "./utils/config.js";
-import type { CrewSkillInfo } from "./utils/discover.js";
-import { TEAM_MEMORY_TYPES, type TeamMemoryType, type TeamPromptContext } from "./team/types.js";
-import { isNonEditingTeamRole } from "./utils/team-roles.js";
-import * as store from "./store.js";
-import { buildDependencySection, buildCoordinationContext, buildCoordinationInstructions } from "./handlers/coordination.js";
+import type { Task } from "./types.ts";
+import type { CrewConfig } from "./utils/config.ts";
+import type { CrewSkillInfo } from "./utils/discover.ts";
+import { TEAM_MEMORY_TYPES, type TeamMemoryType, type TeamPromptContext } from "./team/types.ts";
+import { isNonEditingTeamRole } from "./utils/team-roles.ts";
+import * as store from "./store.ts";
+import { buildDependencySection, buildCoordinationContext, buildCoordinationInstructions } from "./handlers/coordination.ts";
 
 export function buildWorkerPrompt(
   task: Task,

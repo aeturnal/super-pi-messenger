@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createTempCrewDirs, type TempCrewDirs } from "../../helpers/temp-dirs.js";
+import { createTempCrewDirs, type TempCrewDirs } from "../../helpers/temp-dirs.ts";
 
 const homedirMock = vi.hoisted(() => vi.fn());
 
@@ -15,7 +15,7 @@ vi.mock("node:os", async (importOriginal) => {
 
 async function loadConfigModule() {
   vi.resetModules();
-  return import("../../../crew/utils/config.js");
+  return import("../../../crew/utils/config.ts");
 }
 
 function writeJson(filePath: string, data: unknown): void {

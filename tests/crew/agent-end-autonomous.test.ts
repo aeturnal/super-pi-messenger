@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { autonomousState, startAutonomous } from "../../crew/state.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+import { autonomousState, startAutonomous } from "../../crew/state.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 
 vi.mock("@earendil-works/pi-tui", () => ({
   matchesKey: () => false,
@@ -98,7 +98,7 @@ describe("agent_end autonomous continuation guards", () => {
     const { cwd } = createTempCrewDirs();
     const ctx = createEventContext(cwd);
     const pi = createMockPi();
-    const { default: piMessengerExtension } = await import("../../index.js");
+    const { default: piMessengerExtension } = await import("../../index.ts");
     piMessengerExtension(pi as any);
 
     const agentEndHandler = pi.handlers.get("agent_end")?.[0];
@@ -119,7 +119,7 @@ describe("agent_end autonomous continuation guards", () => {
     const { cwd } = createTempCrewDirs();
     const ctx = createEventContext(cwd);
     const pi = createMockPi();
-    const { default: piMessengerExtension } = await import("../../index.js");
+    const { default: piMessengerExtension } = await import("../../index.ts");
     piMessengerExtension(pi as any);
 
     const agentEndHandler = pi.handlers.get("agent_end")?.[0];

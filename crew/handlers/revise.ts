@@ -1,14 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MessengerState } from "../../lib.js";
-import type { CrewParams, Task } from "../types.js";
-import { result } from "../utils/result.js";
-import * as store from "../store.js";
-import { logFeedEvent } from "../../feed.js";
-import { spawnAgents } from "../agents.js";
-import { getLiveWorkers } from "../live-progress.js";
-import { isAutonomousForCwd, isPlanningForCwd } from "../state.js";
-import { loadCrewConfig } from "../utils/config.js";
+import type { MessengerState } from "../../lib.ts";
+import type { CrewParams, Task } from "../types.ts";
+import { result } from "../utils/result.ts";
+import * as store from "../store.ts";
+import { logFeedEvent } from "../../feed.ts";
+import { spawnAgents } from "../agents.ts";
+import { getLiveWorkers } from "../live-progress.ts";
+import { isAutonomousForCwd, isPlanningForCwd } from "../state.ts";
+import { loadCrewConfig } from "../utils/config.ts";
 
 export interface ReviseResult {
   success: boolean;

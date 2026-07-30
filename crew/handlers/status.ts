@@ -5,21 +5,57 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { result } from "../utils/result.js";
-import { discoverCrewAgents } from "../utils/discover.js";
-import { uninstallAgents } from "../utils/install.js";
-import { loadCrewConfig } from "../utils/config.js";
-import { formatDuration } from "../../lib.js";
-import { getSuperpowersStatusDetails, renderSuperpowersStatus } from "../superpowers.js";
-import * as store from "../store.js";
-import { autonomousState, getPlanningUpdateAgeMs, isAutonomousForCwd, isPlanningForCwd, isPlanningStalled, planningState, PLANNING_STALE_TIMEOUT_MS } from "../state.js";
+import { result } from "../utils/result.ts";
+import { discoverCrewAgents } from "../utils/discover.ts";
+import { uninstallAgents } from "../utils/install.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import { formatDuration } from "../../lib.ts";
+import { getSuperpowersStatusDetails, renderSuperpowersStatus } from "../superpowers.ts";
+import * as store from "../store.ts";
+import * as teamStore from "../team/store.ts";
+import { autonomousState, getPlanningUpdateAgeMs, isAutonomousForCwd, isPlanningForCwd, isPlanningStalled, planningState, PLANNING_STALE_TIMEOUT_MS } from "../state.ts";
+
+function getTeamStatusDetails(cwd: string) {
+  const active = teamStore.getActiveTeam(cwd);
+  const profile = teamStore.loadActiveProfile(cwd);
+  return {
+    active: active ? { name: active.name, profile: active.profile } : null,
+    profile: profile?.name ?? active?.profile ?? null,
+    charterPresent: !!teamStore.readCharter(cwd),
+    activeRoles: Object.keys(profile?.roles ?? {}).sort(),
+    memoryCounts: teamStore.memoryCounts(cwd),
+    needsLead: teamStore.needsLeadTasks(cwd).map(task => ({
+      id: task.id,
+      title: task.title,
+      approval: task.approval,
+    })),
+    rejected: teamStore.rejectedTasks(cwd).map(task => ({
+      id: task.id,
+      title: task.title,
+      approval: task.approval,
+    })),
+  };
+}
+
+function renderTeamStatus(details: ReturnType<typeof getTeamStatusDetails>): string {
+  if (!details.active) return "Team: inactive";
+  return [
+    `Team: ${details.active.name}`,
+    `Profile: ${details.profile ?? "(none)"}`,
+    `Active roles: ${details.activeRoles.length > 0 ? details.activeRoles.join(", ") : "none"}`,
+    `Needs lead: ${details.needsLead.length}`,
+    `Rejected: ${details.rejected.length}`,
+  ].join("\n");
+}
 
 /**
  * Execute status action - shows plan progress.
  */
 export async function execute(ctx: ExtensionContext) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
   const plan = store.getPlan(cwd);
+  const teamDetails = getTeamStatusDetails(cwd);
+  const teamText = renderTeamStatus(teamDetails);
   const superpowersText = renderSuperpowersStatus();
   const superpowersDetails = getSuperpowersStatusDetails();
 
@@ -33,10 +69,14 @@ Create a plan:
   pi_messenger({ action: "plan", prd: "docs/PRD.md" })                    # Explicit PRD path
   pi_messenger({ action: "plan", prompt: "Scan the codebase for bugs" })   # Inline prompt
 
+## Team
+${teamText}
+
 ## Superpowers
 ${superpowersText}`, {
       mode: "status",
       hasPlan: false,
+      team: teamDetails,
       superpowers: superpowersDetails
     });
   }
@@ -171,11 +211,13 @@ ${superpowersText}`, {
     text += `\nWaiting for in-progress tasks to complete.`;
   }
 
+  text += `\n\n## Team\n${teamText}`;
   text += `\n\n## Superpowers\n${superpowersText}`;
 
   return result(text, {
     mode: "status",
     hasPlan: true,
+    team: teamDetails,
     prd: plan.prd,
     progress: { done: done.length, total: tasks.length, pct },
     tasks: {
@@ -207,7 +249,7 @@ export async function executeCrew(
   op: string,
   ctx: ExtensionContext
 ) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
 
   switch (op) {
     case "status": {

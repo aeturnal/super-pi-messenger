@@ -1,9 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
-import * as teamStore from "../../crew/team/store.js";
-import * as store from "../../crew/store.js";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import * as teamStore from "../../crew/team/store.ts";
+import * as store from "../../crew/store.ts";
 
 describe("crew/team store", () => {
   let cwd: string;

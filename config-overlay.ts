@@ -2,9 +2,10 @@
  * Super Pi Messenger - Config Overlay Component
  */
 
-import { matchesKey, truncateToWidth, type Component, type Focusable, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { getAutoRegisterPaths, saveAutoRegisterPaths, matchesAutoRegisterPath } from "./config.js";
+import { getAutoRegisterPaths, saveAutoRegisterPaths, matchesAutoRegisterPath } from "./config.ts";
 
 export class MessengerConfigOverlay implements Component, Focusable {
   readonly width = 60;
@@ -18,7 +19,8 @@ export class MessengerConfigOverlay implements Component, Focusable {
   constructor(
     private tui: TUI,
     private theme: Theme,
-    private done: () => void
+    private done: () => void,
+    private cwd: string,
   ) {
     this.paths = getAutoRegisterPaths();
   }
@@ -62,12 +64,11 @@ export class MessengerConfigOverlay implements Component, Focusable {
   }
 
   private addCurrentPath(): void {
-    const cwd = process.cwd();
-    if (this.paths.includes(cwd)) {
+    if (this.paths.includes(this.cwd)) {
       this.statusMessage = "Already in list";
       return;
     }
-    this.paths.push(cwd);
+    this.paths.push(this.cwd);
     this.selectedIndex = this.paths.length - 1;
     this.dirty = true;
     this.statusMessage = "Added current folder";
@@ -87,8 +88,7 @@ export class MessengerConfigOverlay implements Component, Focusable {
     const w = this.width;
     const innerW = w - 2;
     const lines: string[] = [];
-    const cwd = process.cwd();
-    const isCurrentInList = matchesAutoRegisterPath(cwd, this.paths);
+    const isCurrentInList = matchesAutoRegisterPath(this.cwd, this.paths);
 
     const border = (s: string) => this.theme.fg("dim", s);
     const pad = (s: string, len: number) => s + " ".repeat(Math.max(0, len - visibleWidth(s)));
@@ -105,7 +105,7 @@ export class MessengerConfigOverlay implements Component, Focusable {
     lines.push(emptyRow());
 
     // Current folder status
-    const cwdDisplay = truncateToWidth(cwd, Math.max(10, innerW - 20));
+    const cwdDisplay = truncateToWidth(this.cwd, Math.max(10, innerW - 20));
     lines.push(row(`Current folder: ${cwdDisplay}`));
     const statusColor = isCurrentInList ? "accent" : "dim";
     lines.push(row(`Auto-register: ${this.theme.fg(statusColor, isCurrentInList ? "YES" : "NO")}`));
@@ -125,7 +125,7 @@ export class MessengerConfigOverlay implements Component, Focusable {
       for (let i = 0; i < this.paths.length; i++) {
         const path = this.paths[i];
         const isSelected = i === this.selectedIndex;
-        const isCurrent = path === cwd;
+        const isCurrent = path === this.cwd;
         
         const marker = isSelected ? this.theme.fg("accent", "▸") : " ";
         const suffix = isCurrent ? this.theme.fg("dim", " (current)") : "";

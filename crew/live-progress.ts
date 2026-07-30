@@ -1,4 +1,4 @@
-import type { AgentProgress } from "./utils/progress.js";
+import type { AgentProgress } from "./utils/progress.ts";
 
 export interface LiveWorkerInfo {
   cwd: string;

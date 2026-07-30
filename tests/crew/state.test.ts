@@ -32,8 +32,8 @@ import {
   startAutonomous,
   startPlanningRun,
   stopAutonomous,
-} from "../../crew/state.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+} from "../../crew/state.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 
 function resetAutonomousState(): void {
   autonomousState.active = false;
@@ -211,7 +211,7 @@ describe("crew/state", () => {
   });
 
   it("waitForConcurrencyChange resolves when adjustConcurrency is called", async () => {
-    const { waitForConcurrencyChange } = await import("../../crew/state.js");
+    const { waitForConcurrencyChange } = await import("../../crew/state.ts");
     autonomousState.concurrency = 3;
     const promise = waitForConcurrencyChange();
     adjustConcurrency(1);
@@ -220,7 +220,7 @@ describe("crew/state", () => {
   });
 
   it("waitForConcurrencyChange second call replaces first (single-waiter)", async () => {
-    const { waitForConcurrencyChange } = await import("../../crew/state.js");
+    const { waitForConcurrencyChange } = await import("../../crew/state.ts");
     autonomousState.concurrency = 3;
     const first = waitForConcurrencyChange();
     const second = waitForConcurrencyChange();

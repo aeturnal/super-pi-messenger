@@ -1,18 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
-import type { Plan } from "../../crew/types.js";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import type { Plan } from "../../crew/types.ts";
 
-vi.mock("../../crew/agents.js", () => ({
+vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
 }));
 
 describe("plan with prompt (re-plan)", () => {
-  let planHandler: typeof import("../../crew/handlers/plan.js");
+  let planHandler: typeof import("../../crew/handlers/plan.ts");
   let spawnAgents: ReturnType<typeof vi.fn>;
-  let store: typeof import("../../crew/store.js");
-  let state: typeof import("../../crew/state.js");
+  let store: typeof import("../../crew/store.ts");
+  let state: typeof import("../../crew/state.ts");
   let tmpDir: string;
   let mockCtx: any;
 
@@ -20,10 +20,10 @@ describe("plan with prompt (re-plan)", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    planHandler = await import("../../crew/handlers/plan.js");
-    store = await import("../../crew/store.js");
-    state = await import("../../crew/state.js");
-    const agents = await import("../../crew/agents.js");
+    planHandler = await import("../../crew/handlers/plan.ts");
+    store = await import("../../crew/store.ts");
+    state = await import("../../crew/state.ts");
+    const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
     const dirs = createTempCrewDirs();
@@ -129,10 +129,10 @@ describe("plan with prompt (re-plan)", () => {
 });
 
 describe("plan with prompt as spec", () => {
-  let planHandler: typeof import("../../crew/handlers/plan.js");
+  let planHandler: typeof import("../../crew/handlers/plan.ts");
   let spawnAgents: ReturnType<typeof vi.fn>;
-  let store: typeof import("../../crew/store.js");
-  let state: typeof import("../../crew/state.js");
+  let store: typeof import("../../crew/store.ts");
+  let state: typeof import("../../crew/state.ts");
   let tmpDir: string;
   let mockCtx: any;
 
@@ -140,10 +140,10 @@ describe("plan with prompt as spec", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    planHandler = await import("../../crew/handlers/plan.js");
-    store = await import("../../crew/store.js");
-    state = await import("../../crew/state.js");
-    const agents = await import("../../crew/agents.js");
+    planHandler = await import("../../crew/handlers/plan.ts");
+    store = await import("../../crew/store.ts");
+    state = await import("../../crew/state.ts");
+    const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
     const dirs = createTempCrewDirs();
@@ -241,19 +241,19 @@ describe("plan with prompt as spec", () => {
 });
 
 describe("plan transitive dependency pruning", () => {
-  let planHandler: typeof import("../../crew/handlers/plan.js");
+  let planHandler: typeof import("../../crew/handlers/plan.ts");
   let spawnAgents: ReturnType<typeof vi.fn>;
-  let store: typeof import("../../crew/store.js");
-  let state: typeof import("../../crew/state.js");
+  let store: typeof import("../../crew/store.ts");
+  let state: typeof import("../../crew/state.ts");
   let tmpDir: string;
   let mockCtx: any;
 
   beforeEach(async () => {
     vi.resetModules();
-    planHandler = await import("../../crew/handlers/plan.js");
-    store = await import("../../crew/store.js");
-    state = await import("../../crew/state.js");
-    const agents = await import("../../crew/agents.js");
+    planHandler = await import("../../crew/handlers/plan.ts");
+    store = await import("../../crew/store.ts");
+    state = await import("../../crew/state.ts");
+    const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
     const dirs = createTempCrewDirs();
@@ -338,11 +338,11 @@ describe("plan transitive dependency pruning", () => {
 });
 
 describe("getPlanLabel", () => {
-  let store: typeof import("../../crew/store.js");
+  let store: typeof import("../../crew/store.ts");
 
   beforeEach(async () => {
     vi.resetModules();
-    store = await import("../../crew/store.js");
+    store = await import("../../crew/store.ts");
   });
 
   it("returns prd path for file-based plans", () => {
@@ -372,10 +372,10 @@ describe("getPlanLabel", () => {
 });
 
 describe("plan with autoWork", () => {
-  let planHandler: typeof import("../../crew/handlers/plan.js");
+  let planHandler: typeof import("../../crew/handlers/plan.ts");
   let spawnAgents: ReturnType<typeof vi.fn>;
-  let store: typeof import("../../crew/store.js");
-  let state: typeof import("../../crew/state.js");
+  let store: typeof import("../../crew/store.ts");
+  let state: typeof import("../../crew/state.ts");
   let tmpDir: string;
   let mockCtx: any;
 
@@ -383,10 +383,10 @@ describe("plan with autoWork", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    planHandler = await import("../../crew/handlers/plan.js");
-    store = await import("../../crew/store.js");
-    state = await import("../../crew/state.js");
-    const agents = await import("../../crew/agents.js");
+    planHandler = await import("../../crew/handlers/plan.ts");
+    store = await import("../../crew/store.ts");
+    state = await import("../../crew/state.ts");
+    const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
     const dirs = createTempCrewDirs();

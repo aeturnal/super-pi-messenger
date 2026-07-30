@@ -6,13 +6,13 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { MessengerState, Dirs, AgentMailMessage, NameThemeConfig } from "../lib.js";
-import * as handlers from "../handlers.js";
-import type { CrewParams, AppendEntryFn } from "./types.js";
-import { result } from "./utils/result.js";
-import { isPlanningForCwd, cancelPlanningRun, autonomousState, isAutonomousForCwd, stopAutonomous } from "./state.js";
-import { logFeedEvent } from "../feed.js";
-import { isCrewChildProcess } from "./utils/child-process.js";
+import type { MessengerState, Dirs, AgentMailMessage, NameThemeConfig } from "../lib.ts";
+import * as handlers from "../handlers.ts";
+import type { CrewParams, AppendEntryFn } from "./types.ts";
+import { result } from "./utils/result.ts";
+import { isPlanningForCwd, cancelPlanningRun, autonomousState, isAutonomousForCwd, stopAutonomous } from "./state.ts";
+import { logFeedEvent } from "../feed.ts";
+import { isCrewChildProcess } from "./utils/child-process.ts";
 
 type DeliverFn = (msg: AgentMailMessage) => void;
 type UpdateStatusFn = (ctx: ExtensionContext) => void;
@@ -61,7 +61,7 @@ export async function executeCrewAction(
       return result("Error: autoRegisterPath requires value ('add', 'remove', or 'list').",
         { mode: "autoRegisterPath", error: "missing_value" });
     }
-    return handlers.executeAutoRegisterPath(params.autoRegisterPath);
+    return handlers.executeAutoRegisterPath(params.autoRegisterPath, ctx.cwd);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -76,19 +76,19 @@ export async function executeCrewAction(
     // Coordination actions (delegate to existing handlers)
     // ═══════════════════════════════════════════════════════════════════════
     case 'status':
-      return handlers.executeStatus(state, dirs, ctx.cwd ?? process.cwd());
+      return handlers.executeStatus(state, dirs, ctx.cwd);
 
     case 'leave':
       return handlers.executeLeave(state, dirs, ctx);
 
     case 'list':
-      return handlers.executeList(state, dirs, ctx.cwd ?? process.cwd(), { stuckThreshold: config?.stuckThreshold });
+      return handlers.executeList(state, dirs, ctx.cwd, { stuckThreshold: config?.stuckThreshold });
 
     case 'whois': {
       if (!params.name) {
         return result("Error: name required for whois action.", { mode: "whois", error: "missing_name" });
       }
-      return handlers.executeWhois(state, dirs, ctx.cwd ?? process.cwd(), params.name, { stuckThreshold: config?.stuckThreshold });
+      return handlers.executeWhois(state, dirs, ctx.cwd, params.name, { stuckThreshold: config?.stuckThreshold });
     }
 
     case 'set_status': {
@@ -96,7 +96,7 @@ export async function executeCrewAction(
     }
 
     case 'feed': {
-      return handlers.executeFeed(ctx.cwd ?? process.cwd(), params.limit, config?.crewEventsInFeed ?? true);
+      return handlers.executeFeed(ctx.cwd, params.limit, config?.crewEventsInFeed ?? true);
     }
 
     case 'spec':
@@ -106,10 +106,10 @@ export async function executeCrewAction(
       return handlers.executeSetSpec(state, dirs, ctx, params.spec);
 
     case 'send':
-      return handlers.executeSend(state, dirs, ctx.cwd ?? process.cwd(), params.to, false, params.message, params.replyTo);
+      return handlers.executeSend(state, dirs, ctx.cwd, params.to, false, params.message, params.replyTo);
 
     case 'broadcast':
-      return handlers.executeSend(state, dirs, ctx.cwd ?? process.cwd(), undefined, true, params.message, params.replyTo);
+      return handlers.executeSend(state, dirs, ctx.cwd, undefined, true, params.message, params.replyTo);
 
     case 'reserve':
       if (!params.paths || params.paths.length === 0) {
@@ -127,7 +127,7 @@ export async function executeCrewAction(
       return handlers.executeRename(state, dirs, ctx, params.name, deliverMessage, updateStatus);
 
     case 'swarm':
-      return handlers.executeSwarm(state, dirs, params.spec);
+      return handlers.executeSwarm(state, dirs, ctx.cwd, params.spec);
 
     case 'claim':
       if (!params.taskId) {
@@ -139,13 +139,13 @@ export async function executeCrewAction(
       if (!params.taskId) {
         return result("Error: taskId required for unclaim action.", { mode: "unclaim", error: "missing_taskId" });
       }
-      return handlers.executeUnclaim(state, dirs, params.taskId, params.spec);
+      return handlers.executeUnclaim(state, dirs, ctx.cwd, params.taskId, params.spec);
 
     case 'complete':
       if (!params.taskId) {
         return result("Error: taskId required for complete action.", { mode: "complete", error: "missing_taskId" });
       }
-      return handlers.executeComplete(state, dirs, params.taskId, params.notes, params.spec);
+      return handlers.executeComplete(state, dirs, ctx.cwd, params.taskId, params.notes, params.spec);
 
     // ═══════════════════════════════════════════════════════════════════════
     // Crew actions - Simplified PRD-based workflow
@@ -156,7 +156,7 @@ export async function executeCrewAction(
           { mode: "team", error: "missing_operation" });
       }
       try {
-        const teamHandlers = await import("./handlers/team.js");
+        const teamHandlers = await import("./handlers/team.ts");
         return teamHandlers.execute(op, params, state, ctx);
       } catch (e) {
         return result(`Error: team.${op} handler failed: ${e instanceof Error ? e.message : 'unknown'}`,
@@ -177,7 +177,7 @@ export async function executeCrewAction(
           { mode: "task", error: "missing_operation" });
       }
       try {
-        const taskHandlers = await import("./handlers/task.js");
+        const taskHandlers = await import("./handlers/task.ts");
         return taskHandlers.execute(op, params, state, ctx);
       } catch (e) {
         return result(`Error: task.${op} handler failed: ${e instanceof Error ? e.message : 'unknown'}`,
@@ -187,7 +187,7 @@ export async function executeCrewAction(
 
     case 'plan': {
       if (op === 'cancel') {
-        const cwd = ctx.cwd ?? process.cwd();
+        const cwd = ctx.cwd;
         if (!isPlanningForCwd(cwd)) {
           return result("No active planning to cancel.", { mode: "plan.cancel" });
         }
@@ -196,7 +196,7 @@ export async function executeCrewAction(
         return result("Planning cancelled.", { mode: "plan.cancel" });
       }
       try {
-        const planHandler = await import("./handlers/plan.js");
+        const planHandler = await import("./handlers/plan.ts");
         return planHandler.execute(params, ctx, state.agentName || "unknown", () => updateStatus(ctx));
       } catch (e) {
         return result(`Error: plan handler failed: ${e instanceof Error ? e.message : 'unknown'}`,
@@ -206,7 +206,7 @@ export async function executeCrewAction(
 
     case 'work': {
       if (op === 'stop') {
-        const cwd = ctx.cwd ?? process.cwd();
+        const cwd = ctx.cwd;
         if (!isAutonomousForCwd(cwd)) {
           return result("No autonomous work running for this project.", { mode: "work.stop" });
         }
@@ -216,7 +216,7 @@ export async function executeCrewAction(
       }
 
       try {
-        const workHandler = await import("./handlers/work.js");
+        const workHandler = await import("./handlers/work.ts");
         return workHandler.execute(params, dirs, ctx, appendEntry, signal);
       } catch (e) {
         return result(`Error: work handler failed: ${e instanceof Error ? e.message : 'unknown'}`,
@@ -226,7 +226,7 @@ export async function executeCrewAction(
 
     case 'review': {
       try {
-        const reviewHandler = await import("./handlers/review.js");
+        const reviewHandler = await import("./handlers/review.ts");
         return reviewHandler.execute(params, ctx);
       } catch (e) {
         return result(`Error: review handler failed: ${e instanceof Error ? e.message : 'unknown'}`,
@@ -236,7 +236,7 @@ export async function executeCrewAction(
 
     case 'sync': {
       try {
-        const syncHandler = await import("./handlers/sync.js");
+        const syncHandler = await import("./handlers/sync.ts");
         return syncHandler.execute(params, ctx);
       } catch (e) {
         return result(`Error: sync handler failed: ${e instanceof Error ? e.message : 'unknown'}`,
@@ -250,7 +250,7 @@ export async function executeCrewAction(
           { mode: "crew", error: "missing_operation" });
       }
       try {
-        const statusHandlers = await import("./handlers/status.js");
+        const statusHandlers = await import("./handlers/status.ts");
         return statusHandlers.executeCrew(op, ctx);
       } catch (e) {
         return result(`Error: crew.${op} handler failed: ${e instanceof Error ? e.message : 'unknown'}`,

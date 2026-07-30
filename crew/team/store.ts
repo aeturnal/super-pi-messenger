@@ -1,12 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import type { Task } from "../types.js";
-import { getTasks } from "../store.js";
-import { discoverSubagentRoles } from "./subagent-roles.js";
-import { normalizeRiskLabels } from "../utils/risk-labels.js";
-import { canonicalPackagedTeamRole, isNonEditingTeamRole, isValidTeamName } from "../utils/team-roles.js";
-import { TEAM_MEMORY_TYPES, type TeamMemoryEntry, type TeamMemoryType, type TeamProfile, type TeamPromptContext, type TeamRoleDefinition, type TeamState } from "./types.js";
+import type { Task } from "../types.ts";
+import { getTasks } from "../store.ts";
+import { discoverSubagentRoles } from "./subagent-roles.ts";
+import { normalizeRiskLabels } from "../utils/risk-labels.ts";
+import { canonicalPackagedTeamRole, isNonEditingTeamRole, isValidTeamName } from "../utils/team-roles.ts";
+import { TEAM_MEMORY_TYPES, type TeamMemoryEntry, type TeamMemoryType, type TeamProfile, type TeamPromptContext, type TeamRoleDefinition, type TeamState } from "./types.ts";
 
 const DEFAULT_APPROVAL_LABELS = ["security", "database", "api-contract", "destructive", "migration", "auth", "payment"];
 const MAX_MEMORY_CHARS_PER_TYPE = 10_000;
@@ -444,8 +444,20 @@ export function taskNeedsApproval(task: Task): boolean {
   return task.approval?.required === true && task.approval.status !== "approved";
 }
 
+export function taskPendingApproval(task: Task): boolean {
+  return task.approval?.required === true && task.approval.status === "pending";
+}
+
+export function taskNeedsRevision(task: Task): boolean {
+  return task.approval?.required === true && task.approval.status === "rejected";
+}
+
 export function needsLeadTasks(cwd: string): Task[] {
-  return getTasks(cwd).filter(taskNeedsApproval);
+  return getTasks(cwd).filter(taskPendingApproval);
+}
+
+export function rejectedTasks(cwd: string): Task[] {
+  return getTasks(cwd).filter(taskNeedsRevision);
 }
 
 export function buildTeamPromptContext(cwd: string, task: Task): TeamPromptContext | undefined {

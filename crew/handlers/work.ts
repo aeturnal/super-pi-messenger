@@ -6,21 +6,30 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Dirs } from "../../lib.js";
-import type { CrewParams, AppendEntryFn } from "../types.js";
-import { result } from "../utils/result.js";
-import { resolveModel, spawnAgents } from "../agents.js";
-import { loadCrewConfig } from "../utils/config.js";
-import { discoverCrewAgents, discoverCrewSkills } from "../utils/discover.js";
-import { buildWorkerPrompt } from "../prompt.js";
-import * as teamStore from "../team/store.js";
-import { reviewImplementation } from "./review.js";
-import * as store from "../store.js";
-import { getCrewDir } from "../store.js";
-import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.js";
-import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles } from "../lobby.js";
-import { logFeedEvent } from "../../feed.js";
-import { approvalTaskSummaries } from "../utils/task-format.js";
+import type { Dirs } from "../../lib.ts";
+import type { CrewParams, AppendEntryFn } from "../types.ts";
+import { result } from "../utils/result.ts";
+import { resolveModel, spawnAgents } from "../agents.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import { discoverCrewAgents, discoverCrewSkills } from "../utils/discover.ts";
+import { buildWorkerPrompt } from "../prompt.ts";
+import * as teamStore from "../team/store.ts";
+import { reviewImplementation } from "./review.ts";
+import * as store from "../store.ts";
+import { getCrewDir } from "../store.ts";
+import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
+import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles } from "../lobby.ts";
+import { logFeedEvent } from "../../feed.ts";
+import { approvalTaskSummaries } from "../utils/task-format.ts";
+
+function revisionHint(taskId: string): string {
+  return `pi_messenger({ action: "task.revise", id: "${taskId}", prompt: "Address approval feedback" })`;
+}
+
+function rejectedTasksText(tasks: { id: string; title: string; approval?: { feedback?: string } }[]): string {
+  if (tasks.length === 0) return "";
+  return `\n\nRejected tasks need revision:\n${tasks.map(t => `  - ${t.id}: ${t.title}${t.approval?.feedback ? ` — ${t.approval.feedback}` : ""}\n    Revise with: \`${revisionHint(t.id)}\``).join("\n")}`;
+}
 
 export async function execute(
   params: CrewParams,
@@ -29,7 +38,7 @@ export async function execute(
   appendEntry: AppendEntryFn,
   signal?: AbortSignal
 ) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
   const config = loadCrewConfig(getCrewDir(cwd));
   const { autonomous, concurrency: concurrencyOverride } = params;
 
@@ -59,8 +68,11 @@ export async function execute(
   const allReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
   const readyTasks: typeof allReady = [];
   const needsApproval: typeof allReady = [];
+  const rejected: typeof allReady = [];
   for (const task of allReady) {
-    if (teamStore.taskNeedsApproval(task)) {
+    if (teamStore.taskNeedsRevision(task)) {
+      rejected.push(task);
+    } else if (teamStore.taskPendingApproval(task)) {
       needsApproval.push(task);
     } else if (task.attempt_count >= config.work.maxAttemptsPerTask) {
       store.updateTask(cwd, task.id, {
@@ -86,6 +98,8 @@ export async function execute(
       reason = "🎉 All tasks are done! Plan is complete.";
     } else if (inProgress.length > 0) {
       reason = `${inProgress.length} task(s) in progress: ${inProgress.map(t => t.id).join(", ")}`;
+    } else if (rejected.length > 0) {
+      reason = "No startable tasks; rejected tasks need revision.";
     } else if (needsApproval.length > 0) {
       reason = "No startable tasks; ready tasks need lead approval.";
     } else if (blocked.length > 0) {
@@ -98,12 +112,15 @@ export async function execute(
       ? `\n\nNeeds approval:\n${needsApproval.map(t => `  - ${t.id}: ${t.title}`).join("\n")}`
       : "";
 
-    return result(`No ready tasks.\n\n${reason}${approvalText}`, {
+    const revisionText = rejectedTasksText(rejected);
+
+    return result(`No ready tasks.\n\n${reason}${approvalText}${revisionText}`, {
       mode: "work",
       prd: plan.prd,
       ready: [],
       reason,
       needsApproval: approvalTaskSummaries(needsApproval),
+      rejected: approvalTaskSummaries(rejected),
       inProgress: inProgress.map(t => t.id),
       blocked: blocked.map(t => t.id)
     });
@@ -339,13 +356,15 @@ export async function execute(
 
   const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
   const actionableNextReady = nextReady.filter(t => !teamStore.taskNeedsApproval(t));
-  const finalNeedsApproval = nextReady.filter(teamStore.taskNeedsApproval);
+  const finalNeedsApproval = nextReady.filter(teamStore.taskPendingApproval);
+  const finalRejected = nextReady.filter(teamStore.taskNeedsRevision);
 
   let statusText = "";
   if (succeeded.length > 0) statusText += `\n✅ Completed: ${succeeded.join(", ")}`;
   if (failed.length > 0) statusText += `\n❌ Failed: ${failed.join(", ")}`;
   if (blocked.length > 0) statusText += `\n🚫 Blocked: ${blocked.join(", ")}`;
   if (finalNeedsApproval.length > 0) statusText += `\n🛑 Needs approval: ${finalNeedsApproval.map(t => t.id).join(", ")}`;
+  if (finalRejected.length > 0) statusText += `\n↩️ Rejected: ${finalRejected.map(t => t.id).join(", ")}`;
   const nextText = actionableNextReady.length > 0
     ? `\n\n**Ready for next wave:** ${actionableNextReady.map(t => t.id).join(", ")}`
     : "";
@@ -364,7 +383,7 @@ export async function execute(
 **PRD:** ${store.getPlanLabel(plan)}
 **Tasks attempted:** ${remainingTasks.length}${lobbyAssigned.size > 0 ? ` (+${lobbyAssigned.size} lobby)` : ""}
 **Progress:** ${progress}
-${statusText}${lobbyText}${nextText}
+${statusText}${lobbyText}${rejectedTasksText(finalRejected)}${nextText}
 
 ${continueText}`;
 
@@ -377,6 +396,7 @@ ${continueText}`;
     failed,
     blocked,
     needsApproval: approvalTaskSummaries(finalNeedsApproval),
+    rejected: approvalTaskSummaries(finalRejected),
     nextReady: actionableNextReady.map(t => t.id),
     autonomous: !!autonomous
   });

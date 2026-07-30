@@ -1,12 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { execute } from "../../crew/handlers/status.js";
-import { createPlan, createTask, startTask } from "../../crew/store.js";
-import { captureSuperpowersSkills, resetSuperpowersStateForTests } from "../../crew/superpowers.js";
-import { autonomousState, planningState, PLANNING_STALE_TIMEOUT_MS, startAutonomous, startPlanningRun, stopAutonomous } from "../../crew/state.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
-import { createStockSuperpowersFixture } from "../helpers/superpowers.js";
+import { execute } from "../../crew/handlers/status.ts";
+import { createPlan, createTask, startTask } from "../../crew/store.ts";
+import { captureSuperpowersSkills, resetSuperpowersStateForTests } from "../../crew/superpowers.ts";
+import * as teamStore from "../../crew/team/store.ts";
+import { autonomousState, planningState, PLANNING_STALE_TIMEOUT_MS, startAutonomous, startPlanningRun, stopAutonomous } from "../../crew/state.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import { createStockSuperpowersFixture } from "../helpers/superpowers.ts";
 
 function resetPlanningState(): void {
   planningState.active = false;
@@ -42,7 +43,10 @@ describe("crew.status planning health", () => {
     resetAutonomousState();
     resetSuperpowersStateForTests();
   });
-  afterEach(resetSuperpowersStateForTests);
+  afterEach(() => {
+    resetSuperpowersStateForTests();
+    delete process.env.PI_MESSENGER_TEAM_PROFILE_DIR;
+  });
 
   it("shows inactive integration status without a plan", async () => {
     const { cwd } = createTempCrewDirs();
@@ -85,6 +89,42 @@ describe("crew.status planning health", () => {
         },
         latestLaunch: null,
       });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("shows Team state before fork-owned Superpowers status", async () => {
+    const { cwd } = createTempCrewDirs();
+    const fixture = createStockSuperpowersFixture();
+    process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(cwd, "profiles");
+
+    try {
+      createPlan(cwd, "README.md");
+      teamStore.useProfile(cwd, "research-squad");
+      const pending = createTask(cwd, "Review auth", "", [], {
+        approval: { required: true, status: "pending" },
+      });
+      captureSuperpowersSkills(fixture.skills);
+
+      const response = await execute({ cwd } as any);
+      const text = response.content[0].text;
+
+      expect(text.indexOf("## Team")).toBeGreaterThan(-1);
+      expect(text.indexOf("## Superpowers")).toBeGreaterThan(text.indexOf("## Team"));
+      expect(text).toContain("Team: research-squad");
+      expect(response.details.team).toEqual({
+        active: { name: "research-squad", profile: "research-squad" },
+        profile: "research-squad",
+        charterPresent: false,
+        activeRoles: ["planner", "researcher", "reviewer", "scout"],
+        memoryCounts: { decision: 0, interface: 0, risk: 0, handoff: 0 },
+        needsLead: [
+          { id: pending.id, title: "Review auth", approval: { required: true, status: "pending" } },
+        ],
+        rejected: [],
+      });
+      expect(response.details.superpowers.status).toBe("active");
     } finally {
       fixture.cleanup();
     }
