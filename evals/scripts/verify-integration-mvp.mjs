@@ -123,7 +123,7 @@ function isWorktreeMutation(words) {
   return (
     basename(words[0] ?? "") === "git" &&
     words[1] === "worktree" &&
-    ["add", "move", "remove"].includes(words[2])
+    ["add", "move", "remove", "lock", "unlock", "prune", "repair"].includes(words[2])
   );
 }
 
@@ -203,7 +203,7 @@ function rejectForbiddenCalls(events, role) {
   }
 }
 
-export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree }) {
+export function verifyIntegrationMvp({ repositoryRoot, worktree }) {
   const gitDirectory = join(worktree, ".git");
   const marker = readJson(join(gitDirectory, MARKER_NAME), "integration MVP marker");
   if (
@@ -238,6 +238,24 @@ export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree
   }
 
   const worktreeRoot = resolve(worktree);
+  const trustedTestPath = join(
+    resolve(repositoryRoot),
+    "evals",
+    "fixtures",
+    FIXTURE,
+    "seed",
+    IMMUTABLE_TEST,
+  );
+  if (!existsSync(trustedTestPath)) {
+    throw new Error(`Missing trusted immutable test file: ${IMMUTABLE_TEST}`);
+  }
+  const trustedTestHash = sha256File(trustedTestPath);
+  if (testHashes[IMMUTABLE_TEST] !== trustedTestHash) {
+    throw new Error(
+      `Manifest immutable test hash mismatch with trusted seed: ${IMMUTABLE_TEST}`,
+    );
+  }
+
   const absoluteTestPath = resolve(worktreeRoot, IMMUTABLE_TEST);
   const relativeTestPath = relative(worktreeRoot, absoluteTestPath);
   if (
@@ -251,8 +269,37 @@ export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree
   if (!existsSync(absoluteTestPath)) {
     throw new Error(`Missing immutable test file: ${IMMUTABLE_TEST}`);
   }
-  if (sha256File(absoluteTestPath) !== testHashes[IMMUTABLE_TEST]) {
+  if (sha256File(absoluteTestPath) !== trustedTestHash) {
     throw new Error(`Immutable test hash mismatch: ${IMMUTABLE_TEST}`);
+  }
+
+  const seedCommit = manifest.seedCommit;
+  if (typeof seedCommit !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(seedCommit)) {
+    throw new Error("Invalid integration MVP seedCommit");
+  }
+  const seedExists = spawnSync("git", ["cat-file", "-e", `${seedCommit}^{commit}`], {
+    cwd: worktree,
+    encoding: "utf8",
+  });
+  if (seedExists.error || seedExists.status !== 0) {
+    throw new Error("Integration manifest seedCommit does not exist");
+  }
+  const seedIsAncestor = spawnSync("git", ["merge-base", "--is-ancestor", seedCommit, "HEAD"], {
+    cwd: worktree,
+    encoding: "utf8",
+  });
+  if (seedIsAncestor.error || seedIsAncestor.status !== 0) {
+    throw new Error("Integration manifest seedCommit must be an ancestor of HEAD");
+  }
+  const head = spawnSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+    cwd: worktree,
+    encoding: "utf8",
+  });
+  if (head.error || head.status !== 0) {
+    throw new Error("Could not resolve integration run HEAD");
+  }
+  if (head.stdout.trim() === seedCommit) {
+    throw new Error("Integration run HEAD must differ from seedCommit");
   }
 
   const tests = spawnSync("npm", ["test"], { cwd: worktree, encoding: "utf8" });
@@ -312,10 +359,15 @@ export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree
   if (
     !worker.events.some(
       (event) =>
-        event?.type === "tool_execution_start" && event.toolName === "pi_messenger",
+        event?.type === "tool_execution_start" &&
+        event.toolName === "pi_messenger" &&
+        event.args?.action === "task.done" &&
+        event.args?.id === "task-1",
     )
   ) {
-    throw new Error("Missing required worker trace evidence: pi_messenger start");
+    throw new Error(
+      "Missing required worker trace evidence: pi_messenger task.done for task-1",
+    );
   }
   if (!hasReadEndingIn(reviewer.events, STOCK_VERIFICATION_SUFFIX)) {
     throw new Error(

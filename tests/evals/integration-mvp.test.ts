@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { sha256File } from "../../evals/scripts/lib.mjs";
 import { resetIntegrationMvp } from "../../evals/scripts/reset-integration-mvp.mjs";
 import { verifyIntegrationMvp } from "../../evals/scripts/verify-integration-mvp.mjs";
 
@@ -96,7 +97,7 @@ function requiredTraceEvents() {
   };
 }
 
-function createCompletedIntegrationRun() {
+function createCompletedIntegrationRun({ commitImplementation = true } = {}) {
   const { repositoryRoot, runRoot } = createResetRepository();
   const worktree = join(runRoot, "worktree");
   resetIntegrationMvp({
@@ -108,6 +109,20 @@ function createCompletedIntegrationRun() {
     join(worktree, "src", "clamp.mjs"),
     `export function clamp(value, min, max) {\n  if (min > max) throw new RangeError("min must not exceed max");\n  return Math.min(max, Math.max(min, value));\n}\n`,
   );
+  if (commitImplementation) {
+    const staged = spawnSync("git", ["add", "--", "src/clamp.mjs"], {
+      cwd: worktree,
+      encoding: "utf8",
+    });
+    const committed = spawnSync("git", ["commit", "-m", "Implement clamp"], {
+      cwd: worktree,
+      encoding: "utf8",
+    });
+    if (staged.status !== 0 || committed.status !== 0) {
+      throw new Error(`Could not commit synthetic implementation: ${staged.stderr}${committed.stderr}`);
+    }
+  }
+
   const taskPath = join(worktree, ".pi", "messenger", "crew", "tasks", "task-1.json");
   const task = JSON.parse(readFileSync(taskPath, "utf8"));
   writeFileSync(taskPath, `${JSON.stringify({ ...task, status: "done" }, null, 2)}\n`);
@@ -126,9 +141,16 @@ function createCompletedIntegrationRun() {
 function withGitWorktreeOutput(output: string, verify: () => void) {
   const shimRoot = mkdtempSync(join(tmpdir(), "integration-mvp-git-shim-"));
   const git = join(shimRoot, "git");
+  const realGit = process.env.PATH?.split(delimiter)
+    .map((entry) => join(entry, "git"))
+    .find(existsSync);
+  if (!realGit) throw new Error("Git executable not found");
   writeFileSync(
     git,
-    `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(output)});\n`,
+    `#!${process.execPath}\n` +
+      `const { spawnSync } = require("node:child_process");\n` +
+      `if (process.argv.slice(2).join(" ") === "worktree list --porcelain") { process.stdout.write(${JSON.stringify(output)}); process.exit(0); }\n` +
+      `const result = spawnSync(${JSON.stringify(realGit)}, process.argv.slice(2), { stdio: "inherit", env: process.env }); process.exit(result.status ?? 1);\n`,
   );
   chmodSync(git, 0o755);
   resetRoots.push(shimRoot);
@@ -529,7 +551,7 @@ describe("integration MVP verifier", () => {
     ["worker stock TDD read", "worker", 0, "stock test-driven-development read"],
     ["worker stock verification read", "worker", 1, "stock verification-before-completion read"],
     ["worker project-style read", "worker", 2, "project-style read"],
-    ["worker pi_messenger start", "worker", 3, "pi_messenger start"],
+    ["worker pi_messenger task.done", "worker", 3, "pi_messenger task.done for task-1"],
     ["reviewer stock verification read", "reviewer", 0, "stock verification-before-completion read"],
   ])("required evidence rejects missing %s", (_case, role, removedIndex, description) => {
     const run = createCompletedIntegrationRun();
@@ -554,7 +576,21 @@ describe("integration MVP verifier", () => {
     writeTrace(run.workerTrace, events.worker);
 
     expect(() => verifyIntegrationMvp(run)).toThrow(
-      "Missing required worker trace evidence: pi_messenger start",
+      "Missing required worker trace evidence: pi_messenger task.done for task-1",
+    );
+  });
+
+  it.each([
+    ["another action", { action: "task.start", id: "task-1" }],
+    ["another task id", { action: "task.done", id: "task-2" }],
+  ])("required worker evidence rejects pi_messenger with %s", (_case, args) => {
+    const run = createCompletedIntegrationRun();
+    const events = requiredTraceEvents();
+    events.worker[3] = toolStart("pi_messenger", args);
+    writeTrace(run.workerTrace, events.worker);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Missing required worker trace evidence: pi_messenger task.done for task-1",
     );
   });
 
@@ -655,22 +691,22 @@ describe("integration MVP verifier", () => {
     );
   });
 
-  it.each([
-    ["worker", "add", "command -p /usr/bin/git worktree add target"],
-    ["reviewer", "move", "env -i X=1 ./git worktree move target"],
-    ["worker", "remove", "cd /tmp; X=1 command ../bin/git worktree remove target"],
-  ])("rejects %s prefixed/path git worktree %s bash mutation", (role, mutation, command) => {
-    const run = createCompletedIntegrationRun();
-    const trace = role === "worker" ? run.workerTrace : run.reviewerTrace;
-    writeFileSync(
-      trace,
-      `${readFileSync(trace, "utf8")}${JSON.stringify(toolStart("bash", { command }))}\n`,
-    );
+  it.each(["add", "move", "remove", "lock", "unlock", "prune", "repair"])(
+    "rejects direct Git worktree %s management",
+    (mutation) => {
+      const run = createCompletedIntegrationRun();
+      writeFileSync(
+        run.workerTrace,
+        `${readFileSync(run.workerTrace, "utf8")}${JSON.stringify(toolStart("bash", {
+          command: `git worktree ${mutation} target`,
+        }))}\n`,
+      );
 
-    expect(() => verifyIntegrationMvp(run)).toThrow(
-      `Forbidden ${role} trace evidence: Git worktree mutation`,
-    );
-  });
+      expect(() => verifyIntegrationMvp(run)).toThrow(
+        "Forbidden worker trace evidence: Git worktree mutation",
+      );
+    },
+  );
 
   it("allows ordinary tools, text mentions, echo pi, and git worktree list", () => {
     const run = createCompletedIntegrationRun();
@@ -756,6 +792,20 @@ describe("integration MVP verifier", () => {
     );
   });
 
+  it("anchors immutable evidence to the trusted repository seed", () => {
+    const run = createCompletedIntegrationRun();
+    const testPath = join(run.worktree, "test", "clamp.test.mjs");
+    const manifestPath = join(run.worktree, ".git", "pi-super-messenger-eval-run.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    writeFileSync(testPath, `${readFileSync(testPath, "utf8")}\n// attacker changed test\n`);
+    manifest.testHashes["test/clamp.test.mjs"] = sha256File(testPath);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Manifest immutable test hash mismatch with trusted seed: test/clamp.test.mjs",
+    );
+  });
+
   it.each([
     ["missing", undefined],
     ["null", null],
@@ -794,6 +844,46 @@ describe("integration MVP verifier", () => {
 
     expect(() => verifyIntegrationMvp(run)).toThrow(
       "Missing immutable test file: test/clamp.test.mjs",
+    );
+  });
+
+  it("requires a post-seed implementation commit before fixture tests", () => {
+    const run = createCompletedIntegrationRun({ commitImplementation: false });
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Integration run HEAD must differ from seedCommit",
+    );
+  });
+
+  it.each([
+    ["malformed", "main", "Invalid integration MVP seedCommit"],
+    ["wrong-length", "a".repeat(41), "Invalid integration MVP seedCommit"],
+    ["nonexistent", "0".repeat(40), "Integration manifest seedCommit does not exist"],
+  ])("rejects a %s manifest seedCommit", (_case, seedCommit, expected) => {
+    const run = createCompletedIntegrationRun();
+    const manifestPath = join(run.worktree, ".git", "pi-super-messenger-eval-run.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, seedCommit })}\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(expected);
+  });
+
+  it("requires manifest seedCommit to be an ancestor of HEAD", () => {
+    const run = createCompletedIntegrationRun();
+    const unrelated = spawnSync("git", ["commit-tree", "HEAD^{tree}", "-m", "Unrelated seed"], {
+      cwd: run.worktree,
+      encoding: "utf8",
+    });
+    expect(unrelated.status).toBe(0);
+    const manifestPath = join(run.worktree, ".git", "pi-super-messenger-eval-run.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, seedCommit: unrelated.stdout.trim() })}\n`,
+    );
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Integration manifest seedCommit must be an ancestor of HEAD",
     );
   });
 
