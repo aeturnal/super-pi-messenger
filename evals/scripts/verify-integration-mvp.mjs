@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { sha256File } from "./lib.mjs";
 
@@ -7,6 +7,11 @@ const FIXTURE = "integration-mvp";
 const MARKER_NAME = "pi-super-messenger-eval-marker.json";
 const MANIFEST_NAME = "pi-super-messenger-eval-run.json";
 const IMMUTABLE_TEST = "test/clamp.test.mjs";
+const STOCK_TDD_SUFFIX =
+  "/superpowers/skills/test-driven-development/SKILL.md";
+const STOCK_VERIFICATION_SUFFIX =
+  "/superpowers/skills/verification-before-completion/SKILL.md";
+const PROJECT_STYLE_SUFFIX = "/.pi/skills/project-style/SKILL.md";
 
 function readJson(path, description) {
   try {
@@ -14,6 +19,46 @@ function readJson(path, description) {
   } catch (error) {
     throw new Error(`Invalid ${description}: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function readCrewTrace(artifactsDirectory, role) {
+  let names = [];
+  try {
+    names = readdirSync(artifactsDirectory);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const matches = names.filter((name) =>
+    new RegExp(`^.*_crew-${role}_.*\\.jsonl$`).test(name),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected exactly one ${role} trace in ${artifactsDirectory}, found ${matches.length}`,
+    );
+  }
+
+  const path = join(artifactsDirectory, matches[0]);
+  const events = readFileSync(path, "utf8")
+    .split("\n")
+    .flatMap((line, index) => {
+      if (line.trim() === "") return [];
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        throw new Error(`Malformed ${role} trace ${path} at line ${index + 1}`);
+      }
+    });
+  return { path, events };
+}
+
+function hasReadEndingIn(events, suffix) {
+  return events.some(
+    (event) =>
+      event?.type === "tool_execution_start" &&
+      event.toolName === "read" &&
+      typeof event.args?.path === "string" &&
+      event.args.path.replaceAll("\\", "/").endsWith(suffix),
+  );
 }
 
 export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree }) {
@@ -99,5 +144,36 @@ export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree
     throw new Error(`Expected exactly one Git worktree, found ${worktreeCount}`);
   }
 
-  return { status: "passed", workerTrace: "", reviewerTrace: "" };
+  const artifactsDirectory = join(worktree, ".pi", "messenger", "crew", "artifacts");
+  const worker = readCrewTrace(artifactsDirectory, "worker");
+  const reviewer = readCrewTrace(artifactsDirectory, "reviewer");
+
+  if (!hasReadEndingIn(worker.events, STOCK_TDD_SUFFIX)) {
+    throw new Error(
+      "Missing required worker trace evidence: stock test-driven-development read",
+    );
+  }
+  if (!hasReadEndingIn(worker.events, STOCK_VERIFICATION_SUFFIX)) {
+    throw new Error(
+      "Missing required worker trace evidence: stock verification-before-completion read",
+    );
+  }
+  if (!hasReadEndingIn(worker.events, PROJECT_STYLE_SUFFIX)) {
+    throw new Error("Missing required worker trace evidence: project-style read");
+  }
+  if (
+    !worker.events.some(
+      (event) =>
+        event?.type === "tool_execution_start" && event.toolName === "pi_messenger",
+    )
+  ) {
+    throw new Error("Missing required worker trace evidence: pi_messenger start");
+  }
+  if (!hasReadEndingIn(reviewer.events, STOCK_VERIFICATION_SUFFIX)) {
+    throw new Error(
+      "Missing required reviewer trace evidence: stock verification-before-completion read",
+    );
+  }
+
+  return { status: "passed", workerTrace: worker.path, reviewerTrace: reviewer.path };
 }

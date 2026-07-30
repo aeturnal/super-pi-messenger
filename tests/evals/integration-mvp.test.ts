@@ -64,6 +64,38 @@ function invokeReset(repositoryRoot: string, destination: string) {
     });
 }
 
+function writeTrace(path: string, events: unknown[]) {
+  writeFileSync(path, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+}
+
+const toolStart = (toolName: string, args: Record<string, unknown> = {}) => ({
+  type: "tool_execution_start",
+  toolName,
+  args,
+});
+
+function requiredTraceEvents() {
+  return {
+    worker: [
+      toolStart("read", {
+        path: "/home/pi/.pi/agent/git/github.com/obra/superpowers/skills/test-driven-development/SKILL.md",
+      }),
+      toolStart("read", {
+        path: String.raw`C:\Users\pi\.pi\agent\git\github.com\obra\superpowers\skills\verification-before-completion\SKILL.md`,
+      }),
+      toolStart("read", {
+        path: String.raw`C:\fixture\.pi\skills\project-style\SKILL.md`,
+      }),
+      toolStart("pi_messenger", { action: "task.done", id: "task-1" }),
+    ],
+    reviewer: [
+      toolStart("read", {
+        path: "/home/pi/.pi/agent/git/github.com/obra/superpowers/skills/verification-before-completion/SKILL.md",
+      }),
+    ],
+  };
+}
+
 function createCompletedIntegrationRun() {
   const { repositoryRoot, runRoot } = createResetRepository();
   const worktree = join(runRoot, "worktree");
@@ -79,7 +111,16 @@ function createCompletedIntegrationRun() {
   const taskPath = join(worktree, ".pi", "messenger", "crew", "tasks", "task-1.json");
   const task = JSON.parse(readFileSync(taskPath, "utf8"));
   writeFileSync(taskPath, `${JSON.stringify({ ...task, status: "done" }, null, 2)}\n`);
-  return { repositoryRoot, worktree };
+
+  const artifacts = join(worktree, ".pi", "messenger", "crew", "artifacts");
+  const workerTrace = join(artifacts, "run_crew-worker_task-1.jsonl");
+  const reviewerTrace = join(artifacts, "run_crew-reviewer_task-1.jsonl");
+  mkdirSync(artifacts, { recursive: true });
+  const events = requiredTraceEvents();
+  writeTrace(workerTrace, events.worker);
+  writeTrace(reviewerTrace, events.reviewer);
+
+  return { repositoryRoot, worktree, artifacts, workerTrace, reviewerTrace };
 }
 
 function withGitWorktreeOutput(output: string, verify: () => void) {
@@ -427,9 +468,99 @@ describe("integration MVP verifier", () => {
 
     expect(verifyIntegrationMvp(run)).toEqual({
       status: "passed",
-      workerTrace: "",
-      reviewerTrace: "",
+      workerTrace: run.workerTrace,
+      reviewerTrace: run.reviewerTrace,
     });
+  });
+
+  it("trace discovery parses the one direct trace for each role", () => {
+    const run = createCompletedIntegrationRun();
+    writeFileSync(run.workerTrace, `\n${readFileSync(run.workerTrace, "utf8").trim()}\n\n`);
+
+    expect(verifyIntegrationMvp(run)).toMatchObject({
+      workerTrace: run.workerTrace,
+      reviewerTrace: run.reviewerTrace,
+    });
+  });
+
+  it.each([
+    ["missing worker", "worker", 0],
+    ["duplicate reviewer", "reviewer", 2],
+  ])("trace discovery rejects %s traces", (_case, role, count) => {
+    const run = createCompletedIntegrationRun();
+    if (role === "worker") rmSync(run.workerTrace);
+    else writeTrace(join(run.artifacts, "extra_crew-reviewer_task-1.jsonl"), []);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      `Expected exactly one ${role} trace in ${run.artifacts}, found ${count}`,
+    );
+  });
+
+  it("trace discovery rejects malformed non-empty JSONL with role and file context", () => {
+    const run = createCompletedIntegrationRun();
+    writeFileSync(run.workerTrace, `${JSON.stringify({ type: "ok" })}\nnot-json\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      `Malformed worker trace ${run.workerTrace} at line 2`,
+    );
+  });
+
+  it("required evidence accepts exact starts, direct Pi args.path, and normalized paths", () => {
+    const run = createCompletedIntegrationRun();
+
+    expect(verifyIntegrationMvp(run).status).toBe("passed");
+  });
+
+  it.each([
+    ["worker stock TDD read", "worker", 0, "stock test-driven-development read"],
+    ["worker stock verification read", "worker", 1, "stock verification-before-completion read"],
+    ["worker project-style read", "worker", 2, "project-style read"],
+    ["worker pi_messenger start", "worker", 3, "pi_messenger start"],
+    ["reviewer stock verification read", "reviewer", 0, "stock verification-before-completion read"],
+  ])("required evidence rejects missing %s", (_case, role, removedIndex, description) => {
+    const run = createCompletedIntegrationRun();
+    const events = requiredTraceEvents();
+    const remaining = events[role as "worker" | "reviewer"].filter(
+      (_event, index) => index !== removedIndex,
+    );
+    writeTrace(role === "worker" ? run.workerTrace : run.reviewerTrace, remaining);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      `Missing required ${role} trace evidence: ${description}`,
+    );
+  });
+
+  it("required evidence ignores mentions, outputs, wrong fields, and unbounded suffixes", () => {
+    const run = createCompletedIntegrationRun();
+    writeTrace(run.workerTrace, [
+      {
+        type: "message",
+        text: "read superpowers/skills/test-driven-development/SKILL.md and call pi_messenger",
+      },
+      {
+        type: "tool_execution_end",
+        toolName: "read",
+        args: { path: "/superpowers/skills/test-driven-development/SKILL.md" },
+        output: "/.pi/skills/project-style/SKILL.md",
+      },
+      {
+        type: "tool_execution_start",
+        toolName: "read",
+        input: { path: "/superpowers/skills/test-driven-development/SKILL.md" },
+      },
+      toolStart("read", {
+        path: "/tmp/not-superpowers/skills/test-driven-development/SKILL.md",
+      }),
+      toolStart("read", { path: "/tmp/.pi/skills/not-project-style/SKILL.md" }),
+      toolStart("Read", {
+        path: "/superpowers/skills/test-driven-development/SKILL.md",
+      }),
+      toolStart("pi_messenger_extra"),
+    ]);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Missing required worker trace evidence: stock test-driven-development read",
+    );
   });
 
   it("rejects a marker with the wrong fixture identity", () => {
