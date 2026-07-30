@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Skill } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -23,6 +24,29 @@ describe("Superpowers package validation", () => {
   function track(fixture: StockSuperpowersFixture): StockSuperpowersFixture {
     cleanups.push(fixture.cleanup);
     return fixture;
+  }
+
+  function asRuntimeDiscoveredSkills(
+    fixture: StockSuperpowersFixture,
+    origin = "https://github.com/obra/superpowers",
+  ): Skill[] {
+    execFileSync("git", ["init"], { cwd: fixture.root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", origin], {
+      cwd: fixture.root,
+      stdio: "ignore",
+    });
+    const extensionDir = path.join(fixture.root, ".pi", "extensions");
+    return fixture.skills.map((skill) => ({
+      ...skill,
+      baseDir: path.dirname(skill.filePath),
+      sourceInfo: {
+        path: skill.filePath,
+        source: "extension:superpowers",
+        scope: "temporary",
+        origin: "top-level",
+        baseDir: extensionDir,
+      },
+    }));
   }
 
   beforeEach(resetSuperpowersStateForTests);
@@ -104,6 +128,65 @@ describe("Superpowers package validation", () => {
       status: "active",
       version: "6.2.0",
       packageRoot: fs.realpathSync(fixture.root),
+    });
+  });
+
+  it("accepts stock skills republished by the official runtime extension", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    const skills = asRuntimeDiscoveredSkills(fixture);
+
+    expect(captureSuperpowersSkills(skills)).toMatchObject({
+      status: "active",
+      version: "6.2.0",
+      packageRoot: fs.realpathSync(fixture.root),
+    });
+  });
+
+  it("rejects a runtime extension label with an unofficial Git origin", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    const skills = asRuntimeDiscoveredSkills(
+      fixture,
+      "https://github.com/example/superpowers.git",
+    );
+
+    expect(captureSuperpowersSkills(skills)).toMatchObject({ status: "fallback" });
+  });
+
+  it.each([
+    ["scope", { scope: "project" as const }],
+    ["origin", { origin: "package" as const }],
+    ["source path", { path: "/tmp/not-stock-superpowers/skills/test/SKILL.md" }],
+    ["base directory", { baseDir: "/tmp/not-stock-superpowers/.pi/extensions" }],
+  ])("rejects runtime-discovered skills with malformed %s metadata", (_label, override) => {
+    const fixture = track(createStockSuperpowersFixture());
+    const skills = asRuntimeDiscoveredSkills(fixture).map((skill) => ({
+      ...skill,
+      sourceInfo: { ...skill.sourceInfo, ...override },
+    }));
+
+    expect(captureSuperpowersSkills(skills)).toMatchObject({ status: "fallback" });
+  });
+
+  it("rejects a project shadow beside validated runtime-discovered skills", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    const skills = asRuntimeDiscoveredSkills(fixture);
+    const stockTdd = skills.find((skill) => skill.name === "test-driven-development");
+    if (!stockTdd) throw new Error("fixture is missing test-driven-development");
+    const shadow: Skill = {
+      ...stockTdd,
+      filePath: "/tmp/project/test-driven-development/SKILL.md",
+      sourceInfo: {
+        path: "/tmp/project/test-driven-development/SKILL.md",
+        source: "/tmp/project",
+        scope: "project",
+        origin: "top-level",
+        baseDir: "/tmp/project",
+      },
+    };
+
+    expect(captureSuperpowersSkills([...skills, shadow])).toMatchObject({
+      status: "fallback",
+      reason: "shadowed",
     });
   });
 

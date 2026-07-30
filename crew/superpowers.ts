@@ -97,7 +97,13 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
         )),
     );
     const localSkills = skills.filter((skill) => localSources.includes(skill.sourceInfo.source));
-    const candidateSkills = [...officialSkills, ...localSkills];
+    const runtimeSkills = skills.filter(
+      (skill) => skill.sourceInfo.source === "extension:superpowers"
+        && skill.sourceInfo.scope === "temporary"
+        && skill.sourceInfo.origin === "top-level"
+        && STOCK_NAMES.some((name) => name === skill.name),
+    );
+    const candidateSkills = [...officialSkills, ...localSkills, ...runtimeSkills];
 
     if (candidateSkills.length === 0) {
       if (skills.some((skill) => STOCK_NAMES.some((name) => name === skill.name))) {
@@ -113,7 +119,8 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
 
     const hasProjectShadow = skills.some(
       (skill) => REQUIRED_NAMES.some((name) => name === skill.name)
-        && (skill.sourceInfo.origin === "top-level" || skill.sourceInfo.scope === "project"),
+        && (skill.sourceInfo.origin === "top-level" || skill.sourceInfo.scope === "project")
+        && !runtimeSkills.includes(skill),
     );
     if (hasProjectShadow) {
       return fallback(
@@ -125,7 +132,8 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
 
     if (candidateSkills.some(
       (skill) => REQUIRED_NAMES.some((name) => name === skill.name)
-        && skill.sourceInfo.origin !== "package",
+        && skill.sourceInfo.origin !== "package"
+        && !runtimeSkills.includes(skill),
     )) {
       return fallback("invalid Superpowers skill provenance");
     }
@@ -136,6 +144,30 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
       if (!baseDir) {
         return fallback("unable to validate official Superpowers package source");
       }
+
+      if (runtimeSkills.includes(skill)) {
+        const extensionDir = fs.realpathSync(baseDir);
+        const candidateRoot = fs.realpathSync(path.resolve(extensionDir, "../.."));
+        const expectedExtensionDir = fs.realpathSync(
+          path.join(candidateRoot, ".pi", "extensions"),
+        );
+        const expectedSkillPath = path.join(
+          candidateRoot,
+          "skills",
+          skill.name,
+          "SKILL.md",
+        );
+        if (
+          extensionDir !== expectedExtensionDir
+          || fs.realpathSync(skill.filePath) !== expectedSkillPath
+          || fs.realpathSync(skill.sourceInfo.path) !== expectedSkillPath
+        ) {
+          return fallback("invalid runtime-discovered Superpowers provenance");
+        }
+        if (!candidateRoots.includes(candidateRoot)) candidateRoots.push(candidateRoot);
+        continue;
+      }
+
       const candidateRoot = fs.realpathSync(baseDir);
       if (!candidateRoots.includes(candidateRoot)) candidateRoots.push(candidateRoot);
     }
@@ -150,7 +182,7 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
       );
     }
 
-    const localSource = officialSkills.length === 0 ? localSources[0] : undefined;
+    const requiresGitOriginVerification = officialSkills.length === 0;
     const packageRoot = candidateRoots[0];
     if (packageRoot === undefined) {
       return fallback("unable to validate official Superpowers package source");
@@ -192,7 +224,13 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
 
       const expectedPath = path.join(packageRoot, "skills", name, "SKILL.md");
       const canonicalPath = fs.realpathSync(skill.filePath);
-      if (canonicalPath !== expectedPath || fs.realpathSync(skillBaseDir) !== packageRoot) {
+      const expectedBaseDir = runtimeSkills.includes(skill)
+        ? path.join(packageRoot, ".pi", "extensions")
+        : packageRoot;
+      if (
+        canonicalPath !== expectedPath
+        || fs.realpathSync(skillBaseDir) !== fs.realpathSync(expectedBaseDir)
+      ) {
         return fallback(`invalid canonical path for Superpowers skill: ${name}`, version);
       }
       fs.accessSync(canonicalPath, fs.constants.R_OK);
@@ -203,7 +241,7 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
       };
     }
 
-    if (localSource !== undefined) {
+    if (requiresGitOriginVerification) {
       let origin: string;
       try {
         origin = execFileSync(
