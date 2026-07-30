@@ -225,6 +225,8 @@ describe("Superpowers integration MVP acceptance contract", () => {
 
     expect(config.review.enabled).toBe(true);
     expect(config.artifacts.enabled).toBe(true);
+    expect(config.models.worker).toBe("openai-codex/gpt-5.6-terra");
+    expect(config.models.reviewer).toBe("openai-codex/gpt-5.6-sol");
     expect(config.concurrency.workers).toBe(1);
     expect(config.concurrency.max).toBe(1);
     expect(plan.task_count).toBe(1);

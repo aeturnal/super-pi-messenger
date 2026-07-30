@@ -61,9 +61,12 @@ None of these commands makes a network or model call during tests. `npm test` mu
 
 ## Superpowers integration MVP acceptance
 
-This is a human-supervised acceptance flow. From the repository root, reset the
-fixture, launch Pi from the generated worktree, invoke the two tool calls in Pi,
-and then return to the repository root to run deterministic verification:
+This is a human-supervised acceptance flow. The fixture pins worker model
+`openai-codex/gpt-5.6-terra` and reviewer model `openai-codex/gpt-5.6-sol`;
+confirm both are available and authenticated before resetting. From the
+repository root, reset the fixture, launch Pi from the generated worktree,
+invoke the two tool calls in Pi, and then return to the repository root to run
+deterministic verification:
 
 ```bash
 node evals/scripts/reset-integration-mvp.mjs
