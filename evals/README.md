@@ -43,7 +43,7 @@ node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH
 
 Preparation does not launch a model. It only validates and prints a safely quoted launch command. The printed Pi command begins provider usage, so it is executed only by the human operator after the checkpoint. Do not continue past that checkpoint until the operator separately confirms that the supervised run ended.
 
-The reset command creates a marked Git worktree and manifest. The verifier runs explicit fixture tests and records deterministic test or integrity outcomes. A blocked, quota-limited, interrupted, or failed run is recorded accurately; missing facts are `not observable`.
+The reset command creates a marked Git worktree and manifest. The verifier covers repository integrity, committed implementation, final tests, task state, required tool calls, and forbidden calls only. It does not infer tests-first chronology or assess the quality of the reviewer's natural-language verdict. Before cleanup, the human operator inspects the raw worker and reviewer traces and records a separate judgment for each of those two supervised checks. Overall `PASSED` requires the deterministic verifier to pass and both supervised judgments to pass. A blocked, quota-limited, interrupted, or failed run is recorded accurately; missing facts are `not observable`.
 
 ## Evidence and results
 
@@ -113,8 +113,12 @@ In Pi, authenticate through its normal interactive flow if needed, then run
 Never copy credentials or settings from the normal agent directory, and never
 place credentials in the repository. Until cleanup succeeds, treat the isolated
 directory as credential-bearing. Require silent inactive status, no warning,
-native Crew completion, and unchanged project override behavior. Do not expect
-the deterministic verifier to pass inactive-trace methodology checks.
+and native Crew completion. The live fixture demonstrates access to the unrelated
+`project-style` skill; it does not define a project Crew agent override, so the
+inactive live run does not directly observe override preservation. Deterministic
+`tests/crew/superpowers-launch.test.ts` active, inactive, and fallback regressions
+evidence preservation of project agent overrides. Do not expect the deterministic
+verifier to pass inactive-trace methodology checks.
 
 The reset and verification scripts never launch Pi or a model. Raw traces stay
 ignored under `evals/runs/`; do not commit them. Record only reviewed, sanitized

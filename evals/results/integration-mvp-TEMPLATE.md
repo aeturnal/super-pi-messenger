@@ -4,7 +4,8 @@
 
 Use `not observable` for unavailable facts. Include only evidence that was
 reviewed and sanitized. Silent inactive acceptance requires an inactive result
-with no warning.
+with no warning. Overall `PASSED` requires the deterministic verifier and both
+human raw-trace judgments below to pass.
 
 ## Run identity
 
@@ -21,13 +22,13 @@ with no warning.
 | Check | Outcome and evidence |
 | --- | --- |
 | Active status and selected paths | <active; detected version; exact worker and reviewer methodology paths> |
-| Active task and deterministic tests | <pass/fail/not run; details> |
-| Forbidden calls | <none/details/not observable> |
-| Project skill and override behavior | <pass/fail/not run; details> |
-| Reviewer outcome | <pass/fail/not run; details> |
+| Deterministic verifier | <pass/fail/not run; repository integrity, committed implementation, final tests, task state, required tool calls, and forbidden calls evidence> |
+| Tests-first ordering (human raw-trace review) | <pass/fail/not observable; evidence> |
+| Reviewer natural-language verdict quality (human raw-trace review) | <pass/fail/not observable; evidence> |
+| Unrelated fixture `project-style` skill access | <pass/fail/not observable; details> |
+| Project Crew agent override preservation regressions | <pass/fail/not run; `tests/crew/superpowers-launch.test.ts` active/inactive/fallback evidence> |
 | Silent inactive acceptance status | <inactive result; warning absent/present> |
 | Native Crew task and tests | <pass/fail/not run; details> |
-| Inactive project override behavior | <unchanged/changed/not observable; details> |
 
 ## Supervision and evidence
 
