@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -95,6 +96,16 @@ describe("lobby workers", () => {
       expect.stringContaining("__lobby-"),
       expect.objectContaining({ agent: "crew-worker" }),
     );
+  });
+
+  it("keeps declared extension tools in the lobby allowed-tools list", () => {
+    lobby.spawnLobbyWorker("/test/cwd");
+
+    const args = vi.mocked(spawn).mock.calls.at(-1)?.[1] as string[];
+    const toolsFlagIndex = args.indexOf("--tools");
+
+    expect(toolsFlagIndex).toBeGreaterThan(-1);
+    expect(args[toolsFlagIndex + 1]).toBe("read,write,edit,bash,pi_messenger");
   });
 
   it("returns null if no crew-worker agent is discovered", async () => {
