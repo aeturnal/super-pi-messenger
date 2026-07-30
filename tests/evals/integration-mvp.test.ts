@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -41,7 +43,13 @@ const resetMarker = {
 function createResetRepository() {
   const repositoryRoot = mkdtempSync(join(tmpdir(), "integration-mvp-reset-"));
   const runRoot = join(repositoryRoot, "evals", "runs", "integration-mvp");
+  const seed = fileURLToPath(
+    new URL("../../evals/fixtures/integration-mvp/seed", import.meta.url),
+  );
   mkdirSync(runRoot, { recursive: true });
+  cpSync(seed, join(repositoryRoot, "evals", "fixtures", "integration-mvp", "seed"), {
+    recursive: true,
+  });
   resetRoots.push(repositoryRoot);
   return { repositoryRoot, runRoot };
 }
@@ -174,6 +182,96 @@ describe("Superpowers integration MVP acceptance contract", () => {
   });
 });
 
+describe("integration run reset", () => {
+  it("creates integration run from the fixed seed and commits it on main", () => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = join(runRoot, "worktree");
+
+    const result = resetIntegrationMvp({
+      repositoryRoot,
+      destination,
+      now: new Date("2026-07-29T00:00:00.000Z"),
+    });
+    const git = (...args: string[]) =>
+      spawnSync("git", args, { cwd: destination, encoding: "utf8" }).stdout.trim();
+
+    expect(readFileSync(join(destination, "PRD.md"), "utf8")).toBe(
+      read("evals/fixtures/integration-mvp/seed/PRD.md"),
+    );
+    expect(git("branch", "--show-current")).toBe("main");
+    expect(result).toMatchObject({ worktree: destination, seedCommit: git("rev-parse", "HEAD") });
+    expect(git("rev-list", "--count", "HEAD")).toBe("1");
+  });
+
+  it("writes the exact marker and manifest after the seed commit", () => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const destination = join(runRoot, "worktree");
+    const result = resetIntegrationMvp({
+      repositoryRoot,
+      destination,
+      now: new Date("2026-07-29T00:00:00.000Z"),
+    });
+    const markerPath = join(destination, ".git", "pi-super-messenger-eval-marker.json");
+
+    expect(JSON.parse(readFileSync(markerPath, "utf8"))).toEqual(resetMarker);
+    expect(result.manifestPath).toBe(
+      join(destination, ".git", "pi-super-messenger-eval-run.json"),
+    );
+    expect(JSON.parse(readFileSync(result.manifestPath, "utf8"))).toEqual({
+      schemaVersion: 1,
+      fixture: "integration-mvp",
+      seedCommit: result.seedCommit,
+      testHashes: {
+        "test/clamp.test.mjs":
+          "0c7c497d969092efb23508bfd0fe8b6e2b84346f1c758be02ba1ee66112d4b05",
+      },
+      createdAt: "2026-07-29T00:00:00.000Z",
+      result: { status: "not-run", verifier: null, supervised: null },
+    });
+  });
+
+  it("provides a bounded CLI without launching Pi or a model", () => {
+    const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
+    const runRoot = join(repositoryRoot, "evals", "runs", "integration-mvp");
+    mkdirSync(runRoot, { recursive: true });
+    const cliRoot = mkdtempSync(join(runRoot, "cli-test-"));
+    const destination = join(cliRoot, "worktree");
+    const bin = join(cliRoot, "bin");
+    const piCalls = join(cliRoot, "pi-calls.txt");
+    const script = fileURLToPath(
+      new URL("../../evals/scripts/reset-integration-mvp.mjs", import.meta.url),
+    );
+    mkdirSync(bin);
+    writeFileSync(join(bin, "pi"), `#!/bin/sh\necho called >> "${piCalls}"\n`);
+    chmodSync(join(bin, "pi"), 0o755);
+    resetRoots.push(cliRoot);
+
+    const environment = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+    const created = spawnSync(process.execPath, [script, destination], {
+      cwd: repositoryRoot,
+      env: environment,
+      encoding: "utf8",
+    });
+    const rejected = spawnSync(
+      process.execPath,
+      [script, join(cliRoot, "first"), join(cliRoot, "second")],
+      { cwd: repositoryRoot, env: environment, encoding: "utf8" },
+    );
+
+    expect(created.status).toBe(0);
+    expect(JSON.parse(created.stdout)).toMatchObject({
+      worktree: destination,
+      manifestPath: join(destination, ".git", "pi-super-messenger-eval-run.json"),
+    });
+    expect(existsSync(piCalls)).toBe(false);
+    expect(rejected.status).toBe(1);
+    expect(rejected.stdout).toBe("");
+    expect(rejected.stderr).toContain("Usage: reset-integration-mvp.mjs [destination]");
+    expect(existsSync(join(cliRoot, "first"))).toBe(false);
+    expect(existsSync(join(cliRoot, "second"))).toBe(false);
+  });
+});
+
 describe("reset destination guards", () => {
   it.each([
     ["the run root itself", (repositoryRoot: string, runRoot: string) => runRoot],
@@ -263,26 +361,29 @@ describe("reset destination guards", () => {
     expect(readFileSync(markerPath, "utf8")).toBe(markerText);
   });
 
-  it("stops at the creation seam for a safe missing destination", () => {
+  it("creates a safe missing destination", () => {
     const { repositoryRoot, runRoot } = createResetRepository();
     const destination = join(runRoot, "worktree");
 
-    expect(invokeReset(repositoryRoot, destination)).toThrow(/creation is not implemented in Task 16/);
-    expect(existsSync(destination)).toBe(false);
+    const result = resetIntegrationMvp({ repositoryRoot, destination });
+
+    expect(result.worktree).toBe(destination);
+    expect(existsSync(join(destination, ".git", "pi-super-messenger-eval-marker.json"))).toBe(true);
   });
 
-  it("stops at the creation seam without mutating a correctly marked destination", () => {
+  it("replaces a correctly marked destination", () => {
     const { repositoryRoot, runRoot } = createResetRepository();
     const destination = join(runRoot, "worktree");
     const markerPath = join(destination, ".git", "pi-super-messenger-eval-marker.json");
-    const markerText = `${JSON.stringify(resetMarker, null, 2)}\n`;
     const sentinel = join(destination, "sentinel.txt");
     mkdirSync(join(destination, ".git"), { recursive: true });
-    writeFileSync(markerPath, markerText);
-    writeFileSync(sentinel, "preserve marked directory\n");
+    writeFileSync(markerPath, `${JSON.stringify(resetMarker, null, 2)}\n`);
+    writeFileSync(sentinel, "replace marked directory\n");
 
-    expect(invokeReset(repositoryRoot, destination)).toThrow(/creation is not implemented in Task 16/);
-    expect(readFileSync(markerPath, "utf8")).toBe(markerText);
-    expect(readFileSync(sentinel, "utf8")).toBe("preserve marked directory\n");
+    const result = resetIntegrationMvp({ repositoryRoot, destination });
+
+    expect(result.worktree).toBe(destination);
+    expect(existsSync(sentinel)).toBe(false);
+    expect(JSON.parse(readFileSync(markerPath, "utf8"))).toEqual(resetMarker);
   });
 });
