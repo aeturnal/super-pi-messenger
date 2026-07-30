@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sha256File } from "./lib.mjs";
 
@@ -13,9 +13,71 @@ const STOCK_TDD_SUFFIX =
 const STOCK_VERIFICATION_SUFFIX =
   "/superpowers/skills/verification-before-completion/SKILL.md";
 const PROJECT_STYLE_SUFFIX = "/.pi/skills/project-style/SKILL.md";
-const NESTED_PI_COMMAND = /(?:^|[;&|])\s*pi(?=\s|$)/m;
-const WORKTREE_MUTATION =
-  /(?:^|[;&|])\s*git\s+worktree\s+(?:add|move|remove)(?=\s|$)/m;
+const SIMPLE_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
+
+function commandSegments(command) {
+  const segments = [];
+  let start = 0;
+  let quote;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (character === "'" || character === '"') {
+      quote = quote === character ? undefined : quote ?? character;
+      continue;
+    }
+    if (quote) continue;
+
+    const pair = command.slice(index, index + 2);
+    if (character === "\n" || character === ";" || character === "|" || pair === "&&") {
+      const segment = command.slice(start, index).trim();
+      if (segment) segments.push(segment);
+      index += pair === "&&" || pair === "||" ? 1 : 0;
+      start = index + 1;
+    }
+  }
+
+  const segment = command.slice(start).trim();
+  if (segment) segments.push(segment);
+  return segments;
+}
+
+function executableWords(segment) {
+  const words = segment.split(/\s+/);
+  let index = 0;
+  let hasPrefix = false;
+
+  while (index < words.length) {
+    if (SIMPLE_ASSIGNMENT.test(words[index]) || (hasPrefix && words[index].startsWith("-"))) {
+      index += 1;
+      continue;
+    }
+    if (words[index] === "command" || words[index] === "env") {
+      hasPrefix = true;
+      index += 1;
+      continue;
+    }
+    break;
+  }
+
+  return words.slice(index);
+}
+
+function forbiddenCommands(command) {
+  return commandSegments(command).map(executableWords);
+}
+
+function isPiInvocation(words) {
+  return basename(words[0] ?? "") === "pi";
+}
+
+function isWorktreeMutation(words) {
+  return (
+    basename(words[0] ?? "") === "git" &&
+    words[1] === "worktree" &&
+    ["add", "move", "remove"].includes(words[2])
+  );
+}
 
 function readJson(path, description) {
   try {
@@ -82,10 +144,11 @@ function rejectForbiddenCalls(events, role) {
       toolName === "bash" &&
       typeof event.args?.command === "string"
     ) {
-      if (NESTED_PI_COMMAND.test(event.args.command)) {
+      const commands = forbiddenCommands(event.args.command);
+      if (commands.some(isPiInvocation)) {
         throw new Error(`Forbidden ${role} trace evidence: nested Pi bash command`);
       }
-      if (WORKTREE_MUTATION.test(event.args.command)) {
+      if (commands.some(isWorktreeMutation)) {
         throw new Error(`Forbidden ${role} trace evidence: Git worktree mutation`);
       }
     }

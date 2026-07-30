@@ -636,6 +636,8 @@ describe("integration MVP verifier", () => {
     ["worker", "  pi --no-session"],
     ["worker", "cd /tmp && pi -p nested"],
     ["reviewer", "printf ready | pi"],
+    ["worker", "command pi --no-session"],
+    ["reviewer", "env X=1 /usr/bin/pi -p nested"],
   ])("rejects nested Pi in %s bash command segments", (role, command) => {
     const run = createCompletedIntegrationRun();
     const trace = role === "worker" ? run.workerTrace : run.reviewerTrace;
@@ -650,16 +652,12 @@ describe("integration MVP verifier", () => {
   });
 
   it.each([
-    ["worker", "add"],
-    ["reviewer", "move"],
-    ["worker", "remove"],
-  ])("rejects %s git worktree %s bash mutation", (role, mutation) => {
+    ["worker", "add", "command -p /usr/bin/git worktree add target"],
+    ["reviewer", "move", "env -i X=1 ./git worktree move target"],
+    ["worker", "remove", "cd /tmp; X=1 command ../bin/git worktree remove target"],
+  ])("rejects %s prefixed/path git worktree %s bash mutation", (role, mutation, command) => {
     const run = createCompletedIntegrationRun();
     const trace = role === "worker" ? run.workerTrace : run.reviewerTrace;
-    const command =
-      mutation === "add"
-        ? `  git worktree ${mutation} target`
-        : `cd /tmp; git worktree ${mutation} target`;
     writeFileSync(
       trace,
       `${readFileSync(trace, "utf8")}${JSON.stringify(toolStart("bash", { command }))}\n`,
@@ -680,6 +678,8 @@ describe("integration MVP verifier", () => {
         toolStart("read", { path: "subagent_notes.md" }),
         toolStart("Bash", { command: "pi" }),
         toolStart("bash", { command: "echo pi; git worktree list" }),
+        toolStart("bash", { command: "printf '%s\\n' 'note; pi --no-session'" }),
+        toolStart("bash", { command: 'echo "git worktree add target"' }),
         toolStart("bash", { command: 42 }),
         { type: "tool_execution_end", toolName: "subagent" },
       ].map((event) => JSON.stringify(event)).join("\n")}\n`,
