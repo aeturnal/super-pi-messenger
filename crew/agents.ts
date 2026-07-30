@@ -39,7 +39,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const EXTENSION_DIR = path.resolve(__dirname, "..");
 const SUPERPOWERS_GUARD_PATH = path.join(__dirname, "superpowers-guard.ts");
-const BUILTIN_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 
 export interface SpawnOptions {
   onProgress?: (results: AgentResult[]) => void;
@@ -219,18 +218,18 @@ async function runAgent(
     }
 
     if (agentConfig?.tools?.length) {
-      const builtinTools: string[] = [];
+      const allowedTools: string[] = [];
       const extensionPaths: string[] = [];
       for (const tool of agentConfig.tools) {
         if (tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js")) {
           extensionPaths.push(tool);
-        } else if (BUILTIN_TOOLS.has(tool)) {
-          builtinTools.push(tool);
+        } else {
+          allowedTools.push(tool);
         }
       }
 
-      if (builtinTools.length > 0) {
-        args.push("--tools", builtinTools.join(","));
+      if (allowedTools.length > 0) {
+        args.push("--tools", allowedTools.join(","));
       }
       for (const extensionPath of extensionPaths) {
         args.push("--extension", extensionPath);

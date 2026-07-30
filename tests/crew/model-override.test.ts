@@ -36,13 +36,14 @@ function createMockProcess(exitCode: number): MockProcess {
   return proc;
 }
 
-function writeWorkerAgent(cwd: string, model?: string): void {
+function writeWorkerAgent(cwd: string, model?: string, tools?: string[]): void {
   const modelLine = model ? `model: ${model}\n` : "";
+  const toolsLine = tools ? `tools: ${tools.join(", ")}\n` : "";
   const content = `---
 name: crew-worker
 description: Test worker
 crewRole: worker
-${modelLine}---
+${modelLine}${toolsLine}---
 You are a test worker.
 `;
 
@@ -93,6 +94,22 @@ describe("crew/model override", () => {
 
     expect(modelFlagIndex).toBeGreaterThan(-1);
     expect(args[modelFlagIndex + 1]).toBe("wave-override-model");
+  });
+
+  it("spawnAgents keeps declared extension tools in the allowed-tools list", async () => {
+    writeWorkerAgent(dirs.cwd, undefined, ["read", "write", "edit", "bash", "pi_messenger"]);
+
+    await spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    const toolsFlagIndex = args.indexOf("--tools");
+
+    expect(toolsFlagIndex).toBeGreaterThan(-1);
+    expect(args[toolsFlagIndex + 1]).toBe("read,write,edit,bash,pi_messenger");
   });
 
   it("spawnAgents falls back to agent model when no override is provided", async () => {
