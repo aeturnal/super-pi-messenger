@@ -11,18 +11,29 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { Type, type TUnsafe } from "typebox";
+import { Type, type TSchema } from "typebox";
 
 function StringEnum<T extends readonly string[]>(
   values: T,
   options?: { description?: string; default?: T[number] },
-): TUnsafe<T[number]> {
-  return Type.Unsafe<T[number]>({
-    type: "string",
-    enum: [...values],
-    ...(options?.description && { description: options.description }),
-    ...(options?.default && { default: options.default }),
-  });
+): TSchema {
+  const unsafe = (Type as unknown as {
+    Unsafe?: (schema: Record<string, unknown>) => TSchema;
+  }).Unsafe;
+
+  if (typeof unsafe === "function") {
+    return unsafe({
+      type: "string",
+      enum: [...values],
+      ...(options?.description && { description: options.description }),
+      ...(options?.default && { default: options.default }),
+    });
+  }
+
+  return Type.Union(
+    values.map((value) => Type.Literal(value)),
+    options,
+  );
 }
 import {
   type MessengerState,

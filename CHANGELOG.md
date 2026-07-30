@@ -14,6 +14,8 @@
 - Excluded the orchestrator-only `pi-messenger-crew` skill from worker prompts to avoid irrelevant skill loading during Crew task execution.
 - Fixed auto-opened Crew overlays after planning to use the live session cwd.
 - Restored `.js` extension path handling in Crew worker and lobby tool configuration.
+- Made enum schemas load under typebox compatibility shims that do not expose `Type.Unsafe`, fixing #23. Thanks to David Moshal (`davidmoshal`) for #24.
+- Enforced `crew.concurrency.max` in overlay-driven worker spawning paths. Thanks to Martin Hátaš (`MartinHatas`) for #17.
 
 ### Changed
 - Aligned Team built-in roles and sample profiles with the packaged `pi-subagents` role vocabulary while keeping Crew as the execution engine.

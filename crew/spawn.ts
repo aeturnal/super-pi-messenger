@@ -32,6 +32,7 @@ export function spawnWorkersForReadyTasks(
 
   const crewDir = store.getCrewDir(cwd);
   const config = loadCrewConfig(crewDir);
+  const workerCap = Math.min(maxWorkers, config.concurrency.max);
   const prdLabel = store.getPlanLabel(plan);
   const inboxDir = join(cwd, ".pi", "messenger", "inbox");
   const skills = discoverCrewSkills(cwd);
@@ -41,7 +42,7 @@ export function spawnWorkersForReadyTasks(
 
   const lobby = getAvailableLobbyWorkers(cwd);
   for (const lw of lobby) {
-    if (assigned >= maxWorkers) break;
+    if (assigned >= workerCap) break;
     const fresh = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
     if (fresh.length === 0) break;
 
@@ -68,7 +69,7 @@ export function spawnWorkersForReadyTasks(
     assigned++;
   }
 
-  while (assigned < maxWorkers) {
+  while (assigned < workerCap) {
     const fresh = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
     if (fresh.length === 0) break;
 
