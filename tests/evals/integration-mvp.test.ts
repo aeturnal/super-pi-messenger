@@ -551,6 +551,17 @@ describe("integration MVP verifier", () => {
     expect(verifyIntegrationMvp(run).status).toBe("passed");
   });
 
+  it("required evidence accepts a project skill read relative to the worktree", () => {
+    const run = createCompletedIntegrationRun();
+    const events = requiredTraceEvents();
+    events.worker[2] = toolStart("read", {
+      path: ".pi/skills/project-style/SKILL.md",
+    });
+    writeTrace(run.workerTrace, events.worker);
+
+    expect(verifyIntegrationMvp(run).status).toBe("passed");
+  });
+
   it.each([
     ["worker stock TDD read", "worker", 0, "stock test-driven-development read"],
     ["worker stock verification read", "worker", 1, "stock verification-before-completion read"],

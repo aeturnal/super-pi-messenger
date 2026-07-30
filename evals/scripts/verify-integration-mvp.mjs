@@ -166,13 +166,17 @@ function readCrewTrace(artifactsDirectory, role) {
 }
 
 function hasReadEndingIn(events, suffix) {
-  return events.some(
-    (event) =>
-      event?.type === "tool_execution_start" &&
-      event.toolName === "read" &&
-      typeof event.args?.path === "string" &&
-      event.args.path.replaceAll("\\", "/").endsWith(suffix),
-  );
+  const relativePath = suffix.startsWith("/") ? suffix.slice(1) : suffix;
+  return events.some((event) => {
+    if (
+      event?.type !== "tool_execution_start" ||
+      event.toolName !== "read" ||
+      typeof event.args?.path !== "string"
+    ) return false;
+
+    const normalizedPath = event.args.path.replaceAll("\\", "/");
+    return normalizedPath === relativePath || normalizedPath.endsWith(suffix);
+  });
 }
 
 function rejectForbiddenCalls(events, role) {
