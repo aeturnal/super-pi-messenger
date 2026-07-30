@@ -69,7 +69,7 @@ and then return to the repository root to run deterministic verification:
 node evals/scripts/reset-integration-mvp.mjs
 cd evals/runs/integration-mvp/worktree
 pi -e /absolute/path/to/super-pi-messenger
-# In Pi: run pi_messenger({ action: "status" }), then pi_messenger({ action: "work" }).
+# In Pi: run pi_messenger({ action: "crew.status" }), then pi_messenger({ action: "work" }).
 cd /absolute/path/to/super-pi-messenger
 node evals/scripts/verify-integration-mvp.mjs evals/runs/integration-mvp/worktree
 ```
@@ -111,7 +111,7 @@ exit "$pi_status"
 ```
 
 In Pi, authenticate through its normal interactive flow if needed, then run
-`pi_messenger({ action: "status" })` and `pi_messenger({ action: "work" })`.
+`pi_messenger({ action: "crew.status" })` and `pi_messenger({ action: "work" })`.
 Never copy credentials or settings from the normal agent directory, and never
 place credentials in the repository. Until cleanup succeeds, treat the isolated
 directory as credential-bearing. Require silent inactive status, no warning,
