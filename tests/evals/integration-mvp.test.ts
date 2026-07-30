@@ -450,6 +450,38 @@ describe("integration MVP verifier", () => {
     );
   });
 
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["empty", {}],
+    ["non-object", []],
+    ["malformed", { "test/clamp.test.mjs": "0".repeat(63) }],
+    ["uppercase", { "test/clamp.test.mjs": "A".repeat(64) }],
+  ])("rejects %s immutable hashes", (_case, testHashes) => {
+    const run = createCompletedIntegrationRun();
+    const manifestPath = join(run.worktree, ".git", "pi-super-messenger-eval-run.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, testHashes })}\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow("Invalid immutable hashes/path");
+  });
+
+  it.each([
+    { "../clamp.test.mjs": "0".repeat(64) },
+    {
+      "test/clamp.test.mjs":
+        "0c7c497d969092efb23508bfd0fe8b6e2b84346f1c758be02ba1ee66112d4b05",
+      "../clamp.test.mjs": "0".repeat(64),
+    },
+  ])("rejects escaping replacement or extra immutable hash keys", (testHashes) => {
+    const run = createCompletedIntegrationRun();
+    const manifestPath = join(run.worktree, ".git", "pi-super-messenger-eval-run.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, testHashes })}\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow("Invalid immutable hashes/path");
+  });
+
   it("rejects a missing manifest-listed immutable test", () => {
     const run = createCompletedIntegrationRun();
     rmSync(join(run.worktree, "test", "clamp.test.mjs"));

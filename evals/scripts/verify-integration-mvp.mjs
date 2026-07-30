@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { sha256File } from "./lib.mjs";
 
 const FIXTURE = "integration-mvp";
 const MARKER_NAME = "pi-super-messenger-eval-marker.json";
 const MANIFEST_NAME = "pi-super-messenger-eval-run.json";
+const IMMUTABLE_TEST = "test/clamp.test.mjs";
 
 function readJson(path, description) {
   try {
@@ -35,14 +36,36 @@ export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree
     throw new Error("Invalid integration MVP manifest");
   }
 
-  for (const [testPath, expectedHash] of Object.entries(manifest.testHashes ?? {})) {
-    const absoluteTestPath = join(worktree, testPath);
-    if (!existsSync(absoluteTestPath)) {
-      throw new Error(`Missing immutable test file: ${testPath}`);
-    }
-    if (sha256File(absoluteTestPath) !== expectedHash) {
-      throw new Error(`Immutable test hash mismatch: ${testPath}`);
-    }
+  const testHashes = manifest.testHashes;
+  if (
+    !testHashes ||
+    typeof testHashes !== "object" ||
+    Array.isArray(testHashes) ||
+    Object.getPrototypeOf(testHashes) !== Object.prototype ||
+    Object.keys(testHashes).length !== 1 ||
+    !Object.hasOwn(testHashes, IMMUTABLE_TEST) ||
+    typeof testHashes[IMMUTABLE_TEST] !== "string" ||
+    !/^[a-f0-9]{64}$/.test(testHashes[IMMUTABLE_TEST])
+  ) {
+    throw new Error("Invalid immutable hashes/path");
+  }
+
+  const worktreeRoot = resolve(worktree);
+  const absoluteTestPath = resolve(worktreeRoot, IMMUTABLE_TEST);
+  const relativeTestPath = relative(worktreeRoot, absoluteTestPath);
+  if (
+    relativeTestPath === "" ||
+    relativeTestPath === ".." ||
+    relativeTestPath.startsWith(`..${sep}`) ||
+    isAbsolute(relativeTestPath)
+  ) {
+    throw new Error("Invalid immutable hashes/path");
+  }
+  if (!existsSync(absoluteTestPath)) {
+    throw new Error(`Missing immutable test file: ${IMMUTABLE_TEST}`);
+  }
+  if (sha256File(absoluteTestPath) !== testHashes[IMMUTABLE_TEST]) {
+    throw new Error(`Immutable test hash mismatch: ${IMMUTABLE_TEST}`);
   }
 
   const tests = spawnSync("npm", ["test"], { cwd: worktree, encoding: "utf8" });
