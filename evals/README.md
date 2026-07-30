@@ -58,3 +58,29 @@ Cleanup is deletion-only. Cleanup never retains or copies raw runtime evidence. 
 - `definitions/review-repair.md` fixes the future Phase 3 review, one scoped repair, and re-review lifecycle.
 
 None of these commands makes a network or model call during tests. `npm test` must remain deterministic and must not invoke Pi or models.
+
+## Superpowers integration MVP acceptance
+
+This is a human-supervised acceptance flow. From the repository root, reset the
+fixture, launch Pi from the generated worktree, invoke the two tool calls in Pi,
+and then return to the repository root to run deterministic verification:
+
+```bash
+node evals/scripts/reset-integration-mvp.mjs
+cd evals/runs/integration-mvp/worktree
+pi -e /absolute/path/to/super-pi-messenger
+# In Pi: run pi_messenger({ action: "status" }), then pi_messenger({ action: "work" }).
+cd /absolute/path/to/super-pi-messenger
+node evals/scripts/verify-integration-mvp.mjs evals/runs/integration-mvp/worktree
+```
+
+For inactive fallback acceptance, start from another fresh reset and launch Pi
+with Superpowers disabled in an isolated Pi agent directory. Require inactive
+status with no warning, native Crew completion, and unchanged project override
+behavior.
+
+The reset and verification scripts never launch Pi or a model. Raw traces stay
+ignored under `evals/runs/`; do not commit them. Record only reviewed, sanitized
+results in `evals/results/` using
+`results/integration-mvp-TEMPLATE.md`. Do not include credentials, provider
+secrets, or unsanitized transcripts.
