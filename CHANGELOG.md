@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Packaged automatic Crew authorization when the controlling Pi agent determines that official Superpowers v6 `subagent-driven-development` applies, while preserving Crew-only dispatch and child isolation.
+
 ### Fixed
 - Migrated extension tool schemas from `@sinclair/typebox` to `typebox` 1.x and updated the local test/tsconfig references to the new package entry.
 - Guarded status heartbeat updates against stale pi session contexts after reloads or session replacement while preserving non-stale errors.

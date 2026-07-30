@@ -7,6 +7,9 @@ import {
   resetSuperpowersStateForTests,
 } from "../../crew/superpowers.js";
 import { executeCrewAction } from "../../crew/index.js";
+import { SUPERPOWERS_OUTER_POLICY_MARKER } from "../../crew/superpowers-policy.js";
+import { SUPERPOWERS_CHILD_FLAG } from "../../crew/superpowers-guard.js";
+import { createStockSuperpowersFixture } from "../helpers/superpowers.js";
 
 vi.mock("../../crew/index.js", () => ({
   executeCrewAction: vi.fn(),
@@ -58,6 +61,7 @@ async function loadExtension() {
 
 describe("Superpowers extension lifecycle", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     resetSuperpowersStateForTests();
     vi.clearAllMocks();
     vi.mocked(executeCrewAction).mockReset();
@@ -161,12 +165,38 @@ describe("Superpowers extension lifecycle", () => {
     expect(getSuperpowersState()).toEqual({ status: "inactive" });
     expect(handlers).toHaveLength(1);
 
-    await handlers[0]?.({ systemPromptOptions: { skills: [candidate] } }, undefined);
+    await handlers[0]?.({
+      systemPrompt: "base prompt",
+      systemPromptOptions: { skills: [candidate] },
+    }, undefined);
 
     expect(getSuperpowersState()).toEqual({
       status: "fallback",
       reason: expect.stringContaining("official Superpowers provenance"),
       correctiveAction: "Install Superpowers from github.com/obra/superpowers.",
     });
+  });
+
+  it("injects packaged outer policy after validating the loaded catalog", async () => {
+    vi.stubEnv(SUPERPOWERS_CHILD_FLAG, "0");
+    const fixture = createStockSuperpowersFixture();
+
+    try {
+      const pi = await loadExtension();
+      const handlers = pi.handlers.get("before_agent_start") ?? [];
+
+      expect(handlers).toHaveLength(1);
+      const result = await handlers[0]?.({
+        systemPrompt: "base prompt",
+        systemPromptOptions: { skills: fixture.skills },
+      }, undefined);
+
+      expect(result).toEqual({
+        systemPrompt: expect.stringContaining(SUPERPOWERS_OUTER_POLICY_MARKER),
+      });
+      expect(getSuperpowersState()).toMatchObject({ status: "active", version: "6.2.0" });
+    } finally {
+      fixture.cleanup();
+    }
   });
 });

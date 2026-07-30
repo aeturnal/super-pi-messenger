@@ -67,6 +67,8 @@ import { getLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.js";
 import { shutdownAllWorkers } from "./crew/agents.js";
 import { shutdownLobbyWorkers } from "./crew/lobby.js";
 import { captureSuperpowersSkills, takeSuperpowersWarning } from "./crew/superpowers.js";
+import { applySuperpowersOuterPolicy } from "./crew/superpowers-policy.js";
+import { SUPERPOWERS_CHILD_FLAG } from "./crew/superpowers-guard.js";
 
 let overlayTui: TUI | null = null;
 let overlayHandle: OverlayHandle | null = null;
@@ -817,7 +819,14 @@ Usage (action-based API - preferred):
   // ===========================================================================
 
   pi.on("before_agent_start", (event) => {
-    captureSuperpowersSkills(event.systemPromptOptions.skills ?? []);
+    const superpowersState = captureSuperpowersSkills(event.systemPromptOptions.skills ?? []);
+    const systemPrompt = applySuperpowersOuterPolicy(
+      event.systemPrompt,
+      superpowersState,
+      process.env[SUPERPOWERS_CHILD_FLAG] === "1",
+    );
+
+    return systemPrompt === event.systemPrompt ? undefined : { systemPrompt };
   });
 
   pi.on("session_start", async (_event, ctx) => {
