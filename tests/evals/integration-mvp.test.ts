@@ -17,6 +17,7 @@ import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetIntegrationMvp } from "../../evals/scripts/reset-integration-mvp.mjs";
+import { verifyIntegrationMvp } from "../../evals/scripts/verify-integration-mvp.mjs";
 
 const read = (path: string) =>
   readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
@@ -61,6 +62,43 @@ function invokeReset(repositoryRoot: string, destination: string) {
       destination,
       now: () => new Date("2026-07-29T00:00:00.000Z"),
     });
+}
+
+function createCompletedIntegrationRun() {
+  const { repositoryRoot, runRoot } = createResetRepository();
+  const worktree = join(runRoot, "worktree");
+  resetIntegrationMvp({
+    repositoryRoot,
+    destination: worktree,
+    now: () => new Date("2026-07-29T00:00:00.000Z"),
+  });
+  writeFileSync(
+    join(worktree, "src", "clamp.mjs"),
+    `export function clamp(value, min, max) {\n  if (min > max) throw new RangeError("min must not exceed max");\n  return Math.min(max, Math.max(min, value));\n}\n`,
+  );
+  const taskPath = join(worktree, ".pi", "messenger", "crew", "tasks", "task-1.json");
+  const task = JSON.parse(readFileSync(taskPath, "utf8"));
+  writeFileSync(taskPath, `${JSON.stringify({ ...task, status: "done" }, null, 2)}\n`);
+  return { repositoryRoot, worktree };
+}
+
+function withGitWorktreeOutput(output: string, verify: () => void) {
+  const shimRoot = mkdtempSync(join(tmpdir(), "integration-mvp-git-shim-"));
+  const git = join(shimRoot, "git");
+  writeFileSync(
+    git,
+    `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(output)});\n`,
+  );
+  chmodSync(git, 0o755);
+  resetRoots.push(shimRoot);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${shimRoot}${delimiter}${originalPath ?? ""}`;
+  try {
+    verify();
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+  }
 }
 
 afterEach(() => {
@@ -380,6 +418,92 @@ describe("integration run reset", () => {
     expect(rejected.stderr).toContain("Usage: reset-integration-mvp.mjs [destination]");
     expect(existsSync(join(cliRoot, "first"))).toBe(false);
     expect(existsSync(join(cliRoot, "second"))).toBe(false);
+  });
+});
+
+describe("integration MVP verifier", () => {
+  it("accepts the exact integration marker and matching immutable test", () => {
+    const run = createCompletedIntegrationRun();
+
+    expect(verifyIntegrationMvp(run)).toEqual({
+      status: "passed",
+      workerTrace: "",
+      reviewerTrace: "",
+    });
+  });
+
+  it("rejects a marker with the wrong fixture identity", () => {
+    const run = createCompletedIntegrationRun();
+    const markerPath = join(run.worktree, ".git", "pi-super-messenger-eval-marker.json");
+    writeFileSync(markerPath, `${JSON.stringify({ ...resetMarker, fixture: "other" })}\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow("Invalid integration MVP marker");
+  });
+
+  it("rejects a changed manifest-listed immutable test", () => {
+    const run = createCompletedIntegrationRun();
+    const testPath = join(run.worktree, "test", "clamp.test.mjs");
+    writeFileSync(testPath, `${readFileSync(testPath, "utf8")}\n// changed\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Immutable test hash mismatch: test/clamp.test.mjs",
+    );
+  });
+
+  it("rejects a missing manifest-listed immutable test", () => {
+    const run = createCompletedIntegrationRun();
+    rmSync(join(run.worktree, "test", "clamp.test.mjs"));
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      "Missing immutable test file: test/clamp.test.mjs",
+    );
+  });
+
+  it("reports fixture tests that fail", () => {
+    const run = createCompletedIntegrationRun();
+    writeFileSync(
+      join(run.worktree, "src", "clamp.mjs"),
+      `export function clamp() { throw new Error("broken"); }\n`,
+    );
+
+    expect(() => verifyIntegrationMvp(run)).toThrow("Fixture tests failed");
+  });
+
+  it("requires the fixed task state to be done", () => {
+    const run = createCompletedIntegrationRun();
+    const taskPath = join(
+      run.worktree,
+      ".pi",
+      "messenger",
+      "crew",
+      "tasks",
+      "task-1.json",
+    );
+    const task = JSON.parse(readFileSync(taskPath, "utf8"));
+    writeFileSync(taskPath, `${JSON.stringify({ ...task, status: "todo" }, null, 2)}\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow("Task task-1 is not done: todo");
+  });
+
+  it("accepts exactly one worktree line", () => {
+    const run = createCompletedIntegrationRun();
+
+    withGitWorktreeOutput(
+      `worktree ${run.worktree}\nHEAD abc123\nbranch refs/heads/main\nnote worktree ignored\n`,
+      () => expect(verifyIntegrationMvp(run).status).toBe("passed"),
+    );
+  });
+
+  it("rejects more than one worktree line", () => {
+    const run = createCompletedIntegrationRun();
+
+    withGitWorktreeOutput(
+      `worktree ${run.worktree}\nHEAD abc123\n\nworktree /tmp/other\nHEAD def456\n`,
+      () =>
+        expect(() => verifyIntegrationMvp(run)).toThrow(
+          "Expected exactly one Git worktree, found 2",
+        ),
+    );
   });
 });
 
