@@ -205,7 +205,8 @@ describe("Superpowers integration MVP acceptance contract", () => {
       "above `max`",
       "`RangeError` when `min > max`",
       "tests first",
-      "existing automatic review",
+      "must not invoke `review`",
+      "Crew starts the single automatic review",
     ]) expect(prd).toContain(anchor);
   });
 

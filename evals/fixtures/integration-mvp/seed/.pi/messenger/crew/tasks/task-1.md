@@ -5,6 +5,7 @@
 - Implement only `clamp`.
 - Run fresh tests.
 - Commit the implementation.
-- Report completion through `pi_messenger`.
+- Report completion through `pi_messenger`, then exit.
+- Do not invoke `review`; Crew starts the single automatic review after `task.done` and worker exit.
 - Do not start nested agents.
 - Do not create, switch to, or manage nested worktrees.
