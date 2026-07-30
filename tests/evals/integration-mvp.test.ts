@@ -203,9 +203,9 @@ describe("integration run reset", () => {
     expect(git("rev-list", "--count", "HEAD")).toBe("1");
   });
 
-  it("creates the same seed commit with one injected timestamp despite hostile Git config", () => {
-    const first = createResetRepository();
-    const second = createResetRepository();
+  it("creates the same seed commit in clean and hostile inherited Git environments", () => {
+    const clean = createResetRepository();
+    const hostile = createResetRepository();
     const hostileRoot = mkdtempSync(join(tmpdir(), "integration-mvp-hostile-git-"));
     const hooks = join(hostileRoot, "hooks");
     const hookCalls = join(hostileRoot, "hook-calls.txt");
@@ -222,8 +222,7 @@ describe("integration run reset", () => {
     );
     resetRoots.push(hostileRoot);
 
-    const originalGlobalConfig = process.env.GIT_CONFIG_GLOBAL;
-    process.env.GIT_CONFIG_GLOBAL = globalConfig;
+    const originalEnvironment = { ...process.env };
     let nowCalls = 0;
     const now = () => {
       nowCalls += 1;
@@ -231,22 +230,33 @@ describe("integration run reset", () => {
     };
 
     try {
-      const firstResult = resetIntegrationMvp({
-        repositoryRoot: first.repositoryRoot,
-        destination: join(first.runRoot, "worktree"),
-        now,
-      });
-      const secondResult = resetIntegrationMvp({
-        repositoryRoot: second.repositoryRoot,
-        destination: join(second.runRoot, "worktree"),
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith("GIT_")) delete process.env[key];
+      }
+      const cleanResult = resetIntegrationMvp({
+        repositoryRoot: clean.repositoryRoot,
+        destination: join(clean.runRoot, "worktree"),
         now,
       });
       const dates = spawnSync("git", ["show", "-s", "--format=%aI%n%cI", "HEAD"], {
-        cwd: firstResult.worktree,
+        cwd: cleanResult.worktree,
         encoding: "utf8",
       }).stdout.trim().split("\n");
 
-      expect(firstResult.seedCommit).toBe(secondResult.seedCommit);
+      Object.assign(process.env, {
+        GIT_AUTHOR_NAME: "Hostile Author",
+        GIT_COMMITTER_EMAIL: "hostile@example.invalid",
+        GIT_CONFIG_GLOBAL: globalConfig,
+        GIT_DIR: join(hostileRoot, "redirected.git"),
+        GIT_INDEX_FILE: join(hostileRoot, "redirected.index"),
+        GIT_WORK_TREE: hostileRoot,
+      });
+      const hostileResult = resetIntegrationMvp({
+        repositoryRoot: hostile.repositoryRoot,
+        destination: join(hostile.runRoot, "worktree"),
+        now,
+      });
+      expect(hostileResult.seedCommit).toBe(cleanResult.seedCommit);
       expect(dates).toEqual([
         "2026-07-29T00:00:00Z",
         "2026-07-29T00:00:00Z",
@@ -254,9 +264,11 @@ describe("integration run reset", () => {
       expect(nowCalls).toBe(2);
       expect(existsSync(hookCalls)).toBe(false);
       expect(existsSync(signerCalls)).toBe(false);
+      expect(existsSync(join(hostileRoot, "redirected.git"))).toBe(false);
+      expect(existsSync(join(hostileRoot, "redirected.index"))).toBe(false);
     } finally {
-      if (originalGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL;
-      else process.env.GIT_CONFIG_GLOBAL = originalGlobalConfig;
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      Object.assign(process.env, originalEnvironment);
     }
   });
 

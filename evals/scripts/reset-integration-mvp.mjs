@@ -126,11 +126,15 @@ export function resetIntegrationMvp({
 
   const createdAt = (typeof now === "function" ? now() : now).toISOString();
   const gitDirectory = join(canonicalDestination, ".git");
-  const gitEnvironment = {
-    ...process.env,
+  const gitEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+  );
+  Object.assign(gitEnvironment, {
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: join(gitDirectory, "pi-super-messenger-no-global-config"),
-  };
+    GIT_AUTHOR_DATE: createdAt,
+    GIT_COMMITTER_DATE: createdAt,
+  });
   const gitOptions = { cwd: canonicalDestination, env: gitEnvironment };
 
   mkdirSync(dirname(canonicalDestination), { recursive: true });
@@ -151,14 +155,7 @@ export function resetIntegrationMvp({
       "-m",
       "eval: seed integration MVP fixture",
     ],
-    {
-      ...gitOptions,
-      env: {
-        ...gitEnvironment,
-        GIT_AUTHOR_DATE: createdAt,
-        GIT_COMMITTER_DATE: createdAt,
-      },
-    },
+    gitOptions,
   );
   const seedCommit = run("git", ["rev-parse", "HEAD"], gitOptions).stdout.trim();
 
