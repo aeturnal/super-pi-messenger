@@ -15,46 +15,89 @@ const STOCK_VERIFICATION_SUFFIX =
 const PROJECT_STYLE_SUFFIX = "/.pi/skills/project-style/SKILL.md";
 const SIMPLE_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
 
-function commandSegments(command) {
-  const segments = [];
-  let start = 0;
+function commandWords(command) {
+  const commands = [];
+  let words = [];
+  let word = "";
+  let hasWord = false;
   let quote;
+
+  const finishWord = () => {
+    if (!hasWord) return;
+    words.push(word);
+    word = "";
+    hasWord = false;
+  };
+  const finishCommand = () => {
+    finishWord();
+    if (words.length > 0) commands.push(words);
+    words = [];
+  };
 
   for (let index = 0; index < command.length; index += 1) {
     const character = command[index];
-    if (character === "'" || character === '"') {
-      quote = quote === character ? undefined : quote ?? character;
+    if (character === "\\") {
+      hasWord = true;
+      if (index + 1 < command.length) word += command[index += 1];
+      else word += character;
       continue;
     }
-    if (quote) continue;
-
-    const pair = command.slice(index, index + 2);
-    if (character === "\n" || character === ";" || character === "|" || pair === "&&") {
-      const segment = command.slice(start, index).trim();
-      if (segment) segments.push(segment);
-      index += pair === "&&" || pair === "||" ? 1 : 0;
-      start = index + 1;
+    if (quote) {
+      if (character === quote) quote = undefined;
+      else word += character;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      hasWord = true;
+    } else if (character === "\n" || character === ";" || character === "&" || character === "|") {
+      finishCommand();
+      if ((character === "&" || character === "|") && command[index + 1] === character) index += 1;
+    } else if (/\s/.test(character)) {
+      finishWord();
+    } else {
+      word += character;
+      hasWord = true;
     }
   }
 
-  const segment = command.slice(start).trim();
-  if (segment) segments.push(segment);
-  return segments;
+  finishCommand();
+  return commands;
 }
 
-function executableWords(segment) {
-  const words = segment.split(/\s+/);
+function executableWords(words) {
   let index = 0;
-  let hasPrefix = false;
+  while (SIMPLE_ASSIGNMENT.test(words[index] ?? "")) index += 1;
 
   while (index < words.length) {
-    if (SIMPLE_ASSIGNMENT.test(words[index]) || (hasPrefix && words[index].startsWith("-"))) {
+    if (words[index] === "command") {
       index += 1;
+      while (words[index]?.startsWith("-")) {
+        if (words[index] === "-v" || words[index] === "-V") return [];
+        const endOfOptions = words[index] === "--";
+        index += 1;
+        if (endOfOptions) break;
+      }
       continue;
     }
-    if (words[index] === "command" || words[index] === "env") {
-      hasPrefix = true;
+    if (words[index] === "env") {
       index += 1;
+      while (index < words.length) {
+        if (SIMPLE_ASSIGNMENT.test(words[index])) {
+          index += 1;
+        } else if (words[index] === "-u" || words[index] === "--unset") {
+          index += 2;
+        } else if (words[index].startsWith("--unset=")) {
+          index += 1;
+        } else if (words[index] === "--") {
+          index += 1;
+          break;
+        } else if (words[index].startsWith("-")) {
+          index += 1;
+        } else {
+          break;
+        }
+      }
       continue;
     }
     break;
@@ -64,7 +107,7 @@ function executableWords(segment) {
 }
 
 function forbiddenCommands(command) {
-  return commandSegments(command).map(executableWords);
+  return commandWords(command).map(executableWords);
 }
 
 function isPiInvocation(words) {

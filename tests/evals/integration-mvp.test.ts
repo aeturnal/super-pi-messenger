@@ -638,6 +638,9 @@ describe("integration MVP verifier", () => {
     ["reviewer", "printf ready | pi"],
     ["worker", "command pi --no-session"],
     ["reviewer", "env X=1 /usr/bin/pi -p nested"],
+    ["worker", '"/usr/bin/pi" --no-session'],
+    ["reviewer", "env -u X pi -p nested"],
+    ["worker", "true & pi"],
   ])("rejects nested Pi in %s bash command segments", (role, command) => {
     const run = createCompletedIntegrationRun();
     const trace = role === "worker" ? run.workerTrace : run.reviewerTrace;
@@ -680,6 +683,8 @@ describe("integration MVP verifier", () => {
         toolStart("bash", { command: "echo pi; git worktree list" }),
         toolStart("bash", { command: "printf '%s\\n' 'note; pi --no-session'" }),
         toolStart("bash", { command: 'echo "git worktree add target"' }),
+        toolStart("bash", { command: String.raw`echo "escaped quote: \"; pi; echo "` }),
+        toolStart("bash", { command: "command -v pi" }),
         toolStart("bash", { command: 42 }),
         { type: "tool_execution_end", toolName: "subagent" },
       ].map((event) => JSON.stringify(event)).join("\n")}\n`,
