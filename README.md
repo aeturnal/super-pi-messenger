@@ -302,6 +302,8 @@ Full config reference (all fields optional — only set what you want to change)
 | `work.maxWaves` | Max autonomous waves | `50` |
 | `work.shutdownGracePeriodMs` | Grace period before SIGTERM on abort | `30000` |
 | `work.env` | Environment variables passed to spawned workers | `{}` |
+| `artifacts.enabled` | Write compact Crew debug artifacts | `true` |
+| `artifacts.cleanupDays` | Retention setting for Crew artifacts | `7` |
 
 ### Default Agent Models
 

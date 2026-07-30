@@ -19,6 +19,8 @@
 - Prevented the legacy `npx pi-messenger` installer from creating a duplicate extension copy when the native `pi install npm:pi-messenger` package flow is already configured, fixing #22. Thanks to David Moshal (`davidmoshal`) for the report.
 - Crew planner, worker, reviewer, analyst, lobby, and revision agents now fall back to the host session model when no task, request, role, or config model override is set, fixing #20. Thanks to Velinus (`velinussage`) for the report.
 - Crew subprocess launches use `pi.cmd` on Windows and task reset paths now refuse active workers before making tasks startable again, addressing #11. Thanks to Logan Laughlin (`llaughlin`) for the report.
+- Compacted streaming `message_update` artifacts and stopped retaining every parsed event in memory, fixing the transcript amplification in #27. Thanks to Hugo Ruíz (`hugotown`) and `aeturnal` for the measurements.
+- Crew subprocesses now fail fast on terminal provider usage/quota/auth 4xx JSON events instead of waiting through retry loops, fixing #21. Thanks to Velinus (`velinussage`) for the report.
 
 ### Changed
 - Aligned Team built-in roles and sample profiles with the packaged `pi-subagents` role vocabulary while keeping Crew as the execution engine.

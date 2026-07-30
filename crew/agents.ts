@@ -16,7 +16,9 @@ import {
   createProgress,
   parseJsonlLine,
   updateProgress,
-  getFinalOutput,
+  getAssistantText,
+  compactEventForArtifact,
+  getTerminalProviderError,
   type PiEvent,
 } from "./utils/progress.ts";
 import {
@@ -146,7 +148,7 @@ export async function spawnAgents(
   // Setup artifacts directory if enabled
   const artifactsDir = path.join(crewDir, "artifacts");
   if (config.artifacts.enabled) {
-    ensureArtifactsDir(artifactsDir);
+    ensureArtifactsDir(artifactsDir, config.artifacts.cleanupDays);
   }
 
   const results: AgentResult[] = [];
@@ -286,7 +288,8 @@ async function runAgent(
     let discoveredWorkerName: string | null = null;
 
     let jsonlBuffer = "";
-    const events: PiEvent[] = [];
+    let fullOutput = "";
+    let terminalProviderError: string | null = null;
 
     proc.stdout?.on("data", (data) => {
       try {
@@ -297,11 +300,18 @@ async function runAgent(
         for (const line of lines) {
           const event = parseJsonlLine(line);
           if (event) {
-            events.push(event);
             updateProgress(progress, event, startTime);
+            const assistantText = getAssistantText(event);
+            if (assistantText) fullOutput = assistantText;
             if (artifactPaths) {
-              try { appendJsonl(artifactPaths.jsonlPath, line); }
+              try { appendJsonl(artifactPaths.jsonlPath, JSON.stringify(compactEventForArtifact(event))); }
               catch { artifactPaths = undefined; }
+            }
+            const providerError = getTerminalProviderError(event);
+            if (providerError && !terminalProviderError) {
+              terminalProviderError = providerError;
+              progress.error = providerError;
+              proc.kill("SIGTERM");
             }
             if (task.taskId) {
               updateLiveWorker(cwd, task.taskId, {
@@ -328,11 +338,12 @@ async function runAgent(
         removeLiveWorker(cwd, task.taskId);
         unregisterWorker(cwd, task.taskId);
       }
-      progress.status = code === 0 ? "completed" : "failed";
+      const exitCode = terminalProviderError ? 1 : code ?? 1;
+      progress.status = exitCode === 0 ? "completed" : "failed";
       progress.durationMs = Date.now() - startTime;
-      if (stderr && code !== 0) progress.error = stderr;
+      if (terminalProviderError) progress.error = terminalProviderError;
+      else if (stderr && exitCode !== 0) progress.error = stderr;
 
-      const fullOutput = getFinalOutput(events);
       const truncation = truncateOutput(fullOutput, maxOutput, artifactPaths?.outputPath);
 
       if (artifactPaths) {
@@ -342,7 +353,7 @@ async function runAgent(
             runId,
             agent: task.agent,
             index,
-            exitCode: code ?? 1,
+            exitCode,
             durationMs: progress.durationMs,
             tokens: progress.tokens,
             truncated: truncation.truncated,
@@ -357,7 +368,7 @@ async function runAgent(
 
       resolve({
         agent: task.agent,
-        exitCode: code ?? 1,
+        exitCode,
         output: truncation.text,
         truncated: truncation.truncated,
         progress,
