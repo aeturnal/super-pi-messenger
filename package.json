@@ -1,6 +1,6 @@
 {
   "name": "super-pi-messenger",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "Multi-agent orchestration for Pi, powered by independently installed Superpowers methodology",
   "type": "module",
   "author": "aeturnal",
