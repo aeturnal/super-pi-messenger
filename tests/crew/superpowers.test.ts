@@ -321,22 +321,27 @@ describe("Superpowers package validation", () => {
     expect(prepareSuperpowersLaunch("worker", "task-1")).toBeUndefined();
   });
 
-  it("renders compact guidance for only the selected skills and Crew-owned workflows", () => {
+  it("renders canonical starting-skill guidance under sole Crew authority", () => {
     const fixture = track(createStockSuperpowersFixture());
     captureSuperpowersSkills(fixture.skills);
     const worker = prepareSuperpowersLaunch("worker", "task-1");
     const reviewer = prepareSuperpowersLaunch("reviewer");
     if (!worker || !reviewer) throw new Error("active fixture did not prepare guidance");
 
+    const packageRoot = fs.realpathSync(fixture.root);
     const guidance = renderSuperpowersGuidance(worker);
-    expect(guidance).toContain("test-driven-development");
-    expect(guidance).toContain("verification-before-completion");
-    expect(guidance).toContain("Do not start nested agents or SDD controllers.");
-    expect(guidance).toContain("Do not start plan executors or branch-finishing workflows.");
-    expect(guidance).toContain(
-      "Do not create, switch to, or manage nested worktrees; use the checkout assigned by Crew.",
-    );
-    expect(guidance).toContain("Other relevant installed skills remain available");
+    expect(guidance).toBe([
+      "Pi-messenger Crew is the sole orchestrator and task authority.",
+      "Continue in the checkout assigned by Crew.",
+      "Before acting, read each selected starting skill from its resolved installed path:",
+      `- Skill: test-driven-development | Path: ${packageRoot}/skills/test-driven-development/SKILL.md | Reason: Apply RED-GREEN-REFACTOR to behavior changes.`,
+      `- Skill: verification-before-completion | Path: ${packageRoot}/skills/verification-before-completion/SKILL.md | Reason: Run fresh checks before completion claims.`,
+      "Crew-owned workflow restrictions:",
+      "- Do not start nested agents or SDD controllers.",
+      "- Do not start plan executors or branch-finishing workflows.",
+      "- Do not create, switch to, or manage nested worktrees; use the checkout assigned by Crew.",
+      "Other relevant installed skills remain available.",
+    ].join("\n"));
     expect(guidance).not.toContain("writing-plans");
     expect(guidance.length).toBeLessThan(1_500);
 

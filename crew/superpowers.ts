@@ -342,8 +342,12 @@ export function takeSuperpowersWarning(): string | undefined {
 
 export function renderSuperpowersGuidance(record: SuperpowersSelectionRecord): string {
   return [
-    "Selected Superpowers skills:",
-    ...record.selectedSkills.map((skill) => `- ${skill.name}: ${skill.reason}`),
+    "Pi-messenger Crew is the sole orchestrator and task authority.",
+    "Continue in the checkout assigned by Crew.",
+    "Before acting, read each selected starting skill from its resolved installed path:",
+    ...record.selectedSkills.map(
+      (skill) => `- Skill: ${skill.name} | Path: ${skill.filePath} | Reason: ${skill.reason}`,
+    ),
     "Crew-owned workflow restrictions:",
     ...record.prohibitedWorkflows.map((restriction) => `- ${restriction}`),
     "Other relevant installed skills remain available.",

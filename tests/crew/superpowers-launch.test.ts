@@ -155,7 +155,7 @@ Keep this spacing.
       taskId: "task-override",
     }], dirs.cwd);
 
-    expect(captures[0]?.prompt).toMatch(/^Project override\.\n\nKeep this spacing\.\n\nSelected Superpowers skills:/);
+    expect(captures[0]?.prompt).toMatch(/^Project override\.\n\nKeep this spacing\.\n\nPi-messenger Crew is the sole orchestrator and task authority\./);
   });
 
   it("gives an active reviewer verification guidance without worker TDD guidance", async () => {
