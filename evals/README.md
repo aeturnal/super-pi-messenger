@@ -74,10 +74,31 @@ cd /absolute/path/to/super-pi-messenger
 node evals/scripts/verify-integration-mvp.mjs evals/runs/integration-mvp/worktree
 ```
 
-For inactive fallback acceptance, start from another fresh reset and launch Pi
-with Superpowers disabled in an isolated Pi agent directory. Require inactive
-status with no warning, native Crew completion, and unchanged project override
-behavior.
+For silent inactive acceptance, use a distinct fresh reset and a mode-700 Pi
+agent directory outside the repository:
+
+```bash
+repo_root=/absolute/path/to/super-pi-messenger
+inactive_run="$repo_root/evals/runs/integration-mvp/inactive-worktree"
+node "$repo_root/evals/scripts/reset-integration-mvp.mjs" "$inactive_run"
+inactive_agent_dir="$(mktemp -d "${TMPDIR:-/tmp}/super-pi-messenger-inactive.XXXXXX")"
+chmod 700 "$inactive_agent_dir"
+trap 'rm -rf -- "$inactive_agent_dir"' EXIT
+cd "$inactive_run"
+PI_CODING_AGENT_DIR="$inactive_agent_dir" pi -e /absolute/path/to/super-pi-messenger
+# After Pi exits, remove the credential-bearing directory now rather than waiting for shell exit.
+rm -rf -- "$inactive_agent_dir"
+trap - EXIT
+```
+
+In Pi, authenticate through its normal interactive flow if needed, then run
+`pi_messenger({ action: "status" })` and `pi_messenger({ action: "work" })`.
+Never copy credentials or settings from the normal agent directory, and never
+place credentials in the repository. Until cleanup succeeds, treat the isolated
+directory as credential-bearing. Require inactive status, no warning, native
+Crew completion, and unchanged project override behavior. Fallback is a
+separate warning state; it is not this no-warning inactive run. Do not expect
+the deterministic verifier to pass inactive-trace methodology checks.
 
 The reset and verification scripts never launch Pi or a model. Raw traces stay
 ignored under `evals/runs/`; do not commit them. Record only reviewed, sanitized

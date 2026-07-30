@@ -3,7 +3,8 @@
 **Status:** `NOT RUN` | `INCOMPLETE` | `FAILED` | `PASSED`
 
 Use `not observable` for unavailable facts. Include only evidence that was
-reviewed and sanitized.
+reviewed and sanitized. Silent inactive acceptance is a no-warning run;
+fallback is a separate warning state and does not satisfy it.
 
 ## Run identity
 
@@ -19,12 +20,12 @@ reviewed and sanitized.
 
 | Check | Outcome and evidence |
 | --- | --- |
-| Active status and selected paths | <active/inactive; version; worker and reviewer paths> |
+| Active status and selected paths | <active; detected version; exact worker and reviewer methodology paths> |
 | Active task and deterministic tests | <pass/fail/not run; details> |
 | Forbidden calls | <none/details/not observable> |
 | Project skill and override behavior | <pass/fail/not run; details> |
 | Reviewer outcome | <pass/fail/not run; details> |
-| Inactive fallback status | <inactive result; warning absent/present> |
+| Silent inactive acceptance status | <inactive result; warning absent/present> |
 | Native Crew task and tests | <pass/fail/not run; details> |
 | Inactive project override behavior | <unchanged/changed/not observable; details> |
 
@@ -41,5 +42,5 @@ reviewed and sanitized.
 ## Reviewer decision
 
 - [ ] Active acceptance reviewed: <decision and reviewer>
-- [ ] Inactive fallback reviewed: <decision and reviewer>
+- [ ] Silent inactive acceptance reviewed: <decision and reviewer>
 - [ ] Overall acceptance recorded: <decision and rationale>
