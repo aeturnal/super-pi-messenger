@@ -119,6 +119,37 @@ describe("crew/task-actions", () => {
     expect(store.getTask(cwd, task.id)).not.toBeNull();
   });
 
+  it("prevents resetting active worker tasks", () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Task", "Desc");
+    store.startTask(cwd, task.id, "AgentA");
+
+    const result = executeTaskAction(cwd, "reset", task.id, "AgentA", undefined, {
+      isWorkerActive: () => true,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("active_worker");
+    expect(store.getTask(cwd, task.id)?.status).toBe("in_progress");
+  });
+
+  it("prevents cascade-reset when a dependent has an active worker", () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const parent = store.createTask(cwd, "Parent", "Desc");
+    const child = store.createTask(cwd, "Child", "Desc", [parent.id]);
+    store.startTask(cwd, child.id, "AgentA");
+
+    const result = executeTaskAction(cwd, "cascade-reset", parent.id, "AgentA", undefined, {
+      isWorkerActive: taskId => taskId === child.id,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("active_worker");
+    expect(store.getTask(cwd, child.id)?.status).toBe("in_progress");
+  });
+
   it("deletes non-active tasks", () => {
     const { cwd } = createTempCrewDirs();
     store.createPlan(cwd, "docs/PRD.md");

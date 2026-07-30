@@ -67,11 +67,13 @@ describe("crew/model override", () => {
     spawnMock.mockImplementation(() => createMockProcess(0));
   });
 
-  it("resolveModel follows task -> params -> config -> agent priority", () => {
-    expect(resolveModel("task-model", "param-model", "config-model", "agent-model")).toBe("task-model");
-    expect(resolveModel(undefined, "param-model", "config-model", "agent-model")).toBe("param-model");
-    expect(resolveModel(undefined, undefined, "config-model", "agent-model")).toBe("config-model");
-    expect(resolveModel(undefined, undefined, undefined, "agent-model")).toBe("agent-model");
+  it("resolveModel follows task -> params -> role -> config -> session -> agent priority", () => {
+    expect(resolveModel("task-model", "param-model", "role-model", "config-model", "session-model", "agent-model")).toBe("task-model");
+    expect(resolveModel(undefined, "param-model", "role-model", "config-model", "session-model", "agent-model")).toBe("param-model");
+    expect(resolveModel(undefined, undefined, "role-model", "config-model", "session-model", "agent-model")).toBe("role-model");
+    expect(resolveModel(undefined, undefined, undefined, "config-model", "session-model", "agent-model")).toBe("config-model");
+    expect(resolveModel(undefined, undefined, undefined, undefined, "session-model", "agent-model")).toBe("session-model");
+    expect(resolveModel(undefined, undefined, undefined, undefined, undefined, "agent-model")).toBe("agent-model");
   });
 
   it("resolveModel returns undefined when all inputs are undefined", () => {
@@ -163,6 +165,24 @@ describe("crew/model override", () => {
 
     expect(extensionIdx).toBeGreaterThan(-1);
     expect(args[extensionIdx + 1]).toBe("custom-tool.js");
+  });
+
+  it("uses pi.cmd for worker subprocesses on Windows", async () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      writeWorkerAgent(dirs.cwd);
+
+      await spawnAgents([{
+        agent: "crew-worker",
+        task: "Implement task",
+        taskId: "task-1",
+      }], dirs.cwd);
+
+      expect(spawnMock.mock.calls[0][0]).toBe("pi.cmd");
+    } finally {
+      if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
+    }
   });
 
   describe("pushModelArgs", () => {

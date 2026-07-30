@@ -105,6 +105,18 @@ describe("work with Team approval", () => {
     expect(task.modelOverride).toBe("role-model");
   });
 
+  it("uses the host session model before agent defaults", async () => {
+    store.createPlan(cwd, "docs/PRD.md");
+    store.createTask(cwd, "Normal work", "Do work");
+    vi.mocked(agents.spawnAgents).mockResolvedValue([{ exitCode: 0, output: "", truncated: false, progress: { toolCallCount: 0, tokens: 0 }, agent: "crew-worker", taskId: "task-1" }]);
+
+    await workHandler.execute({}, dirs, createMockContext(cwd), vi.fn(), undefined, "session-model");
+
+    expect(agents.spawnAgents).toHaveBeenCalledTimes(1);
+    const task = vi.mocked(agents.spawnAgents).mock.calls[0][0][0];
+    expect(task.modelOverride).toBe("session-model");
+  });
+
   it("reports rejected ready tasks separately from pending approvals", async () => {
     store.createPlan(cwd, "docs/PRD.md");
     const rejected = store.createTask(cwd, "Rejected auth", "", [], {

@@ -15,7 +15,8 @@ import * as store from "../store.ts";
 
 export async function execute(
   params: CrewParams,
-  ctx: ExtensionContext
+  ctx: ExtensionContext,
+  sessionModel?: string,
 ) {
   const cwd = ctx.cwd;
   const { target } = params;
@@ -126,7 +127,7 @@ Follow the output format in your instructions.`;
   const [syncResult] = await spawnAgents([{
     agent: "crew-plan-sync",
     task: prompt,
-    modelOverride: config.models?.analyst,
+    modelOverride: config.models?.analyst ?? sessionModel,
   }], cwd);
 
   if (syncResult.exitCode !== 0) {

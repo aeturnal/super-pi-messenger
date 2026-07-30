@@ -17,12 +17,13 @@ import * as store from "../store.ts";
 
 export async function execute(
   params: CrewParams,
-  ctx: ExtensionContext
+  ctx: ExtensionContext,
+  sessionModel?: string,
 ) {
   const cwd = ctx.cwd;
   const { target, type } = params;
   const config = loadCrewConfig(store.getCrewDir(cwd));
-  const reviewerModel = config.models?.reviewer;
+  const reviewerModel = config.models?.reviewer ?? sessionModel;
 
   if (!target) {
     return result("Error: target (task ID) required for review action.\n\nUsage: pi_messenger({ action: \"review\", target: \"task-1\" })", {

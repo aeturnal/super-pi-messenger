@@ -233,7 +233,7 @@ Crew spawns multiple LLM sessions in parallel — it can burn tokens fast. Start
 { "crew": { "models": { "worker": "claude-haiku-4-5" } } }
 ```
 
-The planner and reviewer keep their frontmatter defaults; only workers (the bulk of the spend) get the cheap model. Override per-role as needed:
+By default, Crew agents inherit the host session model unless a task, request, role, config, or agent frontmatter model says otherwise. Override per-role as needed:
 
 ```json
 {
@@ -287,10 +287,10 @@ Full config reference (all fields optional — only set what you want to change)
 | `dependencies` | Dependency scheduling mode: `advisory` or `strict` | `"advisory"` |
 | `coordination` | Worker coordination level: `none`, `minimal`, `moderate`, `chatty` | `"chatty"` |
 | `messageBudgets` | Max outgoing messages per worker per level (sends rejected after limit) | `{ none: 0, minimal: 2, moderate: 5, chatty: 10 }` |
-| `models.planner` | Model for planner agent | `anthropic/claude-opus-4-6` |
-| `models.worker` | Model for workers (overridden by per-task or per-wave `model` param) | `anthropic/claude-haiku-4-5` |
-| `models.reviewer` | Model for reviewer agent | `anthropic/claude-opus-4-6` |
-| `models.analyst` | Model for analyst (plan-sync) agent | `anthropic/claude-haiku-4-5` |
+| `models.planner` | Model for planner agent | host session model, then agent frontmatter |
+| `models.worker` | Model for workers (overridden by per-task or per-wave `model` param) | host session model, then agent frontmatter |
+| `models.reviewer` | Model for reviewer agent | host session model, then agent frontmatter |
+| `models.analyst` | Model for analyst (plan-sync) agent | host session model, then agent frontmatter |
 | `thinking.planner` | Thinking level for planner agent | (from frontmatter) |
 | `thinking.worker` | Thinking level for worker agents | (from frontmatter) |
 | `thinking.reviewer` | Thinking level for reviewer agents | (from frontmatter) |
@@ -305,7 +305,7 @@ Full config reference (all fields optional — only set what you want to change)
 
 ### Default Agent Models
 
-Each crew agent ships with a default model in its frontmatter. Override any of these via `crew.models.<role>` in config:
+Each crew agent ships with a fallback model in its frontmatter. Override any role via `crew.models.<role>` in config:
 
 | Agent | Role | Default Model |
 |-------|------|---------------|

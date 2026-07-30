@@ -205,6 +205,7 @@ export async function execute(
   ctx: ExtensionContext,
   agentName: string,
   onProgress?: () => void,
+  sessionModel?: string,
 ) {
   const cwd = ctx.cwd;
   const { prd, prompt } = params;
@@ -341,7 +342,7 @@ export async function execute(
     const [plannerResult] = await spawnAgents([{
       agent: PLANNER_AGENT,
       task: plannerPrompt,
-      modelOverride: config.models?.planner,
+      modelOverride: config.models?.planner ?? sessionModel,
       taskId: "__planner__",
     }], cwd);
 
@@ -394,7 +395,7 @@ export async function execute(
     const [reviewResult] = await spawnAgents([{
       agent: "crew-reviewer",
       task: reviewPrompt,
-      modelOverride: config.models?.reviewer,
+      modelOverride: config.models?.reviewer ?? sessionModel,
       taskId: "__reviewer__",
     }], cwd);
 

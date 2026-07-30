@@ -116,7 +116,7 @@ export class MessengerOverlay implements Component, Focusable {
       return;
     }
 
-    const worker = spawnSingleWorker(this.cwd, task.id);
+    const worker = spawnSingleWorker(this.cwd, task.id, this.state.model);
     if (worker) {
       setNotification(this.crewViewState, this.tui, true, `${worker.name} → ${task.id}`);
     } else {
@@ -126,7 +126,7 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   private spawnWorkerForReadyTask(task: Task, newConcurrency: number): void {
-    const worker = spawnSingleWorker(this.cwd, task.id);
+    const worker = spawnSingleWorker(this.cwd, task.id, this.state.model);
     if (!worker) {
       const message = teamStore.taskNeedsRevision(task)
         ? `${task.id} needs revision`
@@ -157,7 +157,7 @@ export class MessengerOverlay implements Component, Focusable {
     const startableTasks = readyTasks.filter(t => !teamStore.taskNeedsApproval(t));
     if (startableTasks.length > 0) {
       const target = Math.min(startableTasks.length, autonomousState.concurrency);
-      const { assigned } = spawnWorkersForReadyTasks(this.cwd, target);
+      const { assigned } = spawnWorkersForReadyTasks(this.cwd, target, this.state.model);
       if (assigned > 0) {
         setNotification(this.crewViewState, this.tui, true, `Plan ready — ${assigned} worker${assigned > 1 ? "s" : ""} started`);
         this.tui.requestRender();
@@ -192,7 +192,7 @@ export class MessengerOverlay implements Component, Focusable {
     const target = Math.min(startableTasks.length, slots);
     if (target <= 0) return;
 
-    const { assigned } = spawnWorkersForReadyTasks(this.cwd, target);
+    const { assigned } = spawnWorkersForReadyTasks(this.cwd, target, this.state.model);
     if (assigned > 0) {
       setNotification(this.crewViewState, this.tui, true, `${assigned} worker${assigned > 1 ? "s" : ""} → ready tasks`);
       this.tui.requestRender();
@@ -304,7 +304,7 @@ export class MessengerOverlay implements Component, Focusable {
       if (next > prev) {
         const readyTasks = crewStore.getReadyTasks(this.cwd, { advisory: config.dependencies === "advisory" });
         if (readyTasks.length === 0) {
-          const worker = spawnLobbyWorker(this.cwd);
+          const worker = spawnLobbyWorker(this.cwd, undefined, this.state.model);
           const label = worker ? `Lobby worker ${worker.name} spawned (${next}w)` : `Workers → ${next}`;
           setNotification(this.crewViewState, this.tui, true, label);
         } else {

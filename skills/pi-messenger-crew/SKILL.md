@@ -328,11 +328,13 @@ At `moderate` and `chatty`, workers also receive recent activity context and con
 
 ### Model Override Priority
 
-Worker model is resolved with 4-level priority (highest wins):
+Worker model is resolved with this priority (highest wins):
 1. Per-task `model` field on the task object
 2. Per-wave `model` param on the work call
-3. Config-level `crew.models.worker`
-4. Agent `.md` frontmatter `model` field
+3. Team role model when present
+4. Config-level `crew.models.worker`
+5. Host session model
+6. Agent `.md` frontmatter `model` field
 
 ### Graceful Shutdown
 

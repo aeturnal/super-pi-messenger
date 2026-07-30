@@ -36,7 +36,8 @@ export async function execute(
   dirs: Dirs,
   ctx: ExtensionContext,
   appendEntry: AppendEntryFn,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  sessionModel?: string,
 ) {
   const cwd = ctx.cwd;
   const config = loadCrewConfig(getCrewDir(cwd));
@@ -179,6 +180,7 @@ export async function execute(
       params.model,
       roleModel,
       config.models?.worker,
+      sessionModel,
     );
     const others = readyTasks.filter(t => t.id !== task.id);
     const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
@@ -264,7 +266,7 @@ export async function execute(
         if (!task || !task.base_commit) continue;
         if ((task.review_count ?? 0) >= config.review.maxIterations) continue;
 
-        const rr = await reviewImplementation(cwd, taskId, config.models?.reviewer);
+        const rr = await reviewImplementation(cwd, taskId, config.models?.reviewer ?? sessionModel);
         const verdict = rr.details?.verdict as string | undefined;
         if (!verdict) {
           store.appendTaskProgress(cwd, taskId, "system",

@@ -83,6 +83,9 @@ export function executeTaskAction(
     }
 
     case "reset": {
+      if (options?.isWorkerActive?.(taskId)) {
+        return { success: false, error: "active_worker", message: `Cannot reset ${taskId} while its worker is active` };
+      }
       const resetTasks = store.resetTask(cwd, taskId, false);
       if (resetTasks.length === 0) return { success: false, error: "reset_failed", message: `Failed to reset ${taskId}` };
       logFeedEvent(cwd, agentName, "task.reset", taskId, task.title);
@@ -90,6 +93,11 @@ export function executeTaskAction(
     }
 
     case "cascade-reset": {
+      const subtree = [task, ...store.getTransitiveDependents(cwd, taskId)];
+      const activeTask = subtree.find(t => options?.isWorkerActive?.(t.id));
+      if (activeTask) {
+        return { success: false, error: "active_worker", message: `Cannot reset ${activeTask.id} while its worker is active` };
+      }
       const resetTasks = store.resetTask(cwd, taskId, true);
       if (resetTasks.length === 0) return { success: false, error: "reset_failed", message: `Failed to reset ${taskId}` };
       logFeedEvent(cwd, agentName, "task.reset", taskId, `cascade (${resetTasks.length} tasks)`);

@@ -137,6 +137,19 @@ describe("lobby workers", () => {
     expect(args[extensionIdx + 1]).toBe("custom-tool.js");
   });
 
+  it("uses pi.cmd for lobby subprocesses on Windows", async () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      lobby.spawnLobbyWorker("/test/cwd");
+
+      const { spawn } = await import("node:child_process");
+      expect(vi.mocked(spawn).mock.calls[0][0]).toBe("pi.cmd");
+    } finally {
+      if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
+    }
+  });
+
   it("counts available lobby workers for a cwd", () => {
     expect(lobby.getLobbyWorkerCount("/test/cwd")).toBe(0);
     lobby.spawnLobbyWorker("/test/cwd");
@@ -439,6 +452,29 @@ describe("lobby workers", () => {
 
     const worker = lobby.spawnWorkerForTask("/test/cwd", "task-6", "# prompt");
     expect(worker).toBeNull();
+  });
+
+  it("spawnWorkerForTask refuses when an active worker is already registered for the task", async () => {
+    const storeModule = await import("../../crew/store.ts");
+    const registry = await import("../../crew/registry.ts");
+    const { spawn } = await import("node:child_process");
+    vi.mocked(spawn).mockClear();
+    vi.mocked(storeModule.getTask).mockReturnValueOnce({
+      id: "task-7", title: "Active", status: "todo", attempt_count: 0,
+      depends_on: [], description: "", created_at: "", milestone: false,
+    } as any);
+    registry.registerWorker({
+      type: "worker",
+      proc: { exitCode: null, killed: false, kill: vi.fn() } as any,
+      name: "ExistingWorker",
+      cwd: "/test/cwd",
+      taskId: "task-7",
+    });
+
+    const worker = lobby.spawnWorkerForTask("/test/cwd", "task-7", "# prompt");
+
+    expect(worker).toBeNull();
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it("builds minimal lobby prompt without chat instructions", async () => {
