@@ -43,7 +43,7 @@ node evals/scripts/cleanup-stock-runtime.mjs --runtime PATH
 
 Preparation does not launch a model. It only validates and prints a safely quoted launch command. The printed Pi command begins provider usage, so it is executed only by the human operator after the checkpoint. Do not continue past that checkpoint until the operator separately confirms that the supervised run ended.
 
-The reset command creates a marked Git worktree and manifest. The verifier covers repository integrity, committed implementation, final tests, task state, required tool calls, and forbidden calls only. It does not infer tests-first chronology or assess the quality of the reviewer's natural-language verdict. Before cleanup, the human operator inspects the raw worker and reviewer traces and records a separate judgment for each of those two supervised checks. Overall `PASSED` requires the deterministic verifier to pass and both supervised judgments to pass. A blocked, quota-limited, interrupted, or failed run is recorded accurately; missing facts are `not observable`.
+The reset command creates a marked Git worktree and manifest. The verifier runs explicit fixture tests and records deterministic test or integrity outcomes. A blocked, quota-limited, interrupted, or failed run is recorded accurately; missing facts are `not observable`.
 
 ## Evidence and results
 
@@ -73,6 +73,8 @@ pi -e /absolute/path/to/super-pi-messenger
 cd /absolute/path/to/super-pi-messenger
 node evals/scripts/verify-integration-mvp.mjs evals/runs/integration-mvp/worktree
 ```
+
+The verifier covers repository integrity, committed implementation, final tests, task state, required tool calls, and forbidden calls only. It does not infer tests-first chronology or assess the quality of the reviewer's natural-language verdict. Before cleanup, the human operator inspects the raw worker and reviewer traces and records a separate judgment for each of those two supervised checks. Overall `PASSED` requires the deterministic verifier to pass and both supervised judgments to pass.
 
 For silent inactive acceptance, use a distinct fresh reset and a mode-700 Pi
 agent directory outside the repository:
