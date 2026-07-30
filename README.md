@@ -54,7 +54,9 @@ npx pi-messenger --crew-uninstall
 - Crew children cannot start nested orchestration or nested worktrees.
 - Crew status shows Superpowers integration as `active`, `inactive`, or `fallback`.
 - Stock Superpowers absence is silent; invalid installations warn once and continue with native Crew launch behavior.
-- The legacy global policy extension may be removed; during migration, only its exact marked suffix beginning `<!-- crew-superpowers-policy:` is ignored.
+- When the controlling Pi agent determines that stock `subagent-driven-development` applies, Crew is automatically authorized as the sole implementation and review dispatcher; no separate Crew confirmation is required.
+- The packaged policy activates only for a validated official Superpowers v6 installation and is not injected into Crew workers or reviewers.
+- No standalone `crew-superpowers-policy.ts` extension is required or supported.
 
 ## Quick Start
 
