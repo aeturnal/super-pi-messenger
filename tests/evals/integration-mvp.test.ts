@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetIntegrationMvp } from "../../evals/scripts/reset-integration-mvp.mjs";
@@ -203,6 +203,63 @@ describe("integration run reset", () => {
     expect(git("rev-list", "--count", "HEAD")).toBe("1");
   });
 
+  it("creates the same seed commit with one injected timestamp despite hostile Git config", () => {
+    const first = createResetRepository();
+    const second = createResetRepository();
+    const hostileRoot = mkdtempSync(join(tmpdir(), "integration-mvp-hostile-git-"));
+    const hooks = join(hostileRoot, "hooks");
+    const hookCalls = join(hostileRoot, "hook-calls.txt");
+    const signerCalls = join(hostileRoot, "signer-calls.txt");
+    const globalConfig = join(hostileRoot, "global.gitconfig");
+    mkdirSync(hooks);
+    writeFileSync(join(hooks, "pre-commit"), `#!/bin/sh\necho hook >> "${hookCalls}"\nexit 71\n`);
+    writeFileSync(join(hostileRoot, "signer"), `#!/bin/sh\necho signer >> "${signerCalls}"\nexit 72\n`);
+    chmodSync(join(hooks, "pre-commit"), 0o755);
+    chmodSync(join(hostileRoot, "signer"), 0o755);
+    writeFileSync(
+      globalConfig,
+      `[commit]\n\tgpgSign = true\n[core]\n\thooksPath = ${hooks}\n[gpg]\n\tprogram = ${join(hostileRoot, "signer")}\n`,
+    );
+    resetRoots.push(hostileRoot);
+
+    const originalGlobalConfig = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = globalConfig;
+    let nowCalls = 0;
+    const now = () => {
+      nowCalls += 1;
+      return new Date("2026-07-29T00:00:00.000Z");
+    };
+
+    try {
+      const firstResult = resetIntegrationMvp({
+        repositoryRoot: first.repositoryRoot,
+        destination: join(first.runRoot, "worktree"),
+        now,
+      });
+      const secondResult = resetIntegrationMvp({
+        repositoryRoot: second.repositoryRoot,
+        destination: join(second.runRoot, "worktree"),
+        now,
+      });
+      const dates = spawnSync("git", ["show", "-s", "--format=%aI%n%cI", "HEAD"], {
+        cwd: firstResult.worktree,
+        encoding: "utf8",
+      }).stdout.trim().split("\n");
+
+      expect(firstResult.seedCommit).toBe(secondResult.seedCommit);
+      expect(dates).toEqual([
+        "2026-07-29T00:00:00Z",
+        "2026-07-29T00:00:00Z",
+      ]);
+      expect(nowCalls).toBe(2);
+      expect(existsSync(hookCalls)).toBe(false);
+      expect(existsSync(signerCalls)).toBe(false);
+    } finally {
+      if (originalGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+      else process.env.GIT_CONFIG_GLOBAL = originalGlobalConfig;
+    }
+  });
+
   it("writes the exact marker and manifest after the seed commit", () => {
     const { repositoryRoot, runRoot } = createResetRepository();
     const destination = join(runRoot, "worktree");
@@ -230,24 +287,59 @@ describe("integration run reset", () => {
     });
   });
 
-  it("provides a bounded CLI without launching Pi or a model", () => {
-    const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
-    const runRoot = join(repositoryRoot, "evals", "runs", "integration-mvp");
-    mkdirSync(runRoot, { recursive: true });
-    const cliRoot = mkdtempSync(join(runRoot, "cli-test-"));
-    const destination = join(cliRoot, "worktree");
+  it("provides a bounded zero-or-one-argument CLI that directly invokes Git only", () => {
+    const { repositoryRoot, runRoot } = createResetRepository();
+    const cliRoot = join(runRoot, "cli-test");
+    const destination = join(cliRoot, "explicit-worktree");
+    const defaultDestination = join(runRoot, "worktree");
+    const scripts = join(repositoryRoot, "evals", "scripts");
     const bin = join(cliRoot, "bin");
-    const piCalls = join(cliRoot, "pi-calls.txt");
-    const script = fileURLToPath(
-      new URL("../../evals/scripts/reset-integration-mvp.mjs", import.meta.url),
-    );
-    mkdirSync(bin);
-    writeFileSync(join(bin, "pi"), `#!/bin/sh\necho called >> "${piCalls}"\n`);
-    chmodSync(join(bin, "pi"), 0o755);
-    resetRoots.push(cliRoot);
+    const commandLog = join(cliRoot, "commands.jsonl");
+    const script = join(scripts, "reset-integration-mvp.mjs");
+    const realGit = process.env.PATH?.split(delimiter)
+      .map((entry) => join(entry, "git"))
+      .find(existsSync);
+    expect(realGit).toBeDefined();
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(scripts, { recursive: true });
+    cpSync(fileURLToPath(new URL("../../evals/scripts/reset-integration-mvp.mjs", import.meta.url)), script);
+    cpSync(fileURLToPath(new URL("../../evals/scripts/lib.mjs", import.meta.url)), join(scripts, "lib.mjs"));
 
-    const environment = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
-    const created = spawnSync(process.execPath, [script, destination], {
+    for (const command of [
+      "git",
+      "pi",
+      "claude",
+      "codex",
+      "ollama",
+      "curl",
+      "wget",
+      "npm",
+      "npx",
+      "pnpm",
+      "yarn",
+      "bun",
+    ]) {
+      const executable = join(bin, command);
+      writeFileSync(
+        executable,
+        `#!${process.execPath}\n` +
+          `const fs = require("node:fs");\n` +
+          `const { spawnSync } = require("node:child_process");\n` +
+          `fs.appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify({ command: ${JSON.stringify(command)}, args: process.argv.slice(2) }) + "\\n");\n` +
+          (command === "git"
+            ? `const result = spawnSync(${JSON.stringify(realGit)}, process.argv.slice(2), { stdio: "inherit", env: process.env }); process.exit(result.status ?? 1);\n`
+            : `process.exit(97);\n`),
+      );
+      chmodSync(executable, 0o755);
+    }
+
+    const environment = { ...process.env, PATH: bin };
+    const defaultCreated = spawnSync(process.execPath, [script], {
+      cwd: repositoryRoot,
+      env: environment,
+      encoding: "utf8",
+    });
+    const explicitlyCreated = spawnSync(process.execPath, [script, destination], {
       cwd: repositoryRoot,
       env: environment,
       encoding: "utf8",
@@ -257,13 +349,20 @@ describe("integration run reset", () => {
       [script, join(cliRoot, "first"), join(cliRoot, "second")],
       { cwd: repositoryRoot, env: environment, encoding: "utf8" },
     );
+    const commands = readFileSync(commandLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { command: string; args: string[] });
 
-    expect(created.status).toBe(0);
-    expect(JSON.parse(created.stdout)).toMatchObject({
+    expect(defaultCreated.status).toBe(0);
+    expect(JSON.parse(defaultCreated.stdout)).toMatchObject({ worktree: defaultDestination });
+    expect(explicitlyCreated.status).toBe(0);
+    expect(JSON.parse(explicitlyCreated.stdout)).toMatchObject({
       worktree: destination,
       manifestPath: join(destination, ".git", "pi-super-messenger-eval-run.json"),
     });
-    expect(existsSync(piCalls)).toBe(false);
+    expect(commands.length).toBeGreaterThan(0);
+    expect([...new Set(commands.map(({ command }) => command))]).toEqual(["git"]);
     expect(rejected.status).toBe(1);
     expect(rejected.stdout).toBe("");
     expect(rejected.stderr).toContain("Usage: reset-integration-mvp.mjs [destination]");

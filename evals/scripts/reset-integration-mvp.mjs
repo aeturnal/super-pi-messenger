@@ -124,25 +124,46 @@ export function resetIntegrationMvp({
     rmSync(deletionTarget, { recursive: true, force: false });
   }
 
+  const createdAt = (typeof now === "function" ? now() : now).toISOString();
+  const gitDirectory = join(canonicalDestination, ".git");
+  const gitEnvironment = {
+    ...process.env,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: join(gitDirectory, "pi-super-messenger-no-global-config"),
+  };
+  const gitOptions = { cwd: canonicalDestination, env: gitEnvironment };
+
   mkdirSync(dirname(canonicalDestination), { recursive: true });
   cpSync(seed, canonicalDestination, { recursive: true });
-  run("git", ["init", "-b", "main"], { cwd: canonicalDestination });
-  run("git", ["config", "user.name", "Eval Fixture"], { cwd: canonicalDestination });
-  run("git", ["config", "user.email", "eval-fixture@example.invalid"], {
-    cwd: canonicalDestination,
-  });
-  run("git", ["add", "--all"], { cwd: canonicalDestination });
-  run("git", ["commit", "-m", "eval: seed integration MVP fixture"], {
-    cwd: canonicalDestination,
-  });
-  const seedCommit = run("git", ["rev-parse", "HEAD"], {
-    cwd: canonicalDestination,
-  }).stdout.trim();
+  run("git", ["init", "-b", "main"], gitOptions);
+  run("git", ["config", "user.name", "Eval Fixture"], gitOptions);
+  run("git", ["config", "user.email", "eval-fixture@example.invalid"], gitOptions);
+  run("git", ["add", "--all"], gitOptions);
+  run(
+    "git",
+    [
+      "-c",
+      "commit.gpgSign=false",
+      "-c",
+      `core.hooksPath=${join(gitDirectory, "pi-super-messenger-no-hooks")}`,
+      "commit",
+      "--no-gpg-sign",
+      "-m",
+      "eval: seed integration MVP fixture",
+    ],
+    {
+      ...gitOptions,
+      env: {
+        ...gitEnvironment,
+        GIT_AUTHOR_DATE: createdAt,
+        GIT_COMMITTER_DATE: createdAt,
+      },
+    },
+  );
+  const seedCommit = run("git", ["rev-parse", "HEAD"], gitOptions).stdout.trim();
 
-  const gitDirectory = join(canonicalDestination, ".git");
   const markerPath = join(gitDirectory, MARKER_NAME);
   const manifestPath = join(gitDirectory, "pi-super-messenger-eval-run.json");
-  const createdAt = (typeof now === "function" ? now() : now).toISOString();
   writeFileSync(markerPath, `${JSON.stringify(EXPECTED_MARKER)}\n`);
   writeFileSync(
     manifestPath,
