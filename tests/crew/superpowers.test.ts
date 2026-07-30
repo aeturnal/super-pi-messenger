@@ -142,6 +142,21 @@ describe("Superpowers package validation", () => {
     });
   });
 
+  it("rejects mixed official-package and runtime-discovered candidates with an unofficial origin", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    const [usingSuperpowers] = fixture.skills;
+    if (!usingSuperpowers) throw new Error("fixture is missing using-superpowers");
+    const runtimeRequiredSkills = asRuntimeDiscoveredSkills(
+      fixture,
+      "https://github.com/example/superpowers.git",
+    ).filter((skill) => skill.name !== "using-superpowers");
+
+    expect(captureSuperpowersSkills([usingSuperpowers, ...runtimeRequiredSkills])).toMatchObject({
+      status: "fallback",
+      reason: expect.stringContaining("Git origin"),
+    });
+  });
+
   it("rejects a runtime extension label with a revision-like official origin suffix", () => {
     const fixture = track(createStockSuperpowersFixture());
     const skills = asRuntimeDiscoveredSkills(

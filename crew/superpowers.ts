@@ -188,7 +188,7 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
       );
     }
 
-    const requiresGitOriginVerification = officialSkills.length === 0;
+    const requiresGitOriginVerification = runtimeSkills.length > 0 || officialSkills.length === 0;
     const packageRoot = candidateRoots[0];
     if (packageRoot === undefined) {
       return fallback("unable to validate official Superpowers package source");
