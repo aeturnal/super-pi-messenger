@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import type { Plan, Task, TaskEvidence } from "./types.js";
+import type { DependencyMode, Plan, Task, TaskEvidence } from "./types.js";
 import { allocateTaskId } from "./id-allocator.js";
 
 // =============================================================================
@@ -80,12 +80,13 @@ export function getPlan(cwd: string): Plan | null {
   return readJson<Plan>(path.join(getCrewDir(cwd), "plan.json"));
 }
 
-export function createPlan(cwd: string, prdPath: string, prompt?: string): Plan {
+export function createPlan(cwd: string, prdPath: string, prompt?: string, dependencies?: DependencyMode): Plan {
   const now = new Date().toISOString();
   
   const plan: Plan = {
     prd: prdPath,
     ...(prompt ? { prompt } : {}),
+    ...(dependencies ? { dependencies } : {}),
     created_at: now,
     updated_at: now,
     task_count: 0,

@@ -7,6 +7,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { DependencyMode } from "../types.js";
 import type { MaxOutputConfig } from "./truncate.js";
 
 export type CoordinationLevel = "none" | "minimal" | "moderate" | "chatty";
@@ -69,7 +70,7 @@ export interface CrewConfig {
     env?: Record<string, string>;
     shutdownGracePeriodMs?: number;
   };
-  dependencies: "advisory" | "strict";
+  dependencies: DependencyMode;
   coordination: CoordinationLevel;
   messageBudgets: Record<CoordinationLevel, number>;
 }
@@ -127,7 +128,7 @@ function deepMerge<T extends object>(target: T, ...sources: Partial<T>[]): T {
 }
 
 /**
- * Load crew configuration with priority: defaults <- user <- project
+ * Load crew configuration with priority: defaults <- user <- project <- valid plan override.
  */
 export function loadCrewConfig(crewDir: string): CrewConfig {
   // User-level config (from ~/.pi/agent/pi-messenger.json -> crew section)
@@ -137,8 +138,19 @@ export function loadCrewConfig(crewDir: string): CrewConfig {
   // Project-level config (from .pi/messenger/crew/config.json)
   const projectConfig = loadJson(path.join(crewDir, PROJECT_CONFIG_FILE)) as Partial<CrewConfig>;
 
-  // Merge: defaults <- user <- project <- runtime override
+  // A plan's dependency mode is a per-run override, so apply it only when it
+  // is an exact supported value. Malformed persisted plan state is ignored.
+  const plan = loadJson(path.join(crewDir, "plan.json"));
+  const planDependencies = plan.dependencies;
+  const dependencyOverride = planDependencies === "strict" || planDependencies === "advisory"
+    ? planDependencies
+    : undefined;
+
+  // Merge: defaults <- user <- project <- valid plan override <- runtime override
   const merged = deepMerge(DEFAULT_CONFIG, userCrewConfig, projectConfig);
+  if (dependencyOverride) {
+    merged.dependencies = dependencyOverride;
+  }
   if (coordinationOverride !== null) {
     merged.coordination = coordinationOverride;
   }

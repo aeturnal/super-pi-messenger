@@ -12,9 +12,12 @@ import type { CrewAgentConfig } from "./utils/discover.js";
 // Plan Types
 // =============================================================================
 
+export type DependencyMode = "strict" | "advisory";
+
 export interface Plan {
   prd: string;                   // Path to PRD file (relative to cwd)
   prompt?: string;               // Inline prompt text (when no PRD file)
+  dependencies?: DependencyMode; // Per-run dependency scheduling override
   created_at: string;            // ISO timestamp
   updated_at: string;            // ISO timestamp
   task_count: number;            // Total tasks
@@ -97,6 +100,7 @@ export interface CrewParams {
 
   // Plan options
   autoWork?: boolean;
+  dependencies?: DependencyMode;
 
   // Work options
   autonomous?: boolean;

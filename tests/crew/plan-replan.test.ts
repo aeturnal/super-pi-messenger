@@ -443,6 +443,24 @@ describe("plan with autoWork", () => {
     expect(r.content[0].text).toContain("Workers will start automatically");
   });
 
+  it("persists a dependency override even when autoWork is false", async () => {
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: plannerOutput,
+      error: null,
+      progress: { toolCallCount: 0, tokens: 0 },
+    }]);
+
+    await planHandler.execute(
+      { action: "plan", autoWork: false, dependencies: "strict" },
+      mockCtx,
+      "agent",
+    );
+
+    expect(state.isPendingAutoWork()).toBe(false);
+    expect(store.getPlan(tmpDir)?.dependencies).toBe("strict");
+  });
+
   it("does not set pendingAutoWork when autoWork is false", async () => {
     spawnAgents.mockResolvedValue([{
       exitCode: 0,
@@ -459,6 +477,7 @@ describe("plan with autoWork", () => {
 
     expect(r.details?.error).toBeUndefined();
     expect(state.isPendingAutoWork()).toBe(false);
+    expect(store.getPlan(tmpDir)?.dependencies).toBeUndefined();
     expect(r.content[0].text).toContain("Next steps");
     expect(r.content[0].text).not.toContain("Workers will start automatically");
   });

@@ -449,6 +449,7 @@ Usage (action-based API - preferred):
       )),
       type: Type.Optional(StringEnum(["plan", "impl"], { description: "Review type (inferred from target if omitted)" })),
       autoWork: Type.Optional(Type.Boolean({ description: "Auto-start autonomous work after plan completes (default: true, pass false to review plan first)" })),
+      dependencies: Type.Optional(StringEnum(["strict", "advisory"], { description: "Per-plan dependency scheduling override" })),
       autonomous: Type.Optional(Type.Boolean({ description: "Run work continuously until done/blocked" })),
       concurrency: Type.Optional(Type.Number({ description: "Override worker concurrency" })),
       model: Type.Optional(Type.String({ description: "Override worker model for this work wave" })),
@@ -849,7 +850,11 @@ Usage (action-based API - preferred):
     }
 
     state.isHuman = ctx.hasUI;
-    try { fs.rmSync(join(homedir(), ".pi/agent/messenger/feed.jsonl"), { force: true }); } catch {}
+    try {
+      fs.rmSync(join(homedir(), ".pi/agent/messenger/feed.jsonl"), { force: true });
+    } catch (error) {
+      console.warn("Failed to clear stale messenger feed:", error);
+    }
 
     const shouldAutoRegister = config.autoRegister || 
       matchesAutoRegisterPath(state.cwd, config.autoRegisterPaths);

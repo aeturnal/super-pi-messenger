@@ -204,7 +204,7 @@ export async function execute(
   onProgress?: () => void,
 ) {
   const cwd = ctx.cwd ?? process.cwd();
-  const { prd, prompt } = params;
+  const { prd, prompt, dependencies } = params;
   const reportProgress = () => onProgress?.();
   resetPlanningCancellation();
 
@@ -243,7 +243,14 @@ export async function execute(
 
     if (existingTasks.length === 0 && !prompt) {
       const crewDir = store.getCrewDir(cwd);
-      try { fs.rmSync(crewDir, { recursive: true, force: true }); } catch {}
+      try {
+        fs.rmSync(crewDir, { recursive: true, force: true });
+      } catch (error) {
+        return result(`Unable to clear the previous empty plan: ${error instanceof Error ? error.message : "unknown error"}`, {
+          mode: "plan",
+          error: "plan_cleanup_failed",
+        });
+      }
     }
   }
 
@@ -306,7 +313,7 @@ export async function execute(
     ? (prompt!.length > 60 ? prompt!.slice(0, 57) + "..." : prompt!)
     : prdPath;
 
-  store.createPlan(cwd, prdPath, isPromptBased ? prompt : undefined);
+  store.createPlan(cwd, prdPath, isPromptBased ? prompt : undefined, dependencies);
   startRunInProgress(cwd, runLabel);
   if (prompt && !isPromptBased) injectSteeringPrompt(cwd, prompt);
   startPlanningRun(cwd, maxPasses);
@@ -420,7 +427,12 @@ export async function execute(
   const outlineContent = sections
     ? `# Planning Outline\n\n## 1. PRD Understanding Summary\n${sections.prdSummary}\n\n## 2. Relevant Code/Docs/Resources Reviewed\n${sections.resourcesReviewed}\n\n## 3. Sequential Implementation Steps\n${sections.sequentialSteps}\n\n## 4. Parallelized Task Graph\n${sections.parallelTaskGraph}\n`
     : `# Planning Outline\n\nStructured sections were not detected. Full planner output is included below.\n\n${lastPlannerOutput}`;
-  try { setPlanningOutline(cwd, outlineContent); } catch {}
+  try {
+    setPlanningOutline(cwd, outlineContent);
+  } catch (error) {
+    logFeedEvent(cwd, agentName, "plan.failed", prdPath, `outline write failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    notify(ctx, "Planning outline could not be saved; continuing with the plan.", "warning");
+  }
 
   if (tasks.length === 0) {
     store.setPlanSpec(cwd, lastPlannerOutput);

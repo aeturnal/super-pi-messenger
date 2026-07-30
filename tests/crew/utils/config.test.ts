@@ -91,6 +91,24 @@ describe("crew/utils/config", () => {
     });
     const projectCfg = loadCrewConfig(dirs.crewDir);
     expect(projectCfg.dependencies).toBe("advisory");
+
+    writeJson(path.join(dirs.crewDir, "plan.json"), {
+      dependencies: "strict",
+    });
+    const planCfg = loadCrewConfig(dirs.crewDir);
+    expect(planCfg.dependencies).toBe("strict");
+  });
+
+  it("ignores malformed plan dependency overrides", async () => {
+    writeJson(path.join(dirs.crewDir, "config.json"), {
+      dependencies: "strict",
+    });
+    writeJson(path.join(dirs.crewDir, "plan.json"), {
+      dependencies: "invalid",
+    });
+
+    const { loadCrewConfig } = await loadConfigModule();
+    expect(loadCrewConfig(dirs.crewDir).dependencies).toBe("strict");
   });
 
   it("getTruncationForRole returns role-specific truncation settings", async () => {
