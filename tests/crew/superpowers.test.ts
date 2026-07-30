@@ -142,6 +142,16 @@ describe("Superpowers package validation", () => {
     });
   });
 
+  it("rejects a runtime extension label with a revision-like official origin suffix", () => {
+    const fixture = track(createStockSuperpowersFixture());
+    const skills = asRuntimeDiscoveredSkills(
+      fixture,
+      "https://github.com/obra/superpowers@evil",
+    );
+
+    expect(captureSuperpowersSkills(skills)).toMatchObject({ status: "fallback" });
+  });
+
   it("rejects a runtime extension label with an unofficial Git origin", () => {
     const fixture = track(createStockSuperpowersFixture());
     const skills = asRuntimeDiscoveredSkills(

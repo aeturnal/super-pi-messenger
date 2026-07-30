@@ -70,6 +70,12 @@ function isOfficialSource(value: string): boolean {
   return normalizeOfficialSource(value) === "obra/superpowers";
 }
 
+function isOfficialGitOrigin(value: string): boolean {
+  return /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)(obra\/superpowers)(?:\.git)?$/.test(
+    value.trim(),
+  );
+}
+
 function fallback(
   reason: string,
   version?: string,
@@ -252,7 +258,7 @@ export function captureSuperpowersSkills(skills: readonly Skill[]): SuperpowersS
       } catch {
         return fallback("unable to verify local Superpowers Git origin", version);
       }
-      if (!isOfficialSource(origin)) {
+      if (!isOfficialGitOrigin(origin)) {
         return fallback("local Superpowers Git origin is not official", version);
       }
     }
