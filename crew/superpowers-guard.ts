@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { SUPERPOWERS_OUTER_POLICY_MARKER } from "./superpowers-policy.js";
 
 export const SUPERPOWERS_CHILD_FLAG = "PI_CREW_SUPERPOWERS_MVP";
 export const STOCK_BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
-export const LEGACY_POLICY_MARKER = "<!-- crew-superpowers-policy:";
 
 export function stripStockBootstrap<T>(messages: T[]): T[] {
   return messages.filter((message) => {
@@ -22,8 +22,8 @@ export function stripStockBootstrap<T>(messages: T[]): T[] {
   });
 }
 
-export function stripLegacyPolicy(systemPrompt: string): string {
-  const markerIndex = systemPrompt.indexOf(LEGACY_POLICY_MARKER);
+export function stripSuperpowersOuterPolicy(systemPrompt: string): string {
+  const markerIndex = systemPrompt.indexOf(SUPERPOWERS_OUTER_POLICY_MARKER);
   return markerIndex === -1 ? systemPrompt : systemPrompt.slice(0, markerIndex);
 }
 
@@ -35,7 +35,7 @@ export default function registerSuperpowersGuard(pi: ExtensionAPI): void {
   ) return;
 
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: stripLegacyPolicy(event.systemPrompt),
+    systemPrompt: stripSuperpowersOuterPolicy(event.systemPrompt),
   }));
   pi.on("context", (event) => ({
     messages: stripStockBootstrap(event.messages),

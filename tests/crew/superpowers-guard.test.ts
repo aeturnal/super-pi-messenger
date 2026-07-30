@@ -5,12 +5,12 @@ import type {
   ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SUPERPOWERS_OUTER_POLICY_MARKER } from "../../crew/superpowers-policy.js";
 import registerSuperpowersGuard, {
-  LEGACY_POLICY_MARKER,
   SUPERPOWERS_CHILD_FLAG,
   STOCK_BOOTSTRAP_MARKER,
-  stripLegacyPolicy,
   stripStockBootstrap,
+  stripSuperpowersOuterPolicy,
 } from "../../crew/superpowers-guard.js";
 
 type MaybePromise<T> = T | Promise<T>;
@@ -96,17 +96,17 @@ describe("Superpowers child guidance markers", () => {
     expect(typedResult).toEqual([]);
   });
 
-  it("strips only the suffix beginning at the exact legacy marker", () => {
+  it("strips only the suffix beginning at the exact packaged marker", () => {
     const prefix = "system prompt\n";
-    const prompt = `${prefix}${LEGACY_POLICY_MARKER}legacy guidance -->`;
+    const prompt = `${prefix}${SUPERPOWERS_OUTER_POLICY_MARKER}\npackaged guidance`;
 
-    expect(stripLegacyPolicy(prompt)).toBe(prefix);
+    expect(stripSuperpowersOuterPolicy(prompt)).toBe(prefix);
   });
 
-  it("returns the original system prompt when the exact legacy marker is absent", () => {
-    const prompt = "system prompt\n<!-- crew superpowers policy:";
+  it("returns the original prompt when the packaged marker is absent", () => {
+    const prompt = "system prompt\n<!-- super pi messenger policy -->";
 
-    expect(stripLegacyPolicy(prompt)).toBe(prompt);
+    expect(stripSuperpowersOuterPolicy(prompt)).toBe(prompt);
   });
 });
 
@@ -154,7 +154,7 @@ describe("Superpowers child guard activation", () => {
     expect(await beforeAgentStart({
       type: "before_agent_start",
       prompt: "",
-      systemPrompt: `base${LEGACY_POLICY_MARKER}legacy`,
+      systemPrompt: `base${SUPERPOWERS_OUTER_POLICY_MARKER}\npackaged guidance`,
       systemPromptOptions: { cwd: process.cwd() },
     })).toEqual({ systemPrompt: "base" });
 
