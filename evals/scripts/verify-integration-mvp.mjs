@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { sha256File } from "./lib.mjs";
 
 const FIXTURE = "integration-mvp";
@@ -12,6 +13,9 @@ const STOCK_TDD_SUFFIX =
 const STOCK_VERIFICATION_SUFFIX =
   "/superpowers/skills/verification-before-completion/SKILL.md";
 const PROJECT_STYLE_SUFFIX = "/.pi/skills/project-style/SKILL.md";
+const NESTED_PI_COMMAND = /(?:^|[;&|])\s*pi(?=\s|$)/m;
+const WORKTREE_MUTATION =
+  /(?:^|[;&|])\s*git\s+worktree\s+(?:add|move|remove)(?=\s|$)/m;
 
 function readJson(path, description) {
   try {
@@ -59,6 +63,33 @@ function hasReadEndingIn(events, suffix) {
       typeof event.args?.path === "string" &&
       event.args.path.replaceAll("\\", "/").endsWith(suffix),
   );
+}
+
+function rejectForbiddenCalls(events, role) {
+  for (const event of events) {
+    if (event?.type !== "tool_execution_start") continue;
+
+    const toolName = event.toolName;
+    if (
+      toolName === "dispatch_agent" ||
+      toolName === "subagent" ||
+      (typeof toolName === "string" && toolName.startsWith("subagent_"))
+    ) {
+      throw new Error(`Forbidden ${role} trace evidence: orchestration tool`);
+    }
+
+    if (
+      toolName === "bash" &&
+      typeof event.args?.command === "string"
+    ) {
+      if (NESTED_PI_COMMAND.test(event.args.command)) {
+        throw new Error(`Forbidden ${role} trace evidence: nested Pi bash command`);
+      }
+      if (WORKTREE_MUTATION.test(event.args.command)) {
+        throw new Error(`Forbidden ${role} trace evidence: Git worktree mutation`);
+      }
+    }
+  }
 }
 
 export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree }) {
@@ -151,6 +182,9 @@ export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree
     throw new Error("Worker and reviewer traces must be distinct files");
   }
 
+  rejectForbiddenCalls(worker.events, "worker");
+  rejectForbiddenCalls(reviewer.events, "reviewer");
+
   if (!hasReadEndingIn(worker.events, STOCK_TDD_SUFFIX)) {
     throw new Error(
       "Missing required worker trace evidence: stock test-driven-development read",
@@ -179,4 +213,25 @@ export function verifyIntegrationMvp({ repositoryRoot: _repositoryRoot, worktree
   }
 
   return { status: "passed", workerTrace: worker.path, reviewerTrace: reviewer.path };
+}
+
+function isMain() {
+  return process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+}
+
+if (isMain()) {
+  try {
+    const args = process.argv.slice(2);
+    if (args.length > 1) {
+      throw new Error("Usage: verify-integration-mvp.mjs [worktree]");
+    }
+    const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    const worktree = args[0]
+      ? resolve(args[0])
+      : join(repositoryRoot, "evals", "runs", FIXTURE, "worktree");
+    console.log(JSON.stringify(verifyIntegrationMvp({ repositoryRoot, worktree })));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message.split("\n")[0] : String(error));
+    process.exitCode = 1;
+  }
 }

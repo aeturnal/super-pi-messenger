@@ -617,6 +617,121 @@ describe("integration MVP verifier", () => {
     );
   });
 
+  it.each([
+    ["worker", "dispatch_agent"],
+    ["worker", "subagent"],
+    ["worker", "subagent_reviewer"],
+    ["reviewer", "dispatch_agent"],
+  ])("rejects forbidden %s orchestration tool %s", (role, toolName) => {
+    const run = createCompletedIntegrationRun();
+    const trace = role === "worker" ? run.workerTrace : run.reviewerTrace;
+    writeFileSync(trace, `${readFileSync(trace, "utf8")}${JSON.stringify(toolStart(toolName))}\n`);
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      `Forbidden ${role} trace evidence: orchestration tool`,
+    );
+  });
+
+  it.each([
+    ["worker", "  pi --no-session"],
+    ["worker", "cd /tmp && pi -p nested"],
+    ["reviewer", "printf ready | pi"],
+  ])("rejects nested Pi in %s bash command segments", (role, command) => {
+    const run = createCompletedIntegrationRun();
+    const trace = role === "worker" ? run.workerTrace : run.reviewerTrace;
+    writeFileSync(
+      trace,
+      `${readFileSync(trace, "utf8")}${JSON.stringify(toolStart("bash", { command }))}\n`,
+    );
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      `Forbidden ${role} trace evidence: nested Pi bash command`,
+    );
+  });
+
+  it.each([
+    ["worker", "add"],
+    ["reviewer", "move"],
+    ["worker", "remove"],
+  ])("rejects %s git worktree %s bash mutation", (role, mutation) => {
+    const run = createCompletedIntegrationRun();
+    const trace = role === "worker" ? run.workerTrace : run.reviewerTrace;
+    const command =
+      mutation === "add"
+        ? `  git worktree ${mutation} target`
+        : `cd /tmp; git worktree ${mutation} target`;
+    writeFileSync(
+      trace,
+      `${readFileSync(trace, "utf8")}${JSON.stringify(toolStart("bash", { command }))}\n`,
+    );
+
+    expect(() => verifyIntegrationMvp(run)).toThrow(
+      `Forbidden ${role} trace evidence: Git worktree mutation`,
+    );
+  });
+
+  it("allows ordinary tools, text mentions, echo pi, and git worktree list", () => {
+    const run = createCompletedIntegrationRun();
+    writeFileSync(
+      run.workerTrace,
+      `${readFileSync(run.workerTrace, "utf8")}${[
+        { type: "message", text: "dispatch_agent subagent pi git worktree add" },
+        toolStart("dispatch_agent_extra"),
+        toolStart("read", { path: "subagent_notes.md" }),
+        toolStart("Bash", { command: "pi" }),
+        toolStart("bash", { command: "echo pi; git worktree list" }),
+        toolStart("bash", { command: 42 }),
+        { type: "tool_execution_end", toolName: "subagent" },
+      ].map((event) => JSON.stringify(event)).join("\n")}\n`,
+    );
+
+    expect(verifyIntegrationMvp(run).status).toBe("passed");
+  });
+
+  it("provides a bounded verifier CLI with fixed default and JSON result output", () => {
+    const run = createCompletedIntegrationRun();
+    const scripts = join(run.repositoryRoot, "evals", "scripts");
+    const script = join(scripts, "verify-integration-mvp.mjs");
+    mkdirSync(scripts, { recursive: true });
+    cpSync(
+      fileURLToPath(new URL("../../evals/scripts/verify-integration-mvp.mjs", import.meta.url)),
+      script,
+    );
+    cpSync(
+      fileURLToPath(new URL("../../evals/scripts/lib.mjs", import.meta.url)),
+      join(scripts, "lib.mjs"),
+    );
+
+    const defaultResult = spawnSync(process.execPath, [script], {
+      cwd: run.repositoryRoot,
+      encoding: "utf8",
+    });
+    const explicitResult = spawnSync(process.execPath, [script, run.worktree], {
+      cwd: run.repositoryRoot,
+      encoding: "utf8",
+    });
+    const rejected = spawnSync(process.execPath, [script, run.worktree, run.worktree], {
+      cwd: run.repositoryRoot,
+      encoding: "utf8",
+    });
+
+    const expected = {
+      status: "passed",
+      workerTrace: run.workerTrace,
+      reviewerTrace: run.reviewerTrace,
+    };
+    expect(defaultResult.status).toBe(0);
+    expect(defaultResult.stderr).toBe("");
+    expect(JSON.parse(defaultResult.stdout)).toEqual(expected);
+    expect(explicitResult.status).toBe(0);
+    expect(JSON.parse(explicitResult.stdout)).toEqual(expected);
+    expect(rejected.status).toBe(1);
+    expect(rejected.stdout).toBe("");
+    expect(rejected.stderr).toContain(
+      "Usage: verify-integration-mvp.mjs [worktree]",
+    );
+  });
+
   it("rejects a marker with the wrong fixture identity", () => {
     const run = createCompletedIntegrationRun();
     const markerPath = join(run.worktree, ".git", "pi-super-messenger-eval-marker.json");
