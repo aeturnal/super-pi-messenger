@@ -124,7 +124,7 @@ export function resetIntegrationMvp({
     rmSync(deletionTarget, { recursive: true, force: false });
   }
 
-  const createdAt = (typeof now === "function" ? now() : now).toISOString();
+  const createdAt = now().toISOString();
   const gitDirectory = join(canonicalDestination, ".git");
   const gitEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),

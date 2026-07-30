@@ -59,7 +59,7 @@ function invokeReset(repositoryRoot: string, destination: string) {
     resetIntegrationMvp({
       repositoryRoot,
       destination,
-      now: new Date("2026-07-29T00:00:00.000Z"),
+      now: () => new Date("2026-07-29T00:00:00.000Z"),
     });
 }
 
@@ -190,7 +190,7 @@ describe("integration run reset", () => {
     const result = resetIntegrationMvp({
       repositoryRoot,
       destination,
-      now: new Date("2026-07-29T00:00:00.000Z"),
+      now: () => new Date("2026-07-29T00:00:00.000Z"),
     });
     const git = (...args: string[]) =>
       spawnSync("git", args, { cwd: destination, encoding: "utf8" }).stdout.trim();
@@ -278,7 +278,7 @@ describe("integration run reset", () => {
     const result = resetIntegrationMvp({
       repositoryRoot,
       destination,
-      now: new Date("2026-07-29T00:00:00.000Z"),
+      now: () => new Date("2026-07-29T00:00:00.000Z"),
     });
     const markerPath = join(destination, ".git", "pi-super-messenger-eval-marker.json");
 
