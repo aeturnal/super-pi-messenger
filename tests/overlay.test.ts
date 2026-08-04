@@ -5,6 +5,7 @@ import { autonomousState, startPlanningRun, clearPlanningState } from "../crew/s
 import { createTempCrewDirs } from "./helpers/temp-dirs.ts";
 
 const executeRevise = vi.hoisted(() => vi.fn(async () => ({ success: true, message: "Revised" })));
+const executeReviseTree = vi.hoisted(() => vi.fn(async () => ({ success: true, message: "Revised tree" })));
 
 vi.mock("../crew/spawn.ts", async importOriginal => {
   const actual = await importOriginal<typeof import("../crew/spawn.ts")>();
@@ -18,7 +19,7 @@ vi.mock("../crew/lobby.ts", async importOriginal => {
 
 vi.mock("../crew/handlers/revise.ts", async importOriginal => {
   const actual = await importOriginal<typeof import("../crew/handlers/revise.ts")>();
-  return { ...actual, executeRevise };
+  return { ...actual, executeRevise, executeReviseTree };
 });
 
 import { MessengerOverlay } from "../overlay.ts";
@@ -182,6 +183,33 @@ describe("MessengerOverlay current host model routing", () => {
     overlay.render(80);
 
     expect(spawnWorkersForReadyTasks).toHaveBeenCalledWith(cwd, 1, "anthropic/claude-opus-4-6");
+    overlay.dispose();
+  });
+
+  it("uses the provider-qualified current model after a switch for tree revision launch", async () => {
+    const { cwd } = createTempCrewDirs();
+    crewStore.createPlan(cwd, "docs/PRD.md");
+    const task = crewStore.createTask(cwd, "Revise tree with current model");
+    let currentModel = "openai-codex/gpt-5.6-terra";
+    const overlay = new MessengerOverlay(
+      { requestRender: vi.fn() } as any,
+      theme,
+      createState(cwd),
+      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
+      () => {},
+      {},
+      cwd,
+      () => currentModel,
+    );
+
+    currentModel = "anthropic/claude-opus-4-6";
+    overlay.handleInput("P");
+    overlay.handleInput("\r");
+
+    await vi.waitFor(() => {
+      expect(executeReviseTree).toHaveBeenCalledWith(cwd, task.id, undefined, "Lead", "anthropic/claude-opus-4-6");
+    });
+    expect(executeReviseTree).not.toHaveBeenCalledWith(cwd, task.id, undefined, "Lead", "stale-provider/stale-model");
     overlay.dispose();
   });
 
