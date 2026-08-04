@@ -16,6 +16,7 @@ import { generateMemorableName } from "../lib.ts";
 import { resolveThinking, modelHasThinkingSuffix, pushModelArgs, getPiCommand, resolveModel } from "./agents.ts";
 import { discoverCrewAgents } from "./utils/discover.ts";
 import { loadCrewConfig, type CrewConfig } from "./utils/config.ts";
+import * as teamStore from "./team/store.ts";
 import {
   createProgress,
   parseJsonlLine,
@@ -51,7 +52,7 @@ function lobbyTaskId(id: string): string {
   return `__lobby-${id}__`;
 }
 
-export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionModel?: string): LobbyWorker | null {
+export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionModel?: string, modelOverride?: string): LobbyWorker | null {
   const agents = discoverCrewAgents(cwd);
   const workerConfig = agents.find(a => a.name === "crew-worker");
   if (!workerConfig) return null;
@@ -69,7 +70,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   const prompt = promptOverride ?? buildLobbyPrompt(cwd, config);
 
   const args = ["--mode", "json", "--no-session", "-p"];
-  const model = resolveModel(undefined, undefined, undefined, config.models?.worker, sessionModel, workerConfig.model);
+  const model = modelOverride ?? resolveModel(undefined, undefined, undefined, config.models?.worker, sessionModel, workerConfig.model);
   if (model) pushModelArgs(args, model);
 
   const thinking = resolveThinking(
@@ -322,12 +323,17 @@ export function spawnWorkerForTask(
   taskId: string,
   taskPrompt: string,
   sessionModel?: string,
+  requestModel?: string,
 ): LobbyWorker | null {
   const task = store.getTask(cwd, taskId);
   if (!task || task.status !== "todo") return null;
   if (hasActiveWorker(cwd, taskId)) return null;
 
-  const worker = spawnLobbyWorker(cwd, taskPrompt, sessionModel);
+  const config = loadCrewConfig(store.getCrewDir(cwd));
+  const roleName = teamStore.resolveRoleName(cwd, task.role);
+  const roleModel = roleName ? teamStore.resolveRoles(cwd)[roleName]?.model : undefined;
+  const taskModel = resolveModel(task.model, requestModel, roleModel, config.models?.worker, sessionModel);
+  const worker = spawnLobbyWorker(cwd, taskPrompt, sessionModel, taskModel);
   if (!worker) return null;
 
   removeLiveWorker(cwd, lobbyTaskId(worker.lobbyId));

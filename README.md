@@ -233,7 +233,7 @@ Crew spawns multiple LLM sessions in parallel — it can burn tokens fast. Start
 { "crew": { "models": { "worker": "claude-haiku-4-5" } } }
 ```
 
-By default, Crew agents inherit the host session model unless a task, request, role, config, or agent frontmatter model says otherwise. Override per-role as needed:
+By default, Crew agents inherit the current host session model unless a task, request, role, config, or agent frontmatter model says otherwise. Crew reads the current host context for each action; it falls back to saved session state only when that context has no model. Override per-role as needed:
 
 ```json
 {

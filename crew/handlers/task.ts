@@ -17,6 +17,7 @@ import { executeTaskAction } from "../task-actions.ts";
 import { taskRevise, taskReviseTree } from "./revise.ts";
 import { approvalTaskSummaries, taskMetadataMarkers } from "../utils/task-format.ts";
 import { isCrewChildProcess } from "../utils/child-process.ts";
+import { hasActiveWorker } from "../registry.ts";
 export { executeRevise, executeReviseTree, type ReviseResult } from "./revise.ts";
 
 function revisionHint(task: Task): string {
@@ -778,7 +779,9 @@ function taskReset(cwd: string, params: CrewParams, state: MessengerState) {
 
   const cascade = params.cascade ?? false;
   const action = cascade ? "cascade-reset" : "reset";
-  const actionResult = executeTaskAction(cwd, action, id, state.agentName || "unknown");
+  const actionResult = executeTaskAction(cwd, action, id, state.agentName || "unknown", undefined, {
+    isWorkerActive: workerTaskId => hasActiveWorker(cwd, workerTaskId),
+  });
   if (!actionResult.success) {
     return result(`Error: ${actionResult.message}`, {
       mode: "task.reset",

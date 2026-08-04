@@ -62,6 +62,11 @@ vi.mock("../../crew/live-progress.ts", () => ({
   removeLiveWorker: vi.fn(),
 }));
 
+vi.mock("../../crew/team/store.ts", () => ({
+  resolveRoleName: vi.fn(() => undefined),
+  resolveRoles: vi.fn(() => ({})),
+}));
+
 vi.mock("../../lib.ts", async () => {
   let counter = 0;
   return {
@@ -415,6 +420,60 @@ describe("lobby workers", () => {
     expect(budgets.none).toBeLessThan(budgets.minimal);
     expect(budgets.minimal).toBeLessThan(budgets.moderate);
     expect(budgets.moderate).toBeLessThan(budgets.chatty);
+  });
+
+  it.each([
+    ["task", "task-model", "request-model", "role-model", "config-model", "host-model", "agent-model", "task-model"],
+    ["request", undefined, "request-model", "role-model", "config-model", "host-model", "agent-model", "request-model"],
+    ["Team role", undefined, undefined, "role-model", "config-model", "host-model", "agent-model", "role-model"],
+    ["Crew config", undefined, undefined, undefined, "config-model", "host-model", "agent-model", "config-model"],
+    ["host", undefined, undefined, undefined, undefined, "openai-codex/gpt-5.6-terra", "agent-model", "openai-codex/gpt-5.6-terra"],
+    ["agent frontmatter", undefined, undefined, undefined, undefined, undefined, "agent-model", "agent-model"],
+  ])("uses %s model precedence for a newly spawned task worker", async (
+    _source,
+    taskModel,
+    requestModel,
+    roleModel,
+    configModel,
+    sessionModel,
+    agentModel,
+    expectedModel,
+  ) => {
+    const storeModule = await import("../../crew/store.ts");
+    const configModule = await import("../../crew/utils/config.ts");
+    const discoverModule = await import("../../crew/utils/discover.ts");
+    const teamStore = await import("../../crew/team/store.ts");
+    vi.mocked(storeModule.getTask).mockReturnValueOnce({
+      id: `task-${_source}`, title: "Model task", status: "todo", attempt_count: 0,
+      depends_on: [], description: "", created_at: "", milestone: false,
+      ...(taskModel ? { model: taskModel } : {}),
+      ...(roleModel ? { role: "Engineer" } : {}),
+    } as any);
+    vi.mocked(configModule.loadCrewConfig).mockReturnValue({
+      concurrency: { workers: 4 },
+      models: configModel ? { worker: configModel } : {},
+      artifacts: { enabled: false },
+      work: {},
+      coordination: "chatty",
+    } as any);
+    vi.mocked(discoverModule.discoverCrewAgents).mockReturnValue([{
+      name: "crew-worker", description: "worker", systemPrompt: "# Worker", tools: [],
+      source: "extension", filePath: "/ext/crew-worker.md", crewRole: "worker",
+      ...(agentModel ? { model: agentModel } : {}),
+    }]);
+    vi.mocked(teamStore.resolveRoleName).mockReturnValue(roleModel ? "Engineer" : undefined);
+    vi.mocked(teamStore.resolveRoles).mockReturnValue(roleModel ? { Engineer: { model: roleModel } } : {});
+
+    lobby.spawnWorkerForTask("/test/cwd", `task-${_source}`, "# Task prompt", sessionModel, requestModel);
+
+    const args = vi.mocked(spawn).mock.calls.at(-1)?.[1] as string[];
+    if (expectedModel.includes("/")) {
+      expect(args).toContain("--provider");
+      expect(args[args.indexOf("--provider") + 1]).toBe("openai-codex");
+      expect(args[args.indexOf("--model") + 1]).toBe("gpt-5.6-terra");
+    } else {
+      expect(args[args.indexOf("--model") + 1]).toBe(expectedModel);
+    }
   });
 
   it("spawnWorkerForTask spawns and immediately assigns", async () => {

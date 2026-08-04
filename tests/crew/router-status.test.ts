@@ -3,6 +3,8 @@ import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { MessengerState, Dirs } from "../../lib.ts";
 import { executeCrewAction } from "../../crew/index.ts";
+import * as store from "../../crew/store.ts";
+import { registerWorker, unregisterWorker } from "../../crew/registry.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 import { createMockContext } from "../helpers/mock-context.ts";
 
@@ -85,5 +87,38 @@ describe("crew action router status behavior", () => {
 
     const text = response.content[0].text;
     expect(text).toContain("# Crew Status");
+  });
+
+  it("rejects task.reset through the pi_messenger route while its worker is active", async () => {
+    const { cwd } = createTempCrewDirs();
+    const state = createTestState("AgentOne");
+    const dirs = createDirs(cwd);
+    const task = store.createTask(cwd, "Active task", "");
+    store.startTask(cwd, task.id, "WorkerOne");
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "WorkerOne",
+      proc: { exitCode: null, killed: false, kill: vi.fn() } as never,
+    });
+
+    try {
+      const response = await executeCrewAction(
+        "task.reset",
+        { id: task.id },
+        state,
+        dirs,
+        createMockContext(cwd),
+        () => {},
+        () => {},
+        vi.fn(),
+      );
+
+      expect(response.details.error).toBe("active_worker");
+      expect(store.getTask(cwd, task.id)?.status).toBe("in_progress");
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
   });
 });

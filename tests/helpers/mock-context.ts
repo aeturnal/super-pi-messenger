@@ -17,6 +17,6 @@ export function createMockContext(cwd: string = process.cwd()): ExtensionContext
       getEntries: () => [],
       getSessionId: () => "test-session",
     } as unknown as ExtensionContext["sessionManager"],
-    model: "test-model",
+    model: { provider: "test-provider", id: "test-model" },
   } as unknown as ExtensionContext;
 }

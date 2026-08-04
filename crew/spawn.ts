@@ -27,6 +27,7 @@ export function spawnWorkersForReadyTasks(
   cwd: string,
   maxWorkers: number,
   sessionModel?: string,
+  requestModel?: string,
 ): SpawnResult {
   const plan = store.getPlan(cwd);
   if (!plan) return { assigned: 0, firstWorkerName: null };
@@ -77,7 +78,7 @@ export function spawnWorkersForReadyTasks(
     const task = fresh[0];
     const others = fresh.filter(t => t.id !== task.id);
     const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
-    const worker = spawnWorkerForTask(cwd, task.id, prompt, sessionModel);
+    const worker = spawnWorkerForTask(cwd, task.id, prompt, sessionModel, requestModel);
     if (!worker) break;
 
     if (!firstWorkerName) firstWorkerName = worker.name;
@@ -91,6 +92,7 @@ export function spawnSingleWorker(
   cwd: string,
   taskId: string,
   sessionModel?: string,
+  requestModel?: string,
 ): { name: string } | null {
   const plan = store.getPlan(cwd);
   if (!plan) return null;
@@ -106,6 +108,6 @@ export function spawnSingleWorker(
   const readyTasks = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
   const others = readyTasks.filter(t => t.id !== task.id);
   const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
-  const worker = spawnWorkerForTask(cwd, taskId, prompt, sessionModel);
+  const worker = spawnWorkerForTask(cwd, taskId, prompt, sessionModel, requestModel);
   return worker ? { name: worker.name } : null;
 }

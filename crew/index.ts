@@ -24,6 +24,12 @@ export interface CrewActionConfig {
   feedRetention?: number;
 }
 
+function getHostSessionModel(ctx: ExtensionContext, state: MessengerState): string | undefined {
+  // state.model is persisted session state and can lag a host-side model switch.
+  // Only use it when the current ExtensionContext provides no model.
+  return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : state.model || undefined;
+}
+
 /**
  * Execute a crew action.
  * 
@@ -41,7 +47,7 @@ export async function executeCrewAction(
   config?: CrewActionConfig,
   signal?: AbortSignal
 ) {
-  const sessionModel = state.model || undefined;
+  const sessionModel = getHostSessionModel(ctx, state);
   // Parse action: "task.show" → group="task", op="show"
   const dotIndex = action.indexOf('.');
   const group = dotIndex > 0 ? action.slice(0, dotIndex) : action;
