@@ -175,7 +175,14 @@ describe("Team task approval gates", () => {
     const approval = await taskHandler.execute("approve", { id: gated.id }, createState("Lead"), createMockContext(cwd));
 
     expect(approval.details.task).toMatchObject({ approval: { status: "approved" } });
-    expect(approval.details.task).not.toMatchObject({ approval: { feedback: expect.anything() } });
+    const approvedTask = approval.details.task;
+    if (
+      typeof approvedTask !== "object" || approvedTask === null ||
+      !("approval" in approvedTask) || typeof approvedTask.approval !== "object" || approvedTask.approval === null
+    ) {
+      throw new Error("Expected approved task details");
+    }
+    expect("feedback" in approvedTask.approval ? approvedTask.approval.feedback : undefined).toBeUndefined();
   });
 
   it("rejects approval changes after work starts or finishes", async () => {
