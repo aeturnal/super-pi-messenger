@@ -86,6 +86,10 @@ let overlayTui: TUI | null = null;
 let overlayHandle: OverlayHandle | null = null;
 let overlayOpening = false;
 
+function getCurrentSessionModel(ctx: ExtensionContext): string | undefined {
+  return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+}
+
 export default function piMessengerExtension(pi: ExtensionAPI) {
   // One-time migration: remove stale crew agents from shared ~/.pi/agent/agents/
   // (crew agents now discovered from extension-local directory)
@@ -602,7 +606,7 @@ Usage (action-based API - preferred):
       const snapshot = await ctx.ui.custom<string | undefined>(
         (tui, theme, _keybindings, done) => {
           overlayTui = tui;
-          return new MessengerOverlay(tui, theme, state, dirs, done, callbacks, ctx.cwd);
+          return new MessengerOverlay(tui, theme, state, dirs, done, callbacks, ctx.cwd, () => getCurrentSessionModel(ctx));
         },
         {
           overlay: true,
@@ -950,7 +954,7 @@ Usage (action-based API - preferred):
     ctx.ui.custom<string | undefined>(
       (tui, theme, _keybindings, done) => {
         overlayTui = tui;
-        return new MessengerOverlay(tui, theme, state, dirs, done, callbacks, ctx.cwd);
+        return new MessengerOverlay(tui, theme, state, dirs, done, callbacks, ctx.cwd, () => getCurrentSessionModel(ctx));
       },
       {
         overlay: true,

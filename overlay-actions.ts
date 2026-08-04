@@ -207,6 +207,7 @@ export function handleRevisePromptInput(
   task: Task | undefined,
   agentName: string,
   tui: TUI,
+  sessionModel?: string,
 ): void {
   if (matchesKey(data, "escape")) {
     viewState.inputMode = "normal";
@@ -236,7 +237,7 @@ export function handleRevisePromptInput(
     const t = tui;
     const fn = scope === "tree" ? "executeReviseTree" : "executeRevise";
     import("./crew/handlers/revise.ts")
-      .then(m => m[fn](cwd, task.id, prompt, agentName))
+      .then(m => m[fn](cwd, task.id, prompt, agentName, sessionModel))
       .then(result => {
         setNotification(vs, t, result.success, result.message);
       })

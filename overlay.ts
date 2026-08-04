@@ -76,6 +76,7 @@ export class MessengerOverlay implements Component, Focusable {
     private done: (snapshot?: string) => void,
     private callbacks: OverlayCallbacks,
     cwd: string,
+    private getCurrentSessionModel: () => string | undefined = () => undefined,
   ) {
     this.cwd = cwd;
     const cfg = loadConfig(this.cwd);
@@ -116,7 +117,7 @@ export class MessengerOverlay implements Component, Focusable {
       return;
     }
 
-    const worker = spawnSingleWorker(this.cwd, task.id, this.state.model);
+    const worker = spawnSingleWorker(this.cwd, task.id, this.getCurrentSessionModel());
     if (worker) {
       setNotification(this.crewViewState, this.tui, true, `${worker.name} → ${task.id}`);
     } else {
@@ -126,7 +127,7 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   private spawnWorkerForReadyTask(task: Task, newConcurrency: number): void {
-    const worker = spawnSingleWorker(this.cwd, task.id, this.state.model);
+    const worker = spawnSingleWorker(this.cwd, task.id, this.getCurrentSessionModel());
     if (!worker) {
       const message = teamStore.taskNeedsRevision(task)
         ? `${task.id} needs revision`
@@ -158,7 +159,7 @@ export class MessengerOverlay implements Component, Focusable {
     let mutated = false;
     if (startableTasks.length > 0) {
       const target = Math.min(startableTasks.length, autonomousState.concurrency);
-      const { assigned, mutated: spawnMutated } = spawnWorkersForReadyTasks(this.cwd, target, this.state.model);
+      const { assigned, mutated: spawnMutated } = spawnWorkersForReadyTasks(this.cwd, target, this.getCurrentSessionModel());
       if (spawnMutated) {
         mutated = true;
       }
@@ -196,7 +197,7 @@ export class MessengerOverlay implements Component, Focusable {
     const target = Math.min(startableTasks.length, slots);
     if (target <= 0) return false;
 
-    const { assigned, mutated } = spawnWorkersForReadyTasks(this.cwd, target, this.state.model);
+    const { assigned, mutated } = spawnWorkersForReadyTasks(this.cwd, target, this.getCurrentSessionModel());
     if (assigned > 0) {
       setNotification(this.crewViewState, this.tui, true, `${assigned} worker${assigned > 1 ? "s" : ""} → ready tasks`);
       this.tui.requestRender();
@@ -281,7 +282,15 @@ export class MessengerOverlay implements Component, Focusable {
     if (this.crewViewState.inputMode === "revise-prompt") {
       const tasks = crewStore.getTasks(this.cwd);
       const task = tasks[this.crewViewState.selectedTaskIndex];
-      handleRevisePromptInput(data, this.crewViewState, this.cwd, task, this.state.agentName, this.tui);
+      handleRevisePromptInput(
+        data,
+        this.crewViewState,
+        this.cwd,
+        task,
+        this.state.agentName,
+        this.tui,
+        this.getCurrentSessionModel(),
+      );
       return;
     }
 
@@ -309,7 +318,7 @@ export class MessengerOverlay implements Component, Focusable {
       if (next > prev) {
         const readyTasks = crewStore.getReadyTasks(this.cwd, { advisory: config.dependencies === "advisory" });
         if (readyTasks.length === 0) {
-          const worker = spawnLobbyWorker(this.cwd, undefined, this.state.model);
+          const worker = spawnLobbyWorker(this.cwd, undefined, this.getCurrentSessionModel());
           const label = worker ? `Lobby worker ${worker.name} spawned (${next}w)` : `Workers → ${next}`;
           setNotification(this.crewViewState, this.tui, true, label);
         } else {
