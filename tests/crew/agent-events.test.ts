@@ -120,6 +120,113 @@ describe("crew agent event handling", () => {
     expect(result.error).toContain("Provider error 400");
   });
 
+  it.each([
+    ["message_update", "401: Invalid API key"],
+    ["message_end", "401: Invalid API key"],
+    ["message_update", "401: Invalid credential provided"],
+    ["message_end", "401: Invalid credential provided"],
+    ["message_update", "402: Payment required"],
+    ["message_end", "402: Payment required"],
+    ["message_update", "429: Too many requests"],
+    ["message_end", "429: Too many requests"],
+    ["message_update", "429: RESOURCE_EXHAUSTED"],
+    ["message_end", "429: Resource exhausted"],
+  ])("fails fast on terminal assistant %s errors: %s", async (type, errorMessage) => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify({
+      type,
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage,
+      },
+    })}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain(errorMessage);
+  });
+
+  it.each([
+    ["ordinary assistant content", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Example response: 401: Invalid API key" }],
+        stopReason: "stop",
+      },
+    }],
+    ["tool output", {
+      type: "message_end",
+      message: {
+        role: "toolResult",
+        content: [{ type: "text", text: "401: Invalid API key" }],
+        stopReason: "error",
+        errorMessage: "401: Invalid API key",
+      },
+    }],
+    ["a non-error stop reason", {
+      type: "message_update",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "stop",
+        errorMessage: "429: Too many requests",
+      },
+    }],
+    ["unrelated allowlisted 4xx text", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: Malformed JSON request body",
+      },
+    }],
+    ["an unrelated 4xx status", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "404: Resource not found",
+      },
+    }],
+  ])("does not fail fast on %s", async (_label, event) => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify(event)}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).not.toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
+  });
+
   it("fails fast on terminal provider quota errors", async () => {
     const proc = createProcess();
     spawnMock.mockReturnValue(proc);
