@@ -76,8 +76,8 @@ describe("MessengerOverlay task snapshots", () => {
 
     vi.mocked(spawnWorkersForReadyTasks).mockImplementationOnce(() => {
       crewStore.updateTask(cwd, firstTask.id, { status: "in_progress", assigned_to: "WorkerOne" });
-      return { assigned: 1, firstWorkerName: "WorkerOne" };
-    }).mockReturnValue({ assigned: 0, firstWorkerName: null });
+      return { assigned: 1, firstWorkerName: "WorkerOne", mutated: true };
+    }).mockReturnValue({ assigned: 0, firstWorkerName: null, mutated: false });
 
     startPlanningRun(cwd, 1);
     const overlay = new MessengerOverlay(
@@ -118,12 +118,49 @@ describe("MessengerOverlay task snapshots", () => {
     crewStore.updateTask(cwd, completedTask!.id, { status: "done", assigned_to: undefined });
     vi.mocked(spawnWorkersForReadyTasks).mockImplementation(() => {
       crewStore.updateTask(cwd, refilledTask!.id, { status: "in_progress", assigned_to: "WorkerTwo" });
-      return { assigned: 1, firstWorkerName: "WorkerTwo" };
+      return { assigned: 1, firstWorkerName: "WorkerTwo", mutated: true };
     });
 
     const frame = overlay.render(80).join("\n");
 
     expect(frame).toContain("● task-2  Refilled work (WorkerTwo)");
+    overlay.dispose();
+  });
+
+  it("reloads failed lobby assignment metadata before detail output", () => {
+    const { cwd } = createTempCrewDirs();
+    crewStore.createPlan(cwd, "docs/PRD.md");
+    crewStore.createTask(cwd, "Retry the lobby assignment");
+    const task = crewStore.getTasks(cwd)[0]!;
+
+    vi.mocked(spawnWorkersForReadyTasks).mockImplementation(() => {
+      crewStore.updateTask(cwd, task.id, {
+        status: "in_progress",
+        started_at: new Date().toISOString(),
+        base_commit: "base-before-delivery",
+        assigned_to: "LobbyOne",
+        attempt_count: 1,
+      });
+      crewStore.updateTask(cwd, task.id, { status: "todo", assigned_to: undefined });
+      return { assigned: 0, firstWorkerName: null, mutated: true };
+    });
+
+    startPlanningRun(cwd, 1);
+    const overlay = new MessengerOverlay(
+      { requestRender: vi.fn() } as any,
+      theme,
+      createState(cwd),
+      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
+      () => {},
+      {},
+      cwd,
+    );
+    clearPlanningState(cwd);
+    (overlay as any).crewViewState.mode = "detail";
+
+    const frame = overlay.render(80).join("\n");
+
+    expect(frame).toContain("Status: todo  │  Attempts: 1");
     overlay.dispose();
   });
 
@@ -135,7 +172,7 @@ describe("MessengerOverlay task snapshots", () => {
 
     vi.mocked(spawnWorkersForReadyTasks).mockImplementation(() => {
       crewStore.updateTask(cwd, task.id, { status: "in_progress", assigned_to: "WorkerOne" });
-      return { assigned: 1, firstWorkerName: "WorkerOne" };
+      return { assigned: 1, firstWorkerName: "WorkerOne", mutated: true };
     });
 
     startPlanningRun(cwd, 1);

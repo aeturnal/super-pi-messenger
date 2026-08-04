@@ -158,9 +158,11 @@ export class MessengerOverlay implements Component, Focusable {
     let mutated = false;
     if (startableTasks.length > 0) {
       const target = Math.min(startableTasks.length, autonomousState.concurrency);
-      const { assigned } = spawnWorkersForReadyTasks(this.cwd, target, this.state.model);
-      if (assigned > 0) {
+      const { assigned, mutated: spawnMutated } = spawnWorkersForReadyTasks(this.cwd, target, this.state.model);
+      if (spawnMutated) {
         mutated = true;
+      }
+      if (assigned > 0) {
         setNotification(this.crewViewState, this.tui, true, `Plan ready — ${assigned} worker${assigned > 1 ? "s" : ""} started`);
         this.tui.requestRender();
       }
@@ -194,13 +196,12 @@ export class MessengerOverlay implements Component, Focusable {
     const target = Math.min(startableTasks.length, slots);
     if (target <= 0) return false;
 
-    const { assigned } = spawnWorkersForReadyTasks(this.cwd, target, this.state.model);
+    const { assigned, mutated } = spawnWorkersForReadyTasks(this.cwd, target, this.state.model);
     if (assigned > 0) {
       setNotification(this.crewViewState, this.tui, true, `${assigned} worker${assigned > 1 ? "s" : ""} → ready tasks`);
       this.tui.requestRender();
-      return true;
     }
-    return false;
+    return mutated;
   }
 
   private syncCrewRefreshTimers(): void {

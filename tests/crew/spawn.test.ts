@@ -97,4 +97,23 @@ describe("spawnWorkersForReadyTasks", () => {
     expect(lobbyMock.assignTaskToLobbyWorker).toHaveBeenCalledTimes(1);
     expect(lobbyMock.spawnWorkerForTask).not.toHaveBeenCalled();
   });
+
+  it("reports mutation when a failed lobby assignment retains task start metadata", () => {
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue([{ name: "Lobby1", lobbyId: "lb-1" }]);
+    lobbyMock.assignTaskToLobbyWorker.mockReturnValue(false);
+    lobbyMock.spawnWorkerForTask.mockReturnValue(null);
+    vi.spyOn(store, "getBaseCommit").mockReturnValue("base-before-delivery");
+    const task = store.getTasks(dirs.cwd)[0]!;
+
+    const result = spawn.spawnWorkersForReadyTasks(dirs.cwd, 1);
+    const updated = store.getTask(dirs.cwd, task.id)!;
+
+    expect(result.assigned).toBe(0);
+    expect(result.mutated).toBe(true);
+    expect(updated.status).toBe("todo");
+    expect(updated.assigned_to).toBeUndefined();
+    expect(updated.attempt_count).toBe(1);
+    expect(updated.started_at).toEqual(expect.any(String));
+    expect(updated.base_commit).toBe("base-before-delivery");
+  });
 });

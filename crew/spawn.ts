@@ -21,6 +21,7 @@ import {
 export interface SpawnResult {
   assigned: number;
   firstWorkerName: string | null;
+  mutated: boolean;
 }
 
 export function spawnWorkersForReadyTasks(
@@ -30,7 +31,7 @@ export function spawnWorkersForReadyTasks(
   requestModel?: string,
 ): SpawnResult {
   const plan = store.getPlan(cwd);
-  if (!plan) return { assigned: 0, firstWorkerName: null };
+  if (!plan) return { assigned: 0, firstWorkerName: null, mutated: false };
 
   const crewDir = store.getCrewDir(cwd);
   const config = loadCrewConfig(crewDir);
@@ -41,6 +42,7 @@ export function spawnWorkersForReadyTasks(
 
   let assigned = 0;
   let firstWorkerName: string | null = null;
+  let mutated = false;
 
   const lobby = getAvailableLobbyWorkers(cwd);
   for (const lw of lobby) {
@@ -52,6 +54,7 @@ export function spawnWorkersForReadyTasks(
     const others = fresh.filter(t => t.id !== task.id);
     const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
 
+    mutated = true;
     store.updateTask(cwd, task.id, {
       status: "in_progress",
       started_at: new Date().toISOString(),
@@ -83,9 +86,10 @@ export function spawnWorkersForReadyTasks(
 
     if (!firstWorkerName) firstWorkerName = worker.name;
     assigned++;
+    mutated = true;
   }
 
-  return { assigned, firstWorkerName };
+  return { assigned, firstWorkerName, mutated };
 }
 
 export function spawnSingleWorker(
