@@ -590,7 +590,7 @@ export class MessengerOverlay implements Component, Focusable {
     const emptyRow = () => border("│") + " ".repeat(innerW) + border("│");
     const sectionSeparator = this.theme.fg("dim", "─".repeat(sectionW));
 
-    const tasks = crewStore.getTasks(this.cwd);
+    let tasks = crewStore.getTasks(this.cwd);
     if (tasks.length === 0) {
       this.crewViewState.selectedTaskIndex = 0;
       if (this.crewViewState.mode === "detail") this.crewViewState.mode = "list";
@@ -598,11 +598,18 @@ export class MessengerOverlay implements Component, Focusable {
       this.crewViewState.selectedTaskIndex = Math.max(0, Math.min(this.crewViewState.selectedTaskIndex, tasks.length - 1));
     }
 
-    const selectedTask = tasks[this.crewViewState.selectedTaskIndex] ?? null;
     const hasPlan = this.hasPlan();
     const planning = this.isPlanningActiveForCurrentProject();
     this.checkAutoSpawnOnPlanComplete(planning, tasks);
     this.checkAutoRefillWorkers(tasks, hasPlan);
+    tasks = crewStore.getTasks(this.cwd);
+    if (tasks.length === 0) {
+      this.crewViewState.selectedTaskIndex = 0;
+      if (this.crewViewState.mode === "detail") this.crewViewState.mode = "list";
+    } else {
+      this.crewViewState.selectedTaskIndex = Math.max(0, Math.min(this.crewViewState.selectedTaskIndex, tasks.length - 1));
+    }
+    const selectedTask = tasks[this.crewViewState.selectedTaskIndex] ?? null;
 
     const lines: string[] = [];
     const titleContent = this.renderTitleContent();
