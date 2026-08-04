@@ -36,10 +36,10 @@ vi.mock("../../feed.ts", () => ({
 
 vi.mock("../../crew/utils/config.ts", () => ({
   loadCrewConfig: vi.fn(() => ({
-    concurrency: { workers: 4 },
+    concurrency: { workers: 4, max: 10 },
     models: {},
-    artifacts: { enabled: false },
-    work: {},
+    artifacts: { enabled: false, cleanupDays: 7 },
+    work: { maxAttemptsPerTask: 5, maxWaves: 50, stopOnBlock: false },
     coordination: "chatty",
   })),
 }));
@@ -348,10 +348,10 @@ describe("lobby workers", () => {
     const storeModule = await import("../../crew/store.ts");
     const configModule = await import("../../crew/utils/config.ts");
     vi.mocked(configModule.loadCrewConfig).mockReturnValue({
-      concurrency: { workers: 4 },
+      concurrency: { workers: 4, max: 10 },
       models: {},
-      artifacts: { enabled: false },
-      work: { maxAttemptsPerTask: 3 },
+      artifacts: { enabled: false, cleanupDays: 7 },
+      work: { maxAttemptsPerTask: 3, maxWaves: 50, stopOnBlock: false },
       coordination: "chatty",
     } as any);
 
@@ -450,10 +450,10 @@ describe("lobby workers", () => {
       ...(roleModel ? { role: "Engineer" } : {}),
     } as any);
     vi.mocked(configModule.loadCrewConfig).mockReturnValue({
-      concurrency: { workers: 4 },
+      concurrency: { workers: 4, max: 10 },
       models: configModel ? { worker: configModel } : {},
-      artifacts: { enabled: false },
-      work: {},
+      artifacts: { enabled: false, cleanupDays: 7 },
+      work: { maxAttemptsPerTask: 5, maxWaves: 50, stopOnBlock: false },
       coordination: "chatty",
     } as any);
     vi.mocked(discoverModule.discoverCrewAgents).mockReturnValue([{
@@ -462,7 +462,7 @@ describe("lobby workers", () => {
       ...(agentModel ? { model: agentModel } : {}),
     }]);
     vi.mocked(teamStore.resolveRoleName).mockReturnValue(roleModel ? "Engineer" : undefined);
-    vi.mocked(teamStore.resolveRoles).mockReturnValue(roleModel ? { Engineer: { model: roleModel } } : {});
+    vi.mocked(teamStore.resolveRoles).mockReturnValue(roleModel ? { Engineer: { name: "Engineer", model: roleModel } } : {});
 
     lobby.spawnWorkerForTask("/test/cwd", `task-${_source}`, "# Task prompt", sessionModel, requestModel);
 
@@ -539,11 +539,23 @@ describe("lobby workers", () => {
   it("builds minimal lobby prompt without chat instructions", async () => {
     const config = await import("../../crew/utils/config.ts");
     vi.mocked(config.loadCrewConfig).mockReturnValue({
-      concurrency: { workers: 4 },
+      concurrency: { workers: 4, max: 10 },
       models: {},
-      artifacts: { enabled: false },
-      work: {},
+      truncation: {
+        planners: { bytes: 204800, lines: 5000 },
+        workers: { bytes: 204800, lines: 5000 },
+        reviewers: { bytes: 102400, lines: 2000 },
+        analysts: { bytes: 102400, lines: 2000 },
+      },
+      artifacts: { enabled: false, cleanupDays: 7 },
+      memory: { enabled: false },
+      planSync: { enabled: false },
+      review: { enabled: true, maxIterations: 3 },
+      planning: { maxPasses: 1 },
+      work: { maxAttemptsPerTask: 5, maxWaves: 50, stopOnBlock: false },
+      dependencies: "advisory",
       coordination: "minimal",
+      messageBudgets: { none: 0, minimal: 2, moderate: 5, chatty: 10 },
     });
 
     const { spawn } = await import("node:child_process");
