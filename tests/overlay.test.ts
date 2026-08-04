@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Dirs, MessengerState } from "../lib.ts";
 import * as crewStore from "../crew/store.ts";
-import { startPlanningRun, clearPlanningState } from "../crew/state.ts";
+import { autonomousState, startPlanningRun, clearPlanningState } from "../crew/state.ts";
 import { createTempCrewDirs } from "./helpers/temp-dirs.ts";
 
 vi.mock("../crew/spawn.ts", async importOriginal => {
@@ -41,9 +41,92 @@ function createState(cwd: string): MessengerState {
 
 afterEach(() => {
   vi.clearAllMocks();
+  autonomousState.concurrency = 2;
 });
 
 describe("MessengerOverlay task snapshots", () => {
+  it("reads the task directory once during an ordinary render", () => {
+    const { cwd } = createTempCrewDirs();
+    crewStore.createPlan(cwd, "docs/PRD.md");
+    crewStore.createTask(cwd, "Render from one snapshot");
+    const getTasks = vi.spyOn(crewStore, "getTasks");
+    const overlay = new MessengerOverlay(
+      { requestRender: vi.fn() } as any,
+      theme,
+      createState(cwd),
+      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
+      () => {},
+      {},
+      cwd,
+    );
+
+    overlay.render(80);
+
+    expect(getTasks).toHaveBeenCalledTimes(1);
+    overlay.dispose();
+  });
+
+  it("reloads the auto-spawn result before auto-refill checks task readiness", () => {
+    const { cwd } = createTempCrewDirs();
+    crewStore.createPlan(cwd, "docs/PRD.md");
+    crewStore.createTask(cwd, "Auto-spawn first");
+    crewStore.createTask(cwd, "Auto-refill second");
+    const firstTask = crewStore.getTasks(cwd)[0]!;
+    const readySnapshots = vi.spyOn(crewStore, "getReadyTasksFrom");
+
+    vi.mocked(spawnWorkersForReadyTasks).mockImplementationOnce(() => {
+      crewStore.updateTask(cwd, firstTask.id, { status: "in_progress", assigned_to: "WorkerOne" });
+      return { assigned: 1, firstWorkerName: "WorkerOne" };
+    }).mockReturnValue({ assigned: 0, firstWorkerName: null });
+
+    startPlanningRun(cwd, 1);
+    const overlay = new MessengerOverlay(
+      { requestRender: vi.fn() } as any,
+      theme,
+      createState(cwd),
+      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
+      () => {},
+      {},
+      cwd,
+    );
+    clearPlanningState(cwd);
+    (overlay as any).prevInProgressCount = 2;
+
+    overlay.render(80);
+
+    expect(readySnapshots.mock.calls[1]?.[0].map(task => task.status)).toEqual(["in_progress", "todo"]);
+    overlay.dispose();
+  });
+
+  it("renders an auto-refill assignment in the same frame", () => {
+    const { cwd } = createTempCrewDirs();
+    crewStore.createPlan(cwd, "docs/PRD.md");
+    crewStore.createTask(cwd, "Completed work");
+    crewStore.createTask(cwd, "Refilled work");
+    const [completedTask, refilledTask] = crewStore.getTasks(cwd);
+    crewStore.updateTask(cwd, completedTask!.id, { status: "in_progress", assigned_to: "WorkerOne" });
+    const overlay = new MessengerOverlay(
+      { requestRender: vi.fn() } as any,
+      theme,
+      createState(cwd),
+      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
+      () => {},
+      {},
+      cwd,
+    );
+    overlay.render(80);
+    crewStore.updateTask(cwd, completedTask!.id, { status: "done", assigned_to: undefined });
+    vi.mocked(spawnWorkersForReadyTasks).mockImplementation(() => {
+      crewStore.updateTask(cwd, refilledTask!.id, { status: "in_progress", assigned_to: "WorkerTwo" });
+      return { assigned: 1, firstWorkerName: "WorkerTwo" };
+    });
+
+    const frame = overlay.render(80).join("\n");
+
+    expect(frame).toContain("● task-2  Refilled work (WorkerTwo)");
+    overlay.dispose();
+  });
+
   it("reloads tasks after auto-spawn before rendering the completed planning frame", () => {
     const { cwd } = createTempCrewDirs();
     crewStore.createPlan(cwd, "docs/PRD.md");
