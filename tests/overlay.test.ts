@@ -83,6 +83,32 @@ describe("MessengerOverlay current host model routing", () => {
     overlay.dispose();
   });
 
+  it("uses the switched provider-qualified host model for a ready task after increasing concurrency", () => {
+    const { cwd } = createTempCrewDirs();
+    crewStore.createPlan(cwd, "docs/PRD.md");
+    const task = crewStore.createTask(cwd, "Launch ready task", undefined, undefined, { model: "task-override" });
+    let currentModel = "openai-codex/gpt-5.6-terra";
+    vi.mocked(spawnSingleWorker).mockReturnValue({ name: "WorkerOne" });
+    const overlay = new MessengerOverlay(
+      { requestRender: vi.fn() } as any,
+      theme,
+      createState(cwd),
+      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
+      () => {},
+      {},
+      cwd,
+      () => currentModel,
+    );
+
+    currentModel = "anthropic/claude-opus-4-6";
+    overlay.handleInput("+");
+
+    expect(crewStore.getTask(cwd, task.id)?.model).toBe("task-override");
+    expect(spawnSingleWorker).toHaveBeenCalledWith(cwd, task.id, "anthropic/claude-opus-4-6");
+    expect(spawnSingleWorker).not.toHaveBeenCalledWith(cwd, task.id, "stale-provider/stale-model");
+    overlay.dispose();
+  });
+
   it("uses the provider-qualified current model after a switch for a new lobby worker", () => {
     const { cwd } = createTempCrewDirs();
     let currentModel = "openai-codex/gpt-5.6-terra";
