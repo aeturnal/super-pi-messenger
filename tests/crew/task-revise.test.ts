@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import { createProgress } from "../../crew/utils/progress.ts";
 
 vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
@@ -58,7 +59,7 @@ describe("executeRevise", () => {
       taskId: "__reviser__",
       agent: "crew-planner",
       name: "Reviser",
-      progress: { toolCallCount: 0, tokens: 0, currentTool: undefined, currentToolArgs: undefined, recentTools: [] },
+      progress: createProgress("crew-planner"),
       startedAt: Date.now(),
     });
 
@@ -96,7 +97,7 @@ describe("executeRevise", () => {
       exitCode: 0,
       output: '```revised-task\n{"title": "new title", "spec": "# New Spec\\nRevised content"}\n```',
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeRevise(tmpDir, task.id, "make it better", "agent");
@@ -115,7 +116,7 @@ describe("executeRevise", () => {
       exitCode: 0,
       output: '```revised-task\n{"spec": "# Better Spec\\nImproved"}\n```',
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeRevise(tmpDir, task.id, undefined, "agent");
@@ -133,7 +134,7 @@ describe("executeRevise", () => {
       exitCode: 1,
       output: "",
       error: "planner crashed",
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeRevise(tmpDir, task.id, "fix it", "agent");
@@ -150,7 +151,7 @@ describe("executeRevise", () => {
       exitCode: 0,
       output: "some random output without the expected block",
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeRevise(tmpDir, task.id, undefined, "agent");
@@ -164,7 +165,7 @@ describe("executeRevise", () => {
       exitCode: 0,
       output: '```revised-task\n{"spec": "new spec"}\n```',
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     await executeRevise(tmpDir, task.id, "split auth", "agent");

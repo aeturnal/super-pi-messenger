@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Dirs } from "../../lib.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 import { createMockContext } from "../helpers/mock-context.ts";
+import { createProgress } from "../../crew/utils/progress.ts";
 
 vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
@@ -82,7 +83,7 @@ describe("work with Team approval", () => {
     teamStore.setActiveTeam(cwd, "models", "models");
     store.createPlan(cwd, "docs/PRD.md");
     store.createTask(cwd, "Normal work", "Do work", [], { role: "worker" });
-    vi.mocked(agents.spawnAgents).mockResolvedValue([{ exitCode: 0, output: "", truncated: false, progress: { toolCallCount: 0, tokens: 0 }, agent: "crew-worker", taskId: "task-1" }]);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([{ exitCode: 0, output: "", truncated: false, progress: createProgress("crew-worker"), agent: "crew-worker", taskId: "task-1" }]);
 
     await workHandler.execute({ model: "request-model" }, dirs, createMockContext(cwd), vi.fn());
 
@@ -96,7 +97,7 @@ describe("work with Team approval", () => {
     teamStore.setActiveTeam(cwd, "models", "models");
     store.createPlan(cwd, "docs/PRD.md");
     store.createTask(cwd, "Scout work", "Inspect", [], { role: "Scout" });
-    vi.mocked(agents.spawnAgents).mockResolvedValue([{ exitCode: 0, output: "", truncated: false, progress: { toolCallCount: 0, tokens: 0 }, agent: "crew-worker", taskId: "task-1" }]);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([{ exitCode: 0, output: "", truncated: false, progress: createProgress("crew-worker"), agent: "crew-worker", taskId: "task-1" }]);
 
     await workHandler.execute({}, dirs, createMockContext(cwd), vi.fn());
 
@@ -108,7 +109,7 @@ describe("work with Team approval", () => {
   it("uses the host session model before agent defaults", async () => {
     store.createPlan(cwd, "docs/PRD.md");
     store.createTask(cwd, "Normal work", "Do work");
-    vi.mocked(agents.spawnAgents).mockResolvedValue([{ exitCode: 0, output: "", truncated: false, progress: { toolCallCount: 0, tokens: 0 }, agent: "crew-worker", taskId: "task-1" }]);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([{ exitCode: 0, output: "", truncated: false, progress: createProgress("crew-worker"), agent: "crew-worker", taskId: "task-1" }]);
 
     await workHandler.execute({}, dirs, createMockContext(cwd), vi.fn(), undefined, "session-model");
 
@@ -145,7 +146,7 @@ describe("work with Team approval", () => {
     });
     vi.mocked(agents.spawnAgents).mockImplementation(async () => {
       store.updateTask(cwd, first.id, { status: "done", completed_at: new Date().toISOString(), summary: "Done" });
-      return [{ exitCode: 0, output: "done", truncated: false, progress: { toolCallCount: 0, tokens: 0 }, agent: "crew-worker", taskId: first.id }];
+      return [{ exitCode: 0, output: "done", truncated: false, progress: createProgress("crew-worker"), agent: "crew-worker", taskId: first.id }];
     });
 
     const response = await workHandler.execute({}, dirs, createMockContext(cwd), vi.fn());
