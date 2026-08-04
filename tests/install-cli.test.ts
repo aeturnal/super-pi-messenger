@@ -20,11 +20,16 @@ afterEach(() => {
 });
 
 describe("install.mjs", () => {
-  it("refuses to create a legacy extension copy when native package install is configured", () => {
+  it.each([
+    "npm:pi-messenger",
+    "npm:super-pi-messenger",
+    "git:github.com/aeturnal/super-pi-messenger",
+    "git:github.com/aeturnal/super-pi-messenger@main",
+  ])("refuses a legacy copy when %s is configured", (source) => {
     const home = createTempHome();
     const settingsPath = path.join(home, ".pi", "agent", "settings.json");
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["npm:pi-messenger"] }));
+    fs.writeFileSync(settingsPath, JSON.stringify({ packages: [source] }));
 
     let output = "";
     try {
