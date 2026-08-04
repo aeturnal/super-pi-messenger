@@ -108,7 +108,14 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   args.push(prompt);
 
   const envOverrides = config.work.env ?? {};
-  const env = { ...process.env, ...envOverrides, PI_AGENT_NAME: name, PI_CREW_WORKER: "1", PI_LOBBY_ID: id };
+  const env = {
+    ...process.env,
+    ...envOverrides,
+    PI_AGENT_NAME: name,
+    PI_CREW_WORKER: "1",
+    PI_CREW_ROLE: "worker",
+    PI_LOBBY_ID: id,
+  };
 
   const proc = spawn(getPiCommand(), args, {
     cwd,

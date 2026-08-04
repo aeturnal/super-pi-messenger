@@ -270,16 +270,20 @@ async function runAgent(
       ? { PI_CREW_WORKER: "1", PI_AGENT_NAME: workerName }
       : {};
     const superpowersFlag = superpowersLaunch
-      ? { PI_CREW_ROLE: role, [SUPERPOWERS_CHILD_FLAG]: "1" }
+      ? { [SUPERPOWERS_CHILD_FLAG]: "1" }
       : {};
-    const env = Object.keys(envOverrides).length > 0 || role === "worker" || superpowersLaunch
-      ? { ...process.env, ...envOverrides, ...workerFlag, ...superpowersFlag }
-      : undefined;
+    const env = {
+      ...process.env,
+      ...envOverrides,
+      ...workerFlag,
+      PI_CREW_ROLE: role,
+      ...superpowersFlag,
+    };
 
     const proc = spawn(getPiCommand(), args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
-      ...(env ? { env } : {}),
+      env,
     });
     if (task.taskId) {
       registerWorker({ type: "worker", proc, name: workerName, cwd, taskId: task.taskId });

@@ -62,28 +62,24 @@ function createMockProcess(): MockProcess {
   return proc;
 }
 
-function writeWorkerAgent(cwd: string): void {
-  const agentPath = path.join(cwd, ".pi", "messenger", "crew", "agents", "crew-worker.md");
+function writeAgent(cwd: string, role: "worker" | "planner" | "reviewer" | "analyst"): void {
+  const agentPath = path.join(cwd, ".pi", "messenger", "crew", "agents", `crew-${role}.md`);
   fs.mkdirSync(path.dirname(agentPath), { recursive: true });
   fs.writeFileSync(agentPath, `---
-name: crew-worker
-description: Test worker
-crewRole: worker
+name: crew-${role}
+description: Test ${role}
+crewRole: ${role}
 ---
-You are a test worker.
+You are a test ${role}.
 `);
 }
 
+function writeWorkerAgent(cwd: string): void {
+  writeAgent(cwd, "worker");
+}
+
 function writeReviewerAgent(cwd: string): void {
-  const agentPath = path.join(cwd, ".pi", "messenger", "crew", "agents", "crew-reviewer.md");
-  fs.mkdirSync(path.dirname(agentPath), { recursive: true });
-  fs.writeFileSync(agentPath, `---
-name: crew-reviewer
-description: Test reviewer
-crewRole: reviewer
----
-You are a test reviewer.
-`);
+  writeAgent(cwd, "reviewer");
 }
 
 describe("Crew Superpowers launch boundary", () => {
@@ -179,6 +175,29 @@ Keep this spacing.
     });
   });
 
+  it.each(["planner", "reviewer", "analyst", "worker"] as const)(
+    "marks an inactive %s subprocess as a Crew child without activating Superpowers",
+    async (role) => {
+      resetSuperpowersStateForTests();
+      captureSuperpowersSkills([]);
+      writeAgent(dirs.cwd, role);
+
+      await spawnAgents([{
+        agent: `crew-${role}`,
+        task: `Run inactive ${role}`,
+        taskId: `${role}-inactive`,
+      }], dirs.cwd);
+
+      const capture = captures[0]!;
+      expect(capture.options.env).toMatchObject({ PI_CREW_ROLE: role });
+      expect(capture.options.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+      expect(capture.args).not.toContain(fileURLToPath(
+        new URL("../../crew/superpowers-guard.ts", import.meta.url),
+      ));
+      expect(capture.prompt).toBe(`You are a test ${role}.`);
+    },
+  );
+
   it("keeps inactive worker launch equivalent to the reset native baseline", async () => {
     resetSuperpowersStateForTests();
     await spawnAgents([{
@@ -201,10 +220,10 @@ Keep this spacing.
       new URL("../../crew/superpowers-guard.ts", import.meta.url),
     ));
     expect(inactive.options.env).toMatchObject({
+      PI_CREW_ROLE: "worker",
       PI_CREW_WORKER: "1",
       PI_AGENT_NAME: expect.any(String),
     });
-    expect(inactive.options.env).not.toHaveProperty("PI_CREW_ROLE");
     expect(inactive.options.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
     expect(inactive.prompt).toBe("You are a test worker.");
     expect(inactive.prompt).not.toContain("Selected Superpowers skills:");
@@ -237,10 +256,10 @@ Keep this spacing.
       new URL("../../crew/superpowers-guard.ts", import.meta.url),
     ));
     expect(fallback.options.env).toMatchObject({
+      PI_CREW_ROLE: "worker",
       PI_CREW_WORKER: "1",
       PI_AGENT_NAME: expect.any(String),
     });
-    expect(fallback.options.env).not.toHaveProperty("PI_CREW_ROLE");
     expect(fallback.options.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
     expect(fallback.prompt).toBe("You are a test worker.");
     expect(fallback.prompt).not.toContain("Selected Superpowers skills:");

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MessengerState, Dirs } from "../../lib.ts";
 import { executeCrewAction } from "../../crew/index.ts";
 import * as store from "../../crew/store.ts";
@@ -46,6 +46,10 @@ function createDirs(cwd: string): Dirs {
 }
 
 describe("crew action router status behavior", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("routes action=status to messenger status (not crew status)", async () => {
     const { cwd } = createTempCrewDirs();
     const state = createTestState("AgentOne");
@@ -87,6 +91,47 @@ describe("crew action router status behavior", () => {
 
     const text = response.content[0].text;
     expect(text).toContain("# Crew Status");
+  });
+
+  it.each([
+    ["planner", { PI_CREW_ROLE: "planner" }],
+    ["reviewer", { PI_CREW_ROLE: "reviewer" }],
+    ["analyst", { PI_CREW_ROLE: "analyst" }],
+    ["worker", { PI_CREW_ROLE: "worker", PI_CREW_WORKER: "1" }],
+    ["lobby", { PI_CREW_ROLE: "worker", PI_CREW_WORKER: "1", PI_LOBBY_ID: "lobby-1" }],
+  ] as const)("denies task approval and rejection from a %s child marker", async (_kind, env) => {
+    const { cwd } = createTempCrewDirs();
+    const state = createTestState("CrewChild");
+    const dirs = createDirs(cwd);
+    const task = store.createTask(cwd, "Gated task", "", [], {
+      approval: { required: true, status: "pending" },
+    });
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+
+    const approval = await executeCrewAction(
+      "task.approve",
+      { id: task.id },
+      state,
+      dirs,
+      createMockContext(cwd),
+      () => {},
+      () => {},
+      vi.fn(),
+    );
+    const rejection = await executeCrewAction(
+      "task.reject",
+      { id: task.id, reason: "self-review" },
+      state,
+      dirs,
+      createMockContext(cwd),
+      () => {},
+      () => {},
+      vi.fn(),
+    );
+
+    expect(approval.details.error).toBe("controller_only");
+    expect(rejection.details.error).toBe("controller_only");
+    expect(store.getTask(cwd, task.id)?.approval?.status).toBe("pending");
   });
 
   it("rejects task.reset through the pi_messenger route while its worker is active", async () => {

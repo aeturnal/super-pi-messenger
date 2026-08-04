@@ -103,6 +103,17 @@ describe("lobby workers", () => {
     );
   });
 
+  it("marks a lobby subprocess as a Crew worker", () => {
+    lobby.spawnLobbyWorker("/test/cwd");
+
+    const options = vi.mocked(spawn).mock.calls.at(-1)?.[2];
+    expect(options?.env).toMatchObject({
+      PI_CREW_ROLE: "worker",
+      PI_CREW_WORKER: "1",
+      PI_LOBBY_ID: expect.any(String),
+    });
+  });
+
   it("keeps declared extension tools in the lobby allowed-tools list", () => {
     lobby.spawnLobbyWorker("/test/cwd");
 
