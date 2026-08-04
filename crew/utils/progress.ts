@@ -36,6 +36,7 @@ export interface PiEvent {
     model?: string;
     content?: Array<{ type: string; text?: string }>;
     errorMessage?: string;
+    stopReason?: string;
   };
 }
 
@@ -141,18 +142,35 @@ export function compactEventForArtifact(event: PiEvent): Record<string, unknown>
 }
 
 export function getTerminalProviderError(event: PiEvent): string | null {
-  const status = findStatusCode(event);
+  const assistantError = isTerminalAssistantError(event);
+  if (!assistantError && event.type !== "provider_error") return null;
+
+  const errorMessage = assistantError ? event.message!.errorMessage : firstUsefulMessage(event);
+  const status = assistantError
+    ? findStatusCode(event.message) ?? findFormattedStatus(errorMessage)
+    : findStatusCode(event);
   if (status === undefined || ![400, 401, 402, 403, 429].includes(status)) return null;
 
-  const text = collectStrings(event).join(" ");
+  const text = assistantError ? errorMessage ?? "" : collectStrings(event).join(" ");
   const normalized = text.toLowerCase();
   if (!/(usage|quota|credit|billing|auth|unauthor|forbidden|rate limit|invalid_request|add more|plan limits|third-party apps)/.test(normalized)) {
     return null;
   }
 
-  const message = firstUsefulMessage(event) ?? text;
+  const message = errorMessage ?? text;
   const concise = message.replace(/\s+/g, " ").trim().slice(0, 500);
   return `Provider error ${status}: ${concise || "non-retryable provider error"}`;
+}
+
+function isTerminalAssistantError(event: PiEvent): boolean {
+  return (event.type === "message_update" || event.type === "message_end")
+    && event.message?.role === "assistant"
+    && event.message.stopReason === "error";
+}
+
+function findFormattedStatus(errorMessage: string | undefined): number | undefined {
+  const match = errorMessage?.match(/^\s*(400|401|402|403|429)\s*:/);
+  return match ? Number(match[1]) : undefined;
 }
 
 function findStatusCode(value: unknown): number | undefined {

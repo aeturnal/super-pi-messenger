@@ -90,6 +90,36 @@ describe("crew agent event handling", () => {
     expect(jsonl).toContain("text_delta");
   });
 
+  it.each(["message_update", "message_end"])("fails fast on terminal assistant %s quota errors", async (type) => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify({
+      type,
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: quota exhausted. Add more credits to continue.",
+      },
+    })}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("Provider error 400");
+  });
+
   it("fails fast on terminal provider quota errors", async () => {
     const proc = createProcess();
     spawnMock.mockReturnValue(proc);
