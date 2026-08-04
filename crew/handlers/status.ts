@@ -11,6 +11,7 @@ import { uninstallAgents } from "../utils/install.ts";
 import { loadCrewConfig } from "../utils/config.ts";
 import { formatDuration } from "../../lib.ts";
 import { getSuperpowersStatusDetails, renderSuperpowersStatus } from "../superpowers.ts";
+import { approvalTaskSummaries } from "../utils/task-format.ts";
 import * as store from "../store.ts";
 import * as teamStore from "../team/store.ts";
 import { autonomousState, getPlanningUpdateAgeMs, isAutonomousForCwd, isPlanningForCwd, isPlanningStalled, planningState, PLANNING_STALE_TIMEOUT_MS } from "../state.ts";
@@ -86,9 +87,17 @@ ${superpowersText}`, {
   const done = tasks.filter(t => t.status === "done");
   const inProgress = tasks.filter(t => t.status === "in_progress");
   const blocked = tasks.filter(t => t.status === "blocked");
-  const ready = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
-  const waiting = tasks.filter(t => 
-    t.status === "todo" && !ready.some(r => r.id === t.id)
+  const available = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+  const ready: typeof available = [];
+  const needsApproval: typeof available = [];
+  const rejected: typeof available = [];
+  for (const task of available) {
+    if (teamStore.taskNeedsRevision(task)) rejected.push(task);
+    else if (teamStore.taskPendingApproval(task)) needsApproval.push(task);
+    else ready.push(task);
+  }
+  const waiting = tasks.filter(t =>
+    t.status === "todo" && !available.some(r => r.id === t.id)
   );
 
   const pct = tasks.length > 0 ? Math.round((done.length / tasks.length) * 100) : 0;
@@ -173,6 +182,23 @@ ${superpowersText}`, {
     }
   }
 
+  if (needsApproval.length > 0) {
+    text += `\nNeeds approval:\n`;
+    for (const t of needsApproval) {
+      text += `  - ${t.id}: ${t.title}\n`;
+      text += `    Approve with: \`pi_messenger({ action: "task.approve", id: "${t.id}" })\`\n`;
+    }
+  }
+
+  if (rejected.length > 0) {
+    text += `\nRejected tasks need revision:\n`;
+    for (const t of rejected) {
+      const feedback = t.approval?.feedback ? ` — ${t.approval.feedback}` : "";
+      text += `  - ${t.id}: ${t.title}${feedback}\n`;
+      text += `    Revise with: \`pi_messenger({ action: "task.revise", id: "${t.id}", prompt: "Address approval feedback" })\`\n`;
+    }
+  }
+
   if (blocked.length > 0) {
     text += `\n🚫 **Blocked**\n`;
     for (const t of blocked) {
@@ -205,6 +231,10 @@ ${superpowersText}`, {
     text += `\n🎉 All tasks complete!`;
   } else if (ready.length > 0) {
     text += `\nRun \`pi_messenger({ action: "work" })\` to execute ${ready.map(t => t.id).join(", ")}`;
+  } else if (rejected.length > 0) {
+    text += `\nRevise rejected tasks using the guidance above.`;
+  } else if (needsApproval.length > 0) {
+    text += `\nApprove pending tasks using the guidance above.`;
   } else if (blocked.length > 0) {
     text += `\nUnblock tasks with \`pi_messenger({ action: "task.unblock", id: "..." })\``;
   } else if (inProgress.length > 0) {
@@ -224,6 +254,8 @@ ${superpowersText}`, {
       done: done.map(t => t.id),
       inProgress: inProgress.map(t => t.id),
       ready: ready.map(t => t.id),
+      needsApproval: approvalTaskSummaries(needsApproval),
+      rejected: approvalTaskSummaries(rejected),
       waiting: waiting.map(t => t.id),
       blocked: blocked.map(t => t.id)
     },

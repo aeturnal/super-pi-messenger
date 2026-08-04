@@ -254,4 +254,80 @@ describe("crew.status planning health", () => {
     expect(text).toContain("⬜ **Ready**");
     expect(text).toContain("⏸️ **Waiting** (dependencies not met)");
   });
+
+  it("recommends approval instead of work when only pending gated tasks are available", async () => {
+    const { cwd } = createTempCrewDirs();
+    createPlan(cwd, "README.md");
+    const pending = createTask(cwd, "Approve auth change", "", [], {
+      approval: { required: true, status: "pending" },
+    });
+
+    const response = await execute({ cwd } as any);
+    const text = response.content[0].text;
+
+    expect(response.details.tasks).toMatchObject({
+      ready: [],
+      needsApproval: [
+        { id: pending.id, title: pending.title, approval: pending.approval },
+      ],
+      rejected: [],
+    });
+    expect(text).toContain(`Needs approval:\n  - ${pending.id}: ${pending.title}`);
+    expect(text).toContain(`pi_messenger({ action: "task.approve", id: "${pending.id}" })`);
+    expect(text).not.toContain("⬜ **Ready**");
+    expect(text).not.toContain('pi_messenger({ action: "work" })');
+  });
+
+  it("recommends revision instead of work when only rejected tasks are available", async () => {
+    const { cwd } = createTempCrewDirs();
+    createPlan(cwd, "README.md");
+    const rejected = createTask(cwd, "Revise auth change", "", [], {
+      approval: { required: true, status: "rejected", feedback: "Add rollback coverage" },
+    });
+
+    const response = await execute({ cwd } as any);
+    const text = response.content[0].text;
+
+    expect(response.details.tasks).toMatchObject({
+      ready: [],
+      needsApproval: [],
+      rejected: [
+        { id: rejected.id, title: rejected.title, approval: rejected.approval },
+      ],
+    });
+    expect(text).toContain(`Rejected tasks need revision:\n  - ${rejected.id}: ${rejected.title} — Add rollback coverage`);
+    expect(text).toContain(`pi_messenger({ action: "task.revise", id: "${rejected.id}", prompt: "Address approval feedback" })`);
+    expect(text).not.toContain("⬜ **Ready**");
+    expect(text).not.toContain('pi_messenger({ action: "work" })');
+  });
+
+  it("runs only executable tasks while separating pending and rejected tasks", async () => {
+    const { cwd } = createTempCrewDirs();
+    createPlan(cwd, "README.md");
+    const executable = createTask(cwd, "Run formatter");
+    const pending = createTask(cwd, "Approve schema change", "", [], {
+      approval: { required: true, status: "pending" },
+    });
+    const rejected = createTask(cwd, "Revise migration", "", [], {
+      approval: { required: true, status: "rejected", feedback: "Preserve old data" },
+    });
+
+    const response = await execute({ cwd } as any);
+    const text = response.content[0].text;
+
+    expect(response.details.tasks).toMatchObject({
+      ready: [executable.id],
+      needsApproval: [
+        { id: pending.id, title: pending.title, approval: pending.approval },
+      ],
+      rejected: [
+        { id: rejected.id, title: rejected.title, approval: rejected.approval },
+      ],
+    });
+    expect(text).toContain(`⬜ **Available**\n  - ${executable.id}: ${executable.title}`);
+    expect(text).toContain(`Needs approval:\n  - ${pending.id}: ${pending.title}`);
+    expect(text).toContain(`Rejected tasks need revision:\n  - ${rejected.id}: ${rejected.title} — Preserve old data`);
+    expect(text).toContain(`Run \`pi_messenger({ action: "work" })\` to execute ${executable.id}`);
+    expect(text).not.toContain(`to execute ${executable.id}, ${pending.id}`);
+  });
 });

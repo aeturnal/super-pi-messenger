@@ -17,7 +17,7 @@
 
 ### Changed
 - Aligned Team built-in roles and sample profiles with the packaged `pi-subagents` role vocabulary while keeping Crew as the execution engine.
-- Moved pi core packages and `typebox` to peer dependencies for packaged installs.
+- Kept `typebox` as a runtime dependency and Pi core packages as development dependencies in the fork package.
 
 ## [0.14.1] - 2026-04-04
 
