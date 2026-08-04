@@ -9,7 +9,7 @@ const lobbyMock = vi.hoisted(() => {
   return {
     getAvailableLobbyWorkers: vi.fn(() => [] as Array<{ name: string; lobbyId: string }>),
     assignTaskToLobbyWorker: vi.fn(() => true),
-    spawnWorkerForTask: vi.fn(() => {
+    spawnWorkerForTask: vi.fn<() => { name: string } | null>(() => {
       counter++;
       return { name: `SpawnedWorker${counter}` };
     }),
