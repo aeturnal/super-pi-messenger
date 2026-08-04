@@ -65,7 +65,7 @@ describe("team command routing", () => {
       approval: { required: true, status: "pending" },
     });
     const outerApproval = await run("task.approve", { id: outerGated.id });
-    expect(outerApproval.details.task.approval.status).toBe("approved");
+    expect(outerApproval.details.task).toMatchObject({ approval: { status: "approved" } });
   });
 
   it("sets up a profile and starter charter in one command", async () => {

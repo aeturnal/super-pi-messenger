@@ -12,6 +12,20 @@ function createState(agentName = "Lead"): MessengerState {
   return { agentName } as MessengerState;
 }
 
+type SubtaskDetail = { id: string };
+
+function isSubtaskDetails(value: unknown): value is SubtaskDetail[] {
+  return Array.isArray(value) && value.every((task) => (
+    typeof task === "object" && task !== null && "id" in task && typeof task.id === "string"
+  ));
+}
+
+function getSubtaskIds(value: unknown): string[] {
+  expect(value).toSatisfy((details: unknown) => isSubtaskDetails(details));
+  if (!isSubtaskDetails(value)) throw new Error("Expected subtask details with string IDs");
+  return value.map((task) => task.id);
+}
+
 describe("Team task approval gates", () => {
   afterEach(() => {
     delete process.env.PI_MESSENGER_TEAM_PROFILE_DIR;
@@ -49,7 +63,7 @@ describe("Team task approval gates", () => {
       createMockContext(cwd),
     );
 
-    expect(created.details.task.approval).toEqual({ required: true, status: "pending" });
+    expect(created.details.task).toMatchObject({ approval: { required: true, status: "pending" } });
     expect(created.content[0].text).toContain("Approve first");
   });
 
@@ -65,8 +79,8 @@ describe("Team task approval gates", () => {
       createState(),
       createMockContext(cwd),
     );
-    expect(canonical.details.task.role).toBe("scout");
-    expect(canonical.details.task.approval).toBeUndefined();
+    expect(canonical.details.task).toMatchObject({ role: "scout" });
+    expect(canonical.details.task).toMatchObject({ approval: undefined });
 
     const invalid = await taskHandler.execute(
       "create",
@@ -88,9 +102,11 @@ describe("Team task approval gates", () => {
 
     const list = await taskHandler.execute("list", {}, createState(), createMockContext(cwd));
     expect(list.content[0].text).toContain("[worker] [risk: auth] [approval: pending]");
-    expect(list.details.tasks[0].role).toBe("worker");
-    expect(list.details.tasks[0].risk_labels).toEqual(["auth"]);
-    expect(list.details.tasks[0].approval).toEqual({ required: true, status: "pending" });
+    expect(list.details.tasks).toMatchObject([{
+      role: "worker",
+      risk_labels: ["auth"],
+      approval: { required: true, status: "pending" },
+    }]);
 
     const show = await taskHandler.execute("show", { id: gated.id }, createState(), createMockContext(cwd));
     expect(show.content[0].text).toContain("[worker] [risk: auth] [approval: pending]");
@@ -141,11 +157,12 @@ describe("Team task approval gates", () => {
     });
 
     const approval = await taskHandler.execute("approve", { id: gated.id }, createState("Lead"), createMockContext(cwd));
-    expect(approval.details.task.approval.status).toBe("approved");
-    expect(approval.details.task.approval.decided_by).toBe("Lead");
+    expect(approval.details.task).toMatchObject({
+      approval: { status: "approved", decided_by: "Lead" },
+    });
 
     const start = await taskHandler.execute("start", { id: gated.id }, createState("Worker"), createMockContext(cwd));
-    expect(start.details.task.status).toBe("in_progress");
+    expect(start.details.task).toMatchObject({ status: "in_progress" });
   });
 
   it("clears stale rejection feedback when approving without new feedback", async () => {
@@ -157,8 +174,8 @@ describe("Team task approval gates", () => {
 
     const approval = await taskHandler.execute("approve", { id: gated.id }, createState("Lead"), createMockContext(cwd));
 
-    expect(approval.details.task.approval.status).toBe("approved");
-    expect(approval.details.task.approval.feedback).toBeUndefined();
+    expect(approval.details.task).toMatchObject({ approval: { status: "approved" } });
+    expect(approval.details.task).not.toMatchObject({ approval: { feedback: expect.anything() } });
   });
 
   it("rejects approval changes after work starts or finishes", async () => {
@@ -215,7 +232,7 @@ describe("Team task approval gates", () => {
       createMockContext(cwd),
     );
 
-    const subtaskIds = split.details.subtasks.map((task: { id: string }) => task.id);
+    const subtaskIds = getSubtaskIds(split.details.subtasks);
     for (const subtaskId of subtaskIds) {
       const subtask = store.getTask(cwd, subtaskId);
       expect(subtask?.role).toBe("worker");

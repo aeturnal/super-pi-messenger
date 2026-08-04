@@ -56,7 +56,7 @@ describe("crew.status planning health", () => {
 
     expect(text.match(/## Superpowers/g)).toHaveLength(1);
     expect(text).toContain("## Superpowers\nSuperpowers integration: inactive");
-    expect(response.details.superpowers).toEqual({ status: "inactive" });
+    expect(response.details.superpowers).toMatchObject({ status: "inactive" });
   });
 
   it("shows active integration status with a normal plan", async () => {
@@ -79,7 +79,7 @@ describe("crew.status planning health", () => {
         "Last launch: none",
         "Restrictions: no nested orchestration or nested worktree management",
       ].join("\n"));
-      expect(response.details.superpowers).toEqual({
+      expect(response.details.superpowers).toMatchObject({
         status: "active",
         version: "6.2.0",
         packageRoot: fs.realpathSync(fixture.root),
@@ -124,7 +124,7 @@ describe("crew.status planning health", () => {
         ],
         rejected: [],
       });
-      expect(response.details.superpowers.status).toBe("active");
+      expect(response.details.superpowers).toMatchObject({ status: "active" });
     } finally {
       fixture.cleanup();
     }

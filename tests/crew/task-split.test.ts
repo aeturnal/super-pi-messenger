@@ -11,6 +11,20 @@ function createState(agentName: string = "TestAgent"): MessengerState {
   return { agentName } as MessengerState;
 }
 
+type SubtaskDetail = { id: string };
+
+function isSubtaskDetails(value: unknown): value is SubtaskDetail[] {
+  return Array.isArray(value) && value.every((task) => (
+    typeof task === "object" && task !== null && "id" in task && typeof task.id === "string"
+  ));
+}
+
+function getSubtaskIds(value: unknown): string[] {
+  expect(value).toSatisfy((details: unknown) => isSubtaskDetails(details));
+  if (!isSubtaskDetails(value)) throw new Error("Expected subtask details with string IDs");
+  return value.map((task) => task.id);
+}
+
 describe("crew/task.split", () => {
   let dirs: TempCrewDirs;
   let cwd: string;
@@ -69,7 +83,7 @@ describe("crew/task.split", () => {
 
     expect(response.details.mode).toBe("task.split");
     expect(response.details.phase).toBe("execute");
-    const subtaskIds = response.details.subtasks.map((t: { id: string }) => t.id);
+    const subtaskIds = getSubtaskIds(response.details.subtasks);
     expect(subtaskIds).toHaveLength(2);
 
     const reloadedParent = store.getTask(cwd, parent.id);
