@@ -12,6 +12,7 @@ import type { CrewParams, AppendEntryFn } from "./types.js";
 import { result } from "./utils/result.js";
 import { isPlanningForCwd, cancelPlanningRun, autonomousState, isAutonomousForCwd, stopAutonomous } from "./state.js";
 import { logFeedEvent } from "../feed.js";
+import { isCrewChildProcess } from "./utils/child-process.js";
 
 type DeliverFn = (msg: AgentMailMessage) => void;
 type UpdateStatusFn = (ctx: ExtensionContext) => void;
@@ -164,6 +165,13 @@ export async function executeCrewAction(
     }
 
     case 'task': {
+      if ((op === "approve" || op === "reject") && isCrewChildProcess()) {
+        return result(`Error: task.${op} is controller-only. Crew child processes cannot decide approval gates.`, {
+          mode: `task.${op}`,
+          error: "controller_only",
+          ...(params.id ? { id: params.id } : {}),
+        });
+      }
       if (!op) {
         return result("Error: task action requires operation (e.g., 'task.show', 'task.list').",
           { mode: "task", error: "missing_operation" });

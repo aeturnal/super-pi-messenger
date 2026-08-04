@@ -9,6 +9,7 @@ import { canonicalPackagedTeamRole, isNonEditingTeamRole, isValidTeamName } from
 import { TEAM_MEMORY_TYPES, type TeamMemoryEntry, type TeamMemoryType, type TeamProfile, type TeamPromptContext, type TeamRoleDefinition, type TeamState } from "./types.js";
 
 const DEFAULT_APPROVAL_LABELS = ["security", "database", "api-contract", "destructive", "migration", "auth", "payment"];
+const MAX_MEMORY_CHARS_PER_TYPE = 10_000;
 const MEMORY_FILES: Record<TeamMemoryType, string> = {
   decision: "decisions.md",
   interface: "interfaces.md",
@@ -197,9 +198,19 @@ function normalizeProfile(raw: unknown, filePath: string, expectedName?: string)
         }
       }
     }
+    const maxCharsPerType = raw.memory.maxCharsPerType;
+    if (
+      maxCharsPerType !== undefined
+      && (typeof maxCharsPerType !== "number"
+        || !Number.isSafeInteger(maxCharsPerType)
+        || maxCharsPerType < 1
+        || maxCharsPerType > MAX_MEMORY_CHARS_PER_TYPE)
+    ) {
+      throw new Error(`Invalid Team profile JSON at ${filePath}: memory.maxCharsPerType must be a positive bounded number`);
+    }
     profile.memory = {
       ...(Array.isArray(raw.memory.inject) ? { inject: raw.memory.inject } : {}),
-      ...(typeof raw.memory.maxCharsPerType === "number" && Number.isFinite(raw.memory.maxCharsPerType) ? { maxCharsPerType: raw.memory.maxCharsPerType } : {}),
+      ...(typeof maxCharsPerType === "number" ? { maxCharsPerType } : {}),
     };
   }
 
@@ -456,7 +467,7 @@ export function buildTeamPromptContext(cwd: string, task: Task): TeamPromptConte
     let used = 0;
     for (const entry of recent.reverse()) {
       const cost = entry.message.length + 80;
-      if (selected.length > 0 && used + cost > maxChars) break;
+      if (used + cost > maxChars) continue;
       selected.unshift(entry);
       used += cost;
     }

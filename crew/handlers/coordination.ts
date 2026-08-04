@@ -190,7 +190,7 @@ ${options.readOnly ? "After completing your current task, only claim one of thes
 
 These tasks are ready but require lead approval before anyone can claim them:
 `;
-      for (const t of needsApproval) out += `- ${t.id}: ${t.title} — approve with \`pi_messenger({ action: "task.approve", id: "${t.id}" })\`\n`;
+      for (const t of needsApproval) out += `- ${t.id}: ${t.title} — awaiting controller approval\n`;
       out += "\n";
     }
   }

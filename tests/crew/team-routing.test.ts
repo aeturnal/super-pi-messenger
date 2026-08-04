@@ -5,6 +5,7 @@ import type { Dirs, MessengerState } from "../../lib.js";
 import { executeCrewAction } from "../../crew/index.js";
 import { createTempCrewDirs } from "../helpers/temp-dirs.js";
 import { createMockContext } from "../helpers/mock-context.js";
+import * as store from "../../crew/store.js";
 
 function createState(): MessengerState {
   return { agentName: "AgentOne", registered: true } as MessengerState;
@@ -33,11 +34,39 @@ describe("team command routing", () => {
 
   afterEach(() => {
     delete process.env.PI_MESSENGER_TEAM_PROFILE_DIR;
+    delete process.env.PI_CREW_WORKER;
+    delete process.env.PI_LOBBY_ID;
+    delete process.env.PI_CREW_ROLE;
   });
 
   async function run(action: string, params: Record<string, unknown> = {}) {
     return executeCrewAction(action, { action, ...params }, state, dirs, createMockContext(cwd), () => {}, () => {}, vi.fn());
   }
+
+  it("denies approval decisions from every Crew child marker", async () => {
+    store.createPlan(cwd, "docs/PRD.md");
+    const markers = ["PI_CREW_WORKER", "PI_LOBBY_ID", "PI_CREW_ROLE"] as const;
+
+    for (const marker of markers) {
+      const gated = store.createTask(cwd, `Gated ${marker}`, "", [], {
+        approval: { required: true, status: "pending" },
+      });
+      process.env[marker] = "1";
+
+      for (const action of ["task.approve", "task.reject"]) {
+        const response = await run(action, { id: gated.id, reason: "Crew child decision" });
+        expect(response.details.error).toBe("controller_only");
+      }
+      expect(store.getTask(cwd, gated.id)?.approval?.status).toBe("pending");
+      delete process.env[marker];
+    }
+
+    const outerGated = store.createTask(cwd, "Outer gated", "", [], {
+      approval: { required: true, status: "pending" },
+    });
+    const outerApproval = await run("task.approve", { id: outerGated.id });
+    expect(outerApproval.details.task.approval.status).toBe("approved");
+  });
 
   it("routes team commands", async () => {
     const invalid = await run("team.profile.use", { name: "../outside" });

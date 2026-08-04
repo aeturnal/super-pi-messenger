@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MessengerState } from "../../lib.js";
 import * as taskHandler from "../../crew/handlers/task.js";
 import * as store from "../../crew/store.js";
@@ -94,6 +94,23 @@ describe("Team task approval gates", () => {
 
     const show = await taskHandler.execute("show", { id: gated.id }, createState(), createMockContext(cwd));
     expect(show.content[0].text).toContain("[worker] [risk: auth] [approval: pending]");
+  });
+
+  it("denies Crew workers from approving or rejecting gated tasks", async () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const gated = store.createTask(cwd, "Change auth", "", [], {
+      approval: { required: true, status: "pending" },
+    });
+    vi.stubEnv("PI_CREW_WORKER", "1");
+
+    const approval = await taskHandler.execute("approve", { id: gated.id }, createState("Worker"), createMockContext(cwd));
+    const rejection = await taskHandler.execute("reject", { id: gated.id, reason: "self-reject" }, createState("Worker"), createMockContext(cwd));
+
+    expect(approval.details.error).toBe("controller_only");
+    expect(rejection.details.error).toBe("controller_only");
+    expect(store.getTask(cwd, gated.id)?.approval?.status).toBe("pending");
+    vi.unstubAllEnvs();
   });
 
   it("approves gated tasks so they can be started", async () => {

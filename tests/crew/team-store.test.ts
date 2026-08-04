@@ -146,6 +146,33 @@ describe("crew/team store", () => {
     expect(teamStore.memoryCounts(cwd)).toEqual({ decision: 1, interface: 0, risk: 0, handoff: 0 });
   });
 
+  it("rejects non-positive and oversized Team memory limits", () => {
+    fs.mkdirSync(profilesDir, { recursive: true });
+    fs.writeFileSync(path.join(profilesDir, "zero-memory-limit.json"), JSON.stringify({
+      name: "zero-memory-limit",
+      memory: { maxCharsPerType: 0 },
+    }));
+    fs.writeFileSync(path.join(profilesDir, "oversized-memory-limit.json"), JSON.stringify({
+      name: "oversized-memory-limit",
+      memory: { maxCharsPerType: 10001 },
+    }));
+
+    expect(() => teamStore.useProfile(cwd, "zero-memory-limit")).toThrow(/memory\.maxCharsPerType must be a positive bounded number/);
+    expect(() => teamStore.useProfile(cwd, "oversized-memory-limit")).toThrow(/memory\.maxCharsPerType must be a positive bounded number/);
+  });
+
+  it("omits a single memory entry that exceeds its Team profile limit", () => {
+    teamStore.saveProfile({
+      name: "small-memory",
+      memory: { inject: ["decision"], maxCharsPerType: 20 },
+    });
+    teamStore.useProfile(cwd, "small-memory");
+    teamStore.noteMemory(cwd, "decision", "This decision is too large for the prompt.", "AgentOne");
+    const task = store.createTask(cwd, "Inspect memory", "");
+
+    expect(teamStore.buildTeamPromptContext(cwd, task)?.memory.decision).toBeUndefined();
+  });
+
   it("normalizes approval requirements from active profile risk labels", () => {
     teamStore.useProfile(cwd, "migration-squad");
 

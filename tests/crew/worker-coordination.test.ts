@@ -301,7 +301,9 @@ describe("buildCoordinationContext", () => {
     expect(claimableSection).toContain("task-4: Claimable");
     expect(claimableSection).not.toContain("task-3: Needs approval");
     expect(result).toMatch(/Ready Tasks Needing Approval[\s\S]*task-3: Needs approval/);
-    expect(result).toContain('pi_messenger({ action: "task.approve", id: "task-3" })');
+    expect(result).toContain("lead approval before anyone can claim them");
+    expect(result).not.toContain('action: "task.approve"');
+    expect(result).not.toContain('action: "task.reject"');
   });
 
   it("filters out join/leave noise from recent activity", () => {

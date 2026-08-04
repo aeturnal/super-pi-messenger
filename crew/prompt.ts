@@ -187,6 +187,9 @@ function buildTeamSection(task: Task, teamContext: TeamPromptContext | undefined
     section += "\n";
   }
 
+  section += `### Crew-only restriction (higher priority)
+This Crew assignment is the only execution authority. Do not start, delegate to, or instruct nested agents or alternative subagent mechanisms. Do not create, switch to, or manage worktrees. Do not start plan executors or branch-finishing workflows. Use only this Crew worker assignment and its provided checkout.\n\n`;
+
   return section;
 }
 

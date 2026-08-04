@@ -16,6 +16,7 @@ import { logFeedEvent } from "../../feed.js";
 import { executeTaskAction } from "../task-actions.js";
 import { taskRevise, taskReviseTree } from "./revise.js";
 import { approvalTaskSummaries, taskMetadataMarkers } from "../utils/task-format.js";
+import { isCrewChildProcess } from "../utils/child-process.js";
 export { executeRevise, executeReviseTree, type ReviseResult } from "./revise.js";
 
 export async function execute(
@@ -689,6 +690,15 @@ function taskApproval(cwd: string, params: CrewParams, state: MessengerState, st
   const id = params.id;
   const action = status === "approved" ? "approve" : "reject";
   const mode = `task.${action}`;
+
+  if (isCrewChildProcess()) {
+    return result(`Error: ${mode} is controller-only. Crew child processes cannot decide approval gates.`, {
+      mode,
+      error: "controller_only",
+      ...(id ? { id } : {}),
+    });
+  }
+
   const actor = state.agentName || "unknown";
 
   if (!id) {
@@ -696,6 +706,7 @@ function taskApproval(cwd: string, params: CrewParams, state: MessengerState, st
   }
 
   const task = store.getTask(cwd, id);
+
   if (!task) {
     return result(`Error: Task ${id} not found`, { mode, error: "not_found", id });
   }
