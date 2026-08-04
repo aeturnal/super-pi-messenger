@@ -2,6 +2,7 @@ node_modules/
 npm-shrinkwrap.json
 *.DS_Store
 .pi/
+.superpowers/
 
 .worktrees/
 
