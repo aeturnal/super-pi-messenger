@@ -806,6 +806,78 @@ describe("crew/graceful shutdown", () => {
     expect(recoveries).toHaveLength(1);
   });
 
+  it("records a non-zero lobby close as blocked in the autonomous wave", async () => {
+    vi.resetModules();
+    const processes = mockLobbyProcesses();
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const state = await import("../../crew/state.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Lobby task", "Classify a crashed lobby assignment");
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+
+    const execution = workHandler.execute(
+      { action: "work", autonomous: true, concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      vi.fn(),
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    closeLobbyProcess(processes[0], 1);
+    const response = await execution;
+
+    expect(store.getTask(dirs.cwd, task.id)?.status).toBe("blocked");
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(response.details.failed).toEqual([]);
+    expect(state.autonomousState.waveHistory.at(-1)).toMatchObject({
+      tasksAttempted: [task.id],
+      succeeded: [],
+      failed: [],
+      blocked: [task.id],
+    });
+  });
+
+  it("does not emit an autonomous blocked wave before its lobby worker closes", async () => {
+    vi.resetModules();
+    const processes = mockLobbyProcesses();
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const state = await import("../../crew/state.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Lobby task", "Wait for the lobby result before stopping");
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+    const appendEntry = vi.fn();
+
+    const execution = workHandler.execute(
+      { action: "work", autonomous: true, concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      appendEntry,
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    expect(store.getTask(dirs.cwd, task.id)?.status).toBe("in_progress");
+    expect(state.autonomousState.active).toBe(true);
+    expect(appendEntry).not.toHaveBeenCalledWith("crew_wave_blocked", expect.anything());
+
+    closeLobbyProcess(processes[0], 1);
+    await execution;
+
+    expect(state.autonomousState.stopReason).toBe("blocked");
+    expect(appendEntry).toHaveBeenCalledWith("crew_wave_blocked", expect.objectContaining({
+      blockedTasks: [task.id],
+    }));
+  });
+
   it("waits for an assigned lobby worker to close before completing the work wave", async () => {
     vi.resetModules();
 

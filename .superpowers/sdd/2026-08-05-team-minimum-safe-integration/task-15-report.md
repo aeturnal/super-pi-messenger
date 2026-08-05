@@ -42,3 +42,14 @@ Results:
 
 ## Concerns
 - The full test suite was not run. Verification is limited to the Task 15 lifecycle tests and TypeScript typechecking.
+
+## Fix Round 1 evidence
+
+- Added two autonomous warm-lobby regressions in `tests/crew/graceful-shutdown.test.ts`:
+  - A non-zero assigned-lobby close blocks the task and is recorded in the autonomous wave's `tasksAttempted` and `blocked` lists.
+  - Before that assigned lobby worker closes, the task remains `in_progress`, autonomous state remains active, and no `crew_wave_blocked` entry is emitted; after the close, the blocked entry is emitted.
+- Mutation proof: temporarily replaced the `Promise.all(lobbyResultPromises)` wait with `Promise.resolve([])`. Each new regression failed as expected: the first left the task `in_progress` rather than blocking it, and the second observed autonomous state stop before the close. Restored the production line unchanged.
+- Final verification:
+  - `npm exec vitest -- run tests/crew/graceful-shutdown.test.ts tests/crew/auto-review.test.ts tests/crew/agent-end-autonomous.test.ts` — 3 files, 33 tests passed.
+  - `npm exec tsc -- --noEmit` — passed.
+- No production file changed in this fix round.
