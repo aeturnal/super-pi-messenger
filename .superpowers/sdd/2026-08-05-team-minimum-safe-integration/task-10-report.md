@@ -43,3 +43,31 @@ Results:
 
 ## Concerns
 - The full test suite was not run; only the brief-required focused tests and TypeScript typecheck were run.
+
+## Fix Round 1
+
+### Root cause
+`work.execute` resolved the Team role for model selection but hard-coded `LobbyCompatibility.role` to `"worker"`. A generic warm lobby worker could therefore match a task resolved to the `scout` Team role.
+
+### RED evidence
+Ran:
+
+```bash
+npm exec vitest -- run tests/crew/lobby.test.ts tests/crew/model-routing.test.ts tests/crew/team-work.test.ts
+```
+
+Before the production change, the new end-to-end Scout mismatch test failed because the compatibility requirement contained `role: "worker"` instead of the resolved `role: "scout"`. The other 49 tests passed.
+
+### GREEN evidence
+Changed the compatibility requirement to use the resolved Team role and fall back to `"worker"` only when no role resolves. Ran:
+
+```bash
+npm exec vitest -- run tests/crew/lobby.test.ts tests/crew/model-routing.test.ts tests/crew/team-work.test.ts
+npm exec tsc -- --noEmit
+```
+
+Results:
+- Focused Vitest run: 3 files and 50 tests passed.
+- TypeScript typecheck: exited 0.
+
+The new Scout test proves a generic `worker` lobby entry is left idle, with no assignment, and the Scout task is sent to the fresh-worker path.

@@ -99,6 +99,38 @@ describe("work with Team approval", () => {
     expect(store.getTask(cwd, task.id)?.status).toBe("todo");
   });
 
+  it("fresh-spawns a Scout task instead of assigning a generic lobby worker", async () => {
+    teamStore.saveProfile({ name: "scout-team", roles: { scout: {} } });
+    teamStore.setActiveTeam(cwd, "scout-team", "scout-team");
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Scout work", "Inspect", [], { role: "Scout" });
+    const worker = {
+      name: "LobbyWorker",
+      lobbyId: "lobby-1",
+      assignedTaskId: null,
+      cwd,
+      model: undefined,
+      role: "worker",
+      superpowersActive: false,
+    };
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue([worker]);
+    lobbyMock.isLobbyWorkerCompatible.mockImplementation((candidate, required) => candidate.role === required.role);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([
+      { exitCode: 1, output: "", truncated: false, progress: createProgress("crew-worker"), agent: "crew-worker", taskId: task.id },
+    ]);
+
+    await workHandler.execute({}, dirs, createMockContext(cwd), vi.fn());
+
+    expect(lobbyMock.isLobbyWorkerCompatible).toHaveBeenCalledWith(worker, expect.objectContaining({ role: "scout" }));
+    expect(lobbyMock.assignTaskToLobbyWorker).not.toHaveBeenCalled();
+    expect(worker.assignedTaskId).toBeNull();
+    expect(agents.spawnAgents).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ taskId: task.id })]),
+      cwd,
+      expect.any(Object),
+    );
+  });
+
   it("skips approval-gated ready tasks without spawning workers", async () => {
     store.createPlan(cwd, "docs/PRD.md");
     store.createTask(cwd, "High risk", "Edit auth", [], {

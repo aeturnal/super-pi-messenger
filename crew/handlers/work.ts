@@ -161,7 +161,7 @@ export async function execute(
         sessionModel,
         workerAgent?.model,
       ),
-      role: "worker",
+      role: roleName ?? "worker",
       superpowersActive,
     });
   }
