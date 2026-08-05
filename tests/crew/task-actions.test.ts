@@ -5,6 +5,7 @@ import type { MessengerState } from "../../lib.ts";
 import * as taskHandler from "../../crew/handlers/task.ts";
 import * as store from "../../crew/store.ts";
 import { executeTaskAction } from "../../crew/task-actions.ts";
+import { registerWorker, unregisterWorker } from "../../crew/registry.ts";
 import { createMockContext } from "../helpers/mock-context.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 
@@ -118,6 +119,60 @@ describe("crew/task-actions", () => {
     const unblocked = executeTaskAction(cwd, "unblock", task.id, "AgentA");
     expect(unblocked.success).toBe(true);
     expect(store.getTask(cwd, task.id)?.status).toBe("todo");
+  });
+
+  it("rejects split without changing a task that has an active worker", async () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Task", "Desc");
+    store.startTask(cwd, task.id, "WorkerA");
+    const before = store.getTask(cwd, task.id);
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+
+    try {
+      expect(await taskHandler.execute(
+        "split",
+        { id: task.id, subtasks: [{ title: "First" }, { title: "Second" }] },
+        createState("Controller"),
+        createMockContext(cwd),
+      )).toMatchObject({ details: { error: "active_worker" } });
+      expect(store.getTask(cwd, task.id)).toEqual(before);
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
+  });
+
+  it("rejects reset without changing a task that has an active worker", async () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Task", "Desc");
+    store.startTask(cwd, task.id, "WorkerA");
+    const before = store.getTask(cwd, task.id);
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+
+    try {
+      expect(await taskHandler.execute(
+        "reset",
+        { id: task.id },
+        createState("Controller"),
+        createMockContext(cwd),
+      )).toMatchObject({ details: { error: "active_worker" } });
+      expect(store.getTask(cwd, task.id)).toEqual(before);
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
   });
 
   it("prevents deleting active in-progress worker tasks", () => {

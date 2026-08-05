@@ -161,6 +161,14 @@ function taskSplit(cwd: string, params: CrewParams, state: MessengerState) {
     return result(`Error: Task ${id} not found`, { mode: "task.split", error: "not_found", id });
   }
 
+  if (hasActiveWorker(cwd, task.id)) {
+    return result(`Cannot split ${task.id} while its worker is active.`, {
+      mode: "task.split",
+      error: "active_worker",
+      id: task.id,
+    });
+  }
+
   if (task.status === "done") {
     return result(`Error: Cannot split completed task ${id}`, { mode: "task.split", error: "already_done", id });
   }

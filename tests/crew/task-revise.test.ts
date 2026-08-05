@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 import { createProgress } from "../../crew/utils/progress.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
 
 vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
@@ -14,6 +15,8 @@ describe("executeRevise", () => {
   let store: typeof import("../../crew/store.ts");
   let state: typeof import("../../crew/state.ts");
   let liveProgress: typeof import("../../crew/live-progress.ts");
+  let registry: typeof import("../../crew/registry.ts");
+  let taskHandler: typeof import("../../crew/handlers/task.ts");
   let tmpDir: string;
 
   beforeEach(async () => {
@@ -23,6 +26,8 @@ describe("executeRevise", () => {
     store = await import("../../crew/store.ts");
     state = await import("../../crew/state.ts");
     liveProgress = await import("../../crew/live-progress.ts");
+    registry = await import("../../crew/registry.ts");
+    taskHandler = await import("../../crew/handlers/task.ts");
     const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
@@ -43,6 +48,31 @@ describe("executeRevise", () => {
     const r = await executeRevise(tmpDir, "task-99", undefined, "agent");
     expect(r.success).toBe(false);
     expect(r.message).toContain("not found");
+  });
+
+  it("rejects revision without changing a task that has an active worker", async () => {
+    const task = store.createTask(tmpDir, "test task", "old spec");
+    store.startTask(tmpDir, task.id, "WorkerA");
+    const before = store.getTask(tmpDir, task.id);
+    registry.registerWorker({
+      type: "worker",
+      cwd: tmpDir,
+      taskId: task.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+
+    try {
+      expect(await taskHandler.execute(
+        "revise",
+        { id: task.id, prompt: "change it" },
+        { agentName: "agent" } as any,
+        createMockContext(tmpDir),
+      )).toMatchObject({ details: { error: "active_worker" } });
+      expect(store.getTask(tmpDir, task.id)).toEqual(before);
+    } finally {
+      registry.unregisterWorker(tmpDir, task.id);
+    }
   });
 
   it("rejects in_progress task", async () => {

@@ -9,10 +9,12 @@ import { spawnAgents } from "../agents.ts";
 import { getLiveWorkers } from "../live-progress.ts";
 import { isAutonomousForCwd, isPlanningForCwd } from "../state.ts";
 import { loadCrewConfig } from "../utils/config.ts";
+import { hasActiveWorker } from "../registry.ts";
 
 export interface ReviseResult {
   success: boolean;
   message: string;
+  error?: string;
 }
 
 // =============================================================================
@@ -28,6 +30,9 @@ export async function executeRevise(
 ): Promise<ReviseResult> {
   const task = store.getTask(cwd, taskId);
   if (!task) return { success: false, message: `Task ${taskId} not found` };
+  if (hasActiveWorker(cwd, task.id)) {
+    return { success: false, error: "active_worker", message: `Cannot revise ${task.id} while its worker is active.` };
+  }
   if (task.status === "in_progress") return { success: false, message: `Task ${taskId} is in_progress` };
   if (getLiveWorkers(cwd).has("__reviser__")) return { success: false, message: "A revision is already running" };
   if (isPlanningForCwd(cwd)) return { success: false, message: "Cannot revise during planning" };
@@ -87,7 +92,7 @@ export async function taskRevise(cwd: string, params: CrewParams, state: Messeng
 
   const r = await executeRevise(cwd, id, prompt ?? undefined, state.agentName || "unknown", state.model || undefined);
   if (!r.success) {
-    return result(`Error: ${r.message}`, { mode: "task.revise", error: "revision_failed", id });
+    return result(`Error: ${r.message}`, { mode: "task.revise", error: r.error ?? "revision_failed", id });
   }
   return result(r.message, { mode: "task.revise", id });
 }
@@ -113,10 +118,9 @@ export async function executeReviseTree(
   const subtreeAll = [target, ...dependents];
   const subtreeIds = new Set(subtreeAll.map(t => t.id));
 
-  const liveWorkers = getLiveWorkers(cwd);
-  const liveTasks = subtreeAll.filter(t => liveWorkers.has(t.id));
-  if (liveTasks.length > 0) {
-    return { success: false, message: `Cannot revise: ${liveTasks.map(t => t.id).join(", ")} have live workers` };
+  const activeTask = subtreeAll.find(task => hasActiveWorker(cwd, task.id));
+  if (activeTask) {
+    return { success: false, error: "active_worker", message: `Cannot revise-tree ${activeTask.id} while its worker is active.` };
   }
 
   const doneTasks = subtreeAll.filter(t => t.status === "done");
@@ -231,7 +235,7 @@ export async function taskReviseTree(cwd: string, params: CrewParams, state: Mes
 
   const r = await executeReviseTree(cwd, id, prompt ?? undefined, state.agentName || "unknown", state.model || undefined);
   if (!r.success) {
-    return result(`Error: ${r.message}`, { mode: "task.revise-tree", error: "revision_failed", id });
+    return result(`Error: ${r.message}`, { mode: "task.revise-tree", error: r.error ?? "revision_failed", id });
   }
   return result(r.message, { mode: "task.revise-tree", id });
 }

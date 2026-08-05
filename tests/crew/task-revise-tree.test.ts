@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 import { createProgress } from "../../crew/utils/progress.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
 
 vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
@@ -14,6 +15,8 @@ describe("executeReviseTree", () => {
   let store: typeof import("../../crew/store.ts");
   let state: typeof import("../../crew/state.ts");
   let liveProgress: typeof import("../../crew/live-progress.ts");
+  let registry: typeof import("../../crew/registry.ts");
+  let taskHandler: typeof import("../../crew/handlers/task.ts");
   let tmpDir: string;
 
   beforeEach(async () => {
@@ -23,6 +26,8 @@ describe("executeReviseTree", () => {
     store = await import("../../crew/store.ts");
     state = await import("../../crew/state.ts");
     liveProgress = await import("../../crew/live-progress.ts");
+    registry = await import("../../crew/registry.ts");
+    taskHandler = await import("../../crew/handlers/task.ts");
     const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
@@ -70,19 +75,32 @@ describe("executeReviseTree", () => {
     expect(r.message).toContain("autonomous");
   });
 
-  it("rejects when subtree has live workers", async () => {
-    const t1 = store.createTask(tmpDir, "Root");
-    const t2 = store.createTask(tmpDir, "Child", undefined, [t1.id]);
-    store.startTask(tmpDir, t2.id, "worker");
-    liveProgress.updateLiveWorker(tmpDir, t2.id, {
-      taskId: t2.id, agent: "p", name: "W",
-      progress: createProgress("p"),
-      startedAt: Date.now(),
+  it("rejects tree revision without changing the subtree when a descendant has an active worker", async () => {
+    const t1 = store.createTask(tmpDir, "Root", "root spec");
+    const t2 = store.createTask(tmpDir, "Child", "child spec", [t1.id]);
+    store.startTask(tmpDir, t2.id, "WorkerA");
+    const rootBefore = store.getTask(tmpDir, t1.id);
+    const before = store.getTask(tmpDir, t2.id);
+    registry.registerWorker({
+      type: "worker",
+      cwd: tmpDir,
+      taskId: t2.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
     });
-    const r = await executeReviseTree(tmpDir, t1.id, undefined, "agent");
-    expect(r.success).toBe(false);
-    expect(r.message).toContain("live workers");
-    liveProgress.removeLiveWorker(tmpDir, t2.id);
+
+    try {
+      expect(await taskHandler.execute(
+        "revise-tree",
+        { id: t1.id, prompt: "change it" },
+        { agentName: "agent" } as any,
+        createMockContext(tmpDir),
+      )).toMatchObject({ details: { error: "active_worker" } });
+      expect(store.getTask(tmpDir, t1.id)).toEqual(rootBefore);
+      expect(store.getTask(tmpDir, t2.id)).toEqual(before);
+    } finally {
+      registry.unregisterWorker(tmpDir, t2.id);
+    }
   });
 
   it("revises subtree: updates specs and resets non-done tasks", async () => {
