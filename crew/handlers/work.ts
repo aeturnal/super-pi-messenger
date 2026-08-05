@@ -238,6 +238,9 @@ export async function execute(
     remainingSlots,
   );
   const teamRoles = teamStore.resolveRoles(cwd);
+  const freshAttemptCounts = new Map(
+    remainingTasks.map(task => [task.id, task.attempt_count]),
+  );
   const workerTasks = remainingTasks.map(task => {
     const roleName = teamStore.resolveRoleName(cwd, task.role);
     const roleModel = roleName ? teamRoles[roleName]?.model : undefined;
@@ -321,49 +324,47 @@ export async function execute(
       failed.push(`unknown-result-${i}`);
       continue;
     }
-    const task = store.getTask(cwd, taskId);
+    let task = store.getTask(cwd, taskId);
 
-    if (r.exitCode === 0) {
-      if (task?.status === "done") {
-        succeeded.push(taskId);
-      } else if (task?.status === "blocked") {
-        blocked.push(taskId);
-      } else if (task?.status === "in_progress") {
-        store.appendTaskProgress(cwd, taskId, "system",
-          r.wasGracefullyShutdown ? "Task interrupted (shutdown), reset to todo" : "Worker exited without completing task, reset to todo");
+    if (task?.status === "done") {
+      succeeded.push(taskId);
+    } else if (task?.status === "blocked") {
+      blocked.push(taskId);
+    } else if (r.wasGracefullyShutdown) {
+      if (task?.status === "in_progress") {
+        store.appendTaskProgress(cwd, taskId, "system", "Task interrupted (shutdown), reset to todo");
         store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
-        failed.push(taskId);
-      } else {
-        failed.push(taskId);
       }
+      failed.push(taskId);
     } else {
-      if (r.wasGracefullyShutdown) {
-        if (task?.status === "done") {
-          succeeded.push(taskId);
-        } else if (task?.status === "blocked") {
-          blocked.push(taskId);
-        } else if (task?.status === "in_progress") {
-          store.appendTaskProgress(cwd, taskId, "system", "Task interrupted (shutdown), reset to todo");
-          store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
-          failed.push(taskId);
-        } else {
-          failed.push(taskId);
-        }
-      } else if (task?.status === "in_progress") {
-        const failure = recordWorkerFailure(
-          cwd,
-          taskId,
-          `Worker failed: ${r.error ?? `exit code ${r.exitCode}`}`,
-          config.work.maxAttemptsPerTask,
-        );
-        if (failure === "blocked") {
-          logFeedEvent(cwd, task.assigned_to ?? "crew-worker", "task.block", taskId, "Max attempts reached");
-          blocked.push(taskId);
-        } else {
-          logFeedEvent(cwd, task.assigned_to ?? "crew-worker", "task.reset", taskId, "worker exited");
-          failed.push(taskId);
-        }
+      const attemptCountBeforeLaunch = freshAttemptCounts.get(taskId);
+      if (task?.status === "todo"
+        && attemptCountBeforeLaunch !== undefined
+        && task.attempt_count === attemptCountBeforeLaunch) {
+        task = store.updateTask(cwd, taskId, {
+          attempt_count: attemptCountBeforeLaunch + 1,
+        });
+      }
+
+      if (!task) {
+        failed.push(taskId);
+        continue;
+      }
+
+      const workerName = task.assigned_to ?? "crew-worker";
+      const failure = recordWorkerFailure(
+        cwd,
+        taskId,
+        r.exitCode === 0
+          ? "Worker exited without completing task"
+          : `Worker failed: ${r.error ?? `exit code ${r.exitCode}`}`,
+        config.work.maxAttemptsPerTask,
+      );
+      if (failure === "blocked") {
+        logFeedEvent(cwd, workerName, "task.block", taskId, "Max attempts reached");
+        blocked.push(taskId);
       } else {
+        logFeedEvent(cwd, workerName, "task.reset", taskId, "worker exited");
         failed.push(taskId);
       }
     }

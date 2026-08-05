@@ -283,6 +283,102 @@ describe("crew/graceful shutdown", () => {
     expect(store.getTask(dirs.cwd, t2.id)?.assigned_to).toBeUndefined();
   });
 
+  it("blocks a fresh exit-0 incomplete result at the attempt limit", async () => {
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    fs.writeFileSync(path.join(dirs.crewDir, "config.json"), JSON.stringify({
+      work: { maxAttemptsPerTask: 1 },
+    }));
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Fresh task", "Block an incomplete successful process");
+
+    vi.spyOn(agents, "spawnAgents").mockImplementation(async (tasks: Array<{ taskId?: string }>) => {
+      for (const workerTask of tasks) {
+        if (workerTask.taskId) store.startTask(dirs.cwd, workerTask.taskId, "crew-worker");
+      }
+      return tasks.map(workerTask => ({
+        agent: "crew-worker",
+        exitCode: 0,
+        output: "",
+        truncated: false,
+        progress: {
+          agent: "crew-worker",
+          status: "completed" as const,
+          recentTools: [],
+          toolCallCount: 0,
+          tokens: 0,
+          durationMs: 0,
+        },
+        taskId: workerTask.taskId,
+      }));
+    });
+
+    const response = await workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "blocked",
+      attempt_count: 1,
+      blocked_reason: "Max attempts (1) reached",
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+  });
+
+  it("counts and blocks a fresh startup failure that did not mutate the task", async () => {
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    fs.writeFileSync(path.join(dirs.crewDir, "config.json"), JSON.stringify({
+      work: { maxAttemptsPerTask: 1 },
+    }));
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Fresh task", "Count a provider startup failure");
+
+    vi.spyOn(agents, "spawnAgents").mockResolvedValue([{
+      agent: "crew-worker",
+      exitCode: 1,
+      output: "",
+      truncated: false,
+      progress: {
+        agent: "crew-worker",
+        status: "failed" as const,
+        recentTools: [],
+        toolCallCount: 0,
+        tokens: 0,
+        durationMs: 0,
+      },
+      taskId: task.id,
+      error: "provider startup failed",
+    }]);
+
+    const response = await workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "blocked",
+      attempt_count: 1,
+      blocked_reason: "Max attempts (1) reached",
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+  });
+
   it("blocks a fresh worker failure at the attempt limit and clears ownership", async () => {
     const store = await import("../../crew/store.ts");
     const agents = await import("../../crew/agents.ts");
@@ -739,6 +835,43 @@ describe("crew/graceful shutdown", () => {
       ?.split("\n")
       .filter(line => line.includes("reset to todo"));
     expect(recoveries).toHaveLength(1);
+  });
+
+  it("blocks a work-managed lobby task at the attempt limit after an exit-0 incomplete result", async () => {
+    vi.resetModules();
+    const processes = mockLobbyProcesses();
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    fs.writeFileSync(path.join(dirs.crewDir, "config.json"), JSON.stringify({
+      work: { maxAttemptsPerTask: 1 },
+    }));
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Lobby task", "Block an incomplete successful process");
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    closeLobbyProcess(processes[0], 0);
+    const response = await execution;
+
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "blocked",
+      attempt_count: 1,
+      blocked_reason: "Max attempts (1) reached",
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
   });
 
   it("blocks a work-managed lobby task at the attempt limit after a non-zero exit", async () => {
