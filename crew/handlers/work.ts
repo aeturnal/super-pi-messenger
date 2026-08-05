@@ -18,7 +18,7 @@ import { reviewImplementation } from "./review.ts";
 import * as store from "../store.ts";
 import { getCrewDir } from "../store.ts";
 import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
-import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, type LobbyCompatibility } from "../lobby.ts";
+import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, waitForLobbyWorker, type LobbyCompatibility, type LobbyWorker } from "../lobby.ts";
 import { hasActiveWorker } from "../registry.ts";
 import { logFeedEvent } from "../../feed.ts";
 import { approvalTaskSummaries } from "../utils/task-format.ts";
@@ -155,6 +155,7 @@ export async function execute(
   // Assign tasks to compatible lobby workers first (they're already running and warmed up).
   const prdLabel = store.getPlanLabel(plan);
   const lobbyAssigned = new Set<string>();
+  const lobbyAssignments: LobbyWorker[] = [];
   const workerAgent = availableAgents.find(a => a.name === "crew-worker");
   const superpowersActive = prepareWorkerGuidance("worker").active;
   const lobbyRequirements = new Map<string, LobbyCompatibility>();
@@ -199,6 +200,7 @@ export async function execute(
       continue;
     }
     lobbyWorker.managedByWork = true;
+    lobbyAssignments.push(lobbyWorker);
     store.appendTaskProgress(cwd, task.id, "system", `Assigned to lobby worker ${lobbyWorker.name} (attempt ${task.attempt_count + 1})`);
     logFeedEvent(cwd, lobbyWorker.name, "task.start", task.id, task.title);
     lobbyAssigned.add(task.id);
@@ -235,14 +237,18 @@ export async function execute(
     };
   });
 
-  const workerResults = await spawnAgents(
-    workerTasks,
-    cwd,
-    {
-      signal,
-      messengerDirs: { registry: dirs.registry, inbox: dirs.inbox },
-    }
-  );
+  const [freshResults, lobbyResults] = await Promise.all([
+    spawnAgents(
+      workerTasks,
+      cwd,
+      {
+        signal,
+        messengerDirs: { registry: dirs.registry, inbox: dirs.inbox },
+      }
+    ),
+    Promise.all(lobbyAssignments.map(waitForLobbyWorker)),
+  ]);
+  const workerResults = [...freshResults, ...lobbyResults];
 
   // Process results
   const succeeded: string[] = [];

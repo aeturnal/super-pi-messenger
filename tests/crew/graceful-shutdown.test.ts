@@ -515,4 +515,61 @@ describe("crew/graceful shutdown", () => {
     expect(response.details.failed).toEqual([t1.id]);
     expect(response.details.blocked).toEqual([]);
   });
+
+  it("waits for an assigned lobby worker to close before completing the work wave", async () => {
+    vi.resetModules();
+
+    let lobbyProc: (EventEmitter & { exitCode: number | null }) | undefined;
+    vi.doMock("node:child_process", () => ({
+      spawn: vi.fn(() => {
+        const proc = new EventEmitter() as EventEmitter & {
+          pid: number;
+          stdout: EventEmitter;
+          stderr: EventEmitter;
+          killed: boolean;
+          exitCode: number | null;
+          kill: () => boolean;
+        };
+        proc.pid = 4242;
+        proc.stdout = new EventEmitter();
+        proc.stderr = new EventEmitter();
+        proc.killed = false;
+        proc.exitCode = null;
+        proc.kill = () => false;
+        lobbyProc = proc;
+        return proc;
+      }),
+    }));
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Lobby task", "Wait for the lobby worker");
+    const lobbyWorker = lobby.spawnLobbyWorker(dirs.cwd)!;
+
+    let settled = false;
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    ).then(response => {
+      settled = true;
+      return response;
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    expect(lobbyWorker.assignedTaskId).toBe(task.id);
+    expect(lobbyWorker.managedByWork).toBe(true);
+    expect(settled).toBe(false);
+
+    lobbyProc!.exitCode = 0;
+    lobbyProc!.emit("close", 0);
+
+    const response = await execution;
+    expect(response.details.failed).toEqual([task.id]);
+  });
 });

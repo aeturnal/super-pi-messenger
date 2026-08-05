@@ -14,6 +14,21 @@ const lobbyMock = vi.hoisted(() => ({
   }),
   cleanupUnassignedAliveFiles: vi.fn(),
   isLobbyWorkerCompatible: vi.fn(() => false),
+  waitForLobbyWorker: vi.fn((worker: { assignedTaskId: string | null }) => Promise.resolve({
+    agent: "crew-worker",
+    exitCode: 0,
+    output: "",
+    truncated: false,
+    progress: {
+      agent: "crew-worker",
+      status: "completed" as const,
+      recentTools: [],
+      toolCallCount: 0,
+      tokens: 0,
+      durationMs: 0,
+    },
+    taskId: worker.assignedTaskId ?? undefined,
+  })),
 }));
 
 vi.mock("../../crew/agents.ts", () => ({
@@ -27,6 +42,7 @@ vi.mock("../../crew/lobby.ts", () => ({
   assignTaskToLobbyWorker: lobbyMock.assignTaskToLobbyWorker,
   cleanupUnassignedAliveFiles: lobbyMock.cleanupUnassignedAliveFiles,
   isLobbyWorkerCompatible: lobbyMock.isLobbyWorkerCompatible,
+  waitForLobbyWorker: lobbyMock.waitForLobbyWorker,
 }));
 
 describe("work with Team approval", () => {
