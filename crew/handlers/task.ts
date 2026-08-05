@@ -24,6 +24,10 @@ function revisionHint(task: Task): string {
   return `pi_messenger({ action: "task.revise", id: "${task.id}", prompt: "Address approval feedback" })`;
 }
 
+function canMutateAssignedTask(task: Task, agentName: string, isChild: boolean): boolean {
+  return !isChild || task.assigned_to === agentName;
+}
+
 function rejectedTasksText(tasks: Task[]): string {
   if (tasks.length === 0) return "";
   return `\n\nRejected tasks need revision:\n${tasks.map(t => `  - ${t.id}: ${t.title}${t.approval?.feedback ? ` — ${t.approval.feedback}` : ""}\n    Revise with: \`${revisionHint(t)}\`\n    Or revise dependents too: \`pi_messenger({ action: "task.revise-tree", id: "${t.id}", prompt: "Address approval feedback" })\``).join("\n")}`;
@@ -365,6 +369,14 @@ function taskProgress(cwd: string, params: CrewParams, state: MessengerState) {
   const task = store.getTask(cwd, id);
   if (!task) return result(`Error: Task ${id} not found`, { mode: "task.progress", error: "not_found", id });
 
+  if (!canMutateAssignedTask(task, state.agentName || "unknown", isCrewChildProcess())) {
+    return result(`Error: ${task.id} is assigned to ${task.assigned_to ?? "another worker"}.`, {
+      mode: "task.progress",
+      error: "not_owner",
+      id: task.id,
+    });
+  }
+
   store.appendTaskProgress(cwd, id, state.agentName || "unknown", message);
   return result(`Progress logged for ${id}`, { mode: "task.progress", id });
 }
@@ -498,6 +510,14 @@ function taskDone(cwd: string, params: CrewParams, state: MessengerState) {
   if (task.status !== "in_progress") {
     return result(`Error: Task ${id} is ${task.status}, not in_progress`, {
       mode: "task.done", error: "invalid_status", id, status: task.status
+    });
+  }
+
+  if (!canMutateAssignedTask(task, state.agentName || "unknown", isCrewChildProcess())) {
+    return result(`Error: ${task.id} is assigned to ${task.assigned_to ?? "another worker"}.`, {
+      mode: "task.done",
+      error: "not_owner",
+      id: task.id,
     });
   }
 

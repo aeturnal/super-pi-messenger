@@ -1,9 +1,25 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { MessengerState } from "../../lib.ts";
+import * as taskHandler from "../../crew/handlers/task.ts";
 import * as store from "../../crew/store.ts";
 import { executeTaskAction } from "../../crew/task-actions.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+
+function createState(agentName: string): MessengerState {
+  return { agentName } as MessengerState;
+}
+
+async function callAs(cwd: string, agentName: string, op: "progress" | "done", id: string) {
+  return taskHandler.execute(
+    op,
+    op === "progress" ? { id, message: "Still working" } : { id, summary: "Finished" },
+    createState(agentName),
+    createMockContext(cwd),
+  );
+}
 
 function writeCrewDependenciesConfig(cwd: string, dependencies: "advisory" | "strict"): void {
   const configPath = path.join(cwd, ".pi", "messenger", "crew", "config.json");
@@ -208,5 +224,52 @@ describe("crew/task-actions", () => {
     const updated = store.getTask(cwd, task.id);
     expect(updated?.status).toBe("todo");
     expect(updated?.assigned_to).toBeUndefined();
+  });
+
+  describe("assigned task ownership", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("allows only the assigned child to complete an in-progress task", async () => {
+      const { cwd } = createTempCrewDirs();
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Task", "Desc");
+      store.startTask(cwd, task.id, "WorkerA");
+      vi.stubEnv("PI_CREW_WORKER", "1");
+
+      expect(await callAs(cwd, "WorkerB", "done", task.id)).toMatchObject({
+        details: { error: "not_owner" },
+      });
+      expect(store.getTask(cwd, task.id)?.status).toBe("in_progress");
+
+      expect(await callAs(cwd, "WorkerA", "done", task.id)).toMatchObject({
+        details: { task: { status: "done" } },
+      });
+    });
+
+    it("allows only the assigned child to log task progress", async () => {
+      const { cwd } = createTempCrewDirs();
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Task", "Desc");
+      store.startTask(cwd, task.id, "WorkerA");
+      vi.stubEnv("PI_CREW_WORKER", "1");
+
+      expect(await callAs(cwd, "WorkerB", "progress", task.id)).toMatchObject({
+        details: { error: "not_owner" },
+      });
+      expect(store.getTaskProgress(cwd, task.id)).toBeNull();
+    });
+
+    it("allows the controller to recover an assigned task", async () => {
+      const { cwd } = createTempCrewDirs();
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Task", "Desc");
+      store.startTask(cwd, task.id, "WorkerA");
+
+      expect(await callAs(cwd, "Controller", "done", task.id)).toMatchObject({
+        details: { task: { status: "done" } },
+      });
+    });
   });
 });
