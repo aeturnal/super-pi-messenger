@@ -36,6 +36,18 @@ export function takeWorkSlots<T>(items: T[], limit: number): T[] {
   return items.slice(0, Math.max(0, limit));
 }
 
+function reviewUnavailableReason(
+  hasReviewer: boolean,
+  reviewCount: number,
+  maxIterations: number,
+  verdict?: string,
+): string | undefined {
+  if (!hasReviewer) return "Automatic review unavailable: reviewer agent missing";
+  if (reviewCount >= maxIterations) return `Automatic review limit (${maxIterations}) reached`;
+  if (!verdict) return "Automatic review unavailable: reviewer returned no verdict";
+  return undefined;
+}
+
 function recordWorkerFailure(
   cwd: string,
   taskId: string,
@@ -375,41 +387,57 @@ export async function execute(
   // Auto-review succeeded tasks
   if (config.review.enabled && succeeded.length > 0) {
     const hasReviewer = availableAgents.some(a => a.name === "crew-reviewer");
-    if (hasReviewer) {
-      for (const taskId of [...succeeded]) {
-        if (signal?.aborted) break;
-        const task = store.getTask(cwd, taskId);
-        if (!task || !task.base_commit) continue;
-        if ((task.review_count ?? 0) >= config.review.maxIterations) continue;
+    for (const taskId of [...succeeded]) {
+      if (signal?.aborted) break;
+      const task = store.getTask(cwd, taskId);
+      if (!task || !task.base_commit) continue;
 
-        const rr = await reviewImplementation(cwd, taskId, config.models?.reviewer ?? sessionModel);
-        const verdict = rr.details?.verdict as string | undefined;
-        if (!verdict) {
-          store.appendTaskProgress(cwd, taskId, "system",
-            `Auto-review skipped: ${rr.details?.error ?? "unknown"}`);
-          continue;
-        }
+      const reviewCount = task.review_count ?? 0;
+      let unavailableReason = !hasReviewer || reviewCount >= config.review.maxIterations
+        ? reviewUnavailableReason(hasReviewer, reviewCount, config.review.maxIterations)
+        : undefined;
+      if (unavailableReason) {
+        store.blockTask(cwd, taskId, unavailableReason);
+        logFeedEvent(cwd, "crew", "task.review", taskId, unavailableReason);
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
+        continue;
+      }
 
-        const reviewCount = (task.review_count ?? 0) + 1;
-        store.updateTask(cwd, taskId, { review_count: reviewCount });
+      const rr = await reviewImplementation(cwd, taskId, config.models?.reviewer ?? sessionModel);
+      const verdict = rr.details?.verdict as string | undefined;
+      unavailableReason = reviewUnavailableReason(
+        true,
+        reviewCount,
+        config.review.maxIterations,
+        verdict,
+      );
+      if (unavailableReason) {
+        store.blockTask(cwd, taskId, unavailableReason);
+        logFeedEvent(cwd, "crew", "task.review", taskId, unavailableReason);
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
+        continue;
+      }
 
-        if (verdict === "SHIP") {
-          logFeedEvent(cwd, "crew", "task.review", taskId, "SHIP");
-        } else if (verdict === "NEEDS_WORK") {
-          store.resetTask(cwd, taskId);
-          logFeedEvent(cwd, "crew", "task.review", taskId, "NEEDS_WORK — reset for retry");
-          succeeded.splice(succeeded.indexOf(taskId), 1);
-          failed.push(taskId);
-        } else {
-          const lastReview = store.getTask(cwd, taskId)?.last_review;
-          const summary = lastReview?.summary
-            ? lastReview.summary.split("\n")[0].slice(0, 120)
-            : "Major issues found";
-          store.blockTask(cwd, taskId, `Reviewer: ${summary}`);
-          logFeedEvent(cwd, "crew", "task.review", taskId, "MAJOR_RETHINK — blocked");
-          succeeded.splice(succeeded.indexOf(taskId), 1);
-          blocked.push(taskId);
-        }
+      store.updateTask(cwd, taskId, { review_count: reviewCount + 1 });
+
+      if (verdict === "SHIP") {
+        logFeedEvent(cwd, "crew", "task.review", taskId, "SHIP");
+      } else if (verdict === "NEEDS_WORK") {
+        store.resetTask(cwd, taskId);
+        logFeedEvent(cwd, "crew", "task.review", taskId, "NEEDS_WORK — reset for retry");
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        failed.push(taskId);
+      } else {
+        const lastReview = store.getTask(cwd, taskId)?.last_review;
+        const summary = lastReview?.summary
+          ? lastReview.summary.split("\n")[0].slice(0, 120)
+          : "Major issues found";
+        store.blockTask(cwd, taskId, `Reviewer: ${summary}`);
+        logFeedEvent(cwd, "crew", "task.review", taskId, "MAJOR_RETHINK — blocked");
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
       }
     }
   }

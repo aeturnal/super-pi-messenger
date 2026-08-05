@@ -65,6 +65,43 @@ function storeReviewFeedback(cwd: string, taskId: string, verdict: ReviewFeedbac
   });
 }
 
+async function runCompletedTask(cwd: string, taskId: string, hasReviewer = false) {
+  const agents = await import("../../crew/agents.ts");
+  const discover = await import("../../crew/utils/discover.ts");
+  vi.spyOn(discover, "discoverCrewAgents").mockReturnValue([
+    { name: "crew-worker" },
+    ...(hasReviewer ? [{ name: "crew-reviewer" }] : []),
+  ] as never);
+  const workHandler = await import("../../crew/handlers/work.ts");
+  vi.spyOn(agents, "spawnAgents").mockImplementation(async () => {
+    store.startTask(cwd, taskId, "crew-worker");
+    store.updateTask(cwd, taskId, { base_commit: "abc123" });
+    store.completeTask(cwd, taskId, "Done");
+    return [{
+      agent: "crew-worker",
+      exitCode: 0,
+      output: "",
+      truncated: false,
+      progress: {
+        agent: "crew-worker",
+        status: "completed" as const,
+        recentTools: [],
+        toolCallCount: 0,
+        tokens: 0,
+        durationMs: 0,
+      },
+      taskId,
+    }];
+  });
+
+  return workHandler.execute(
+    { action: "work", concurrency: 1 },
+    createDirs(cwd),
+    (await import("../helpers/mock-context.ts")).createMockContext(cwd),
+    () => {},
+  );
+}
+
 describe("auto-review store operations", () => {
   it("SHIP: task stays done, review_count incremented", () => {
     const { cwd } = createTempCrewDirs();
@@ -189,6 +226,77 @@ describe("auto-review store operations", () => {
     const ready = store.getReadyTasks(cwd);
     expect(ready.map(t => t.id)).toContain(dep.id);
     expect(ready.map(t => t.id)).not.toContain(main.id);
+  });
+
+  it("blocks a completed task when no automatic reviewer is available", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+
+    const response = await runCompletedTask(cwd, task.id);
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review unavailable: reviewer agent missing",
+    });
+    expect(store.getTask(cwd, task.id)?.review_count).toBeUndefined();
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+  });
+
+  it("blocks a completed task when the automatic reviewer returns no verdict", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockResolvedValue({
+      details: { error: "reviewer_failed" },
+    } as never);
+
+    const response = await runCompletedTask(cwd, task.id, true);
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review unavailable: reviewer returned no verdict",
+    });
+    expect(store.getTask(cwd, task.id)?.review_count).toBeUndefined();
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+  });
+
+  it("blocks a completed task after automatic review iterations are exhausted", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    fs.writeFileSync(path.join(cwd, ".pi", "messenger", "crew", "config.json"), JSON.stringify({
+      review: { maxIterations: 1 },
+    }));
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    store.updateTask(cwd, task.id, { review_count: 1 });
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockResolvedValue({
+      details: { verdict: "SHIP" },
+    } as never);
+
+    const response = await runCompletedTask(cwd, task.id, true);
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review limit (1) reached",
+      review_count: 1,
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
   });
 
   it("task.review feed event is recognized as crew event", () => {
