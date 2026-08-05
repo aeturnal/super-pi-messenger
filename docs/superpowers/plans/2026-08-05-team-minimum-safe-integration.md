@@ -127,54 +127,39 @@ git commit -m "fix: restrict Crew child actions"
 
 ---
 
-### Task 2: Apply Crew Child Identity to Superpowers Policy and Lobby Launches
+### Task 2: Use General Crew Child Identity for Outer Policy
 
 **Files:**
 - Modify: `index.ts:850-865`
-- Modify: `crew/lobby.ts:55-130`
-- Modify: `crew/agents.ts` to extract the existing worker launch-composition helper
-- Test: `tests/crew/superpowers-launch.test.ts`
-- Test: `tests/crew/lobby.test.ts`
+- Test: `tests/crew/superpowers-policy.test.ts`
 
 **Interfaces:**
 - Consumes: `isCrewChildProcess(): boolean`
-- Produces: lobby launches with the same child marker, guard extension, and Superpowers worker guidance contract as fresh workers
+- Produces: controller-only outer policy suppression for every Crew child marker
 
-- [ ] **Step 1: Write failing policy and lobby tests**
+- [ ] **Step 1: Write the failing child-marker matrix**
 
-Add cases proving:
+Add cases for planner, analyst, worker, reviewer, and lobby markers. Each case must prove `before_agent_start` does not append `SUPERPOWERS_OUTER_POLICY_MARKER`.
 
 ```ts
 for (const env of [
   { PI_CREW_ROLE: "planner" },
   { PI_CREW_ROLE: "analyst" },
   { PI_CREW_ROLE: "worker" },
+  { PI_CREW_ROLE: "reviewer" },
   { PI_LOBBY_ID: "lobby-1" },
 ]) {
-  // before_agent_start must not append SUPERPOWERS_OUTER_POLICY_MARKER
+  expect(applyPolicyWithEnv(env)).not.toContain(SUPERPOWERS_OUTER_POLICY_MARKER);
 }
 ```
 
-Add active and inactive Superpowers launch tests for fresh and lobby workers. Every child launch expects:
-
-- `PI_CREW_ROLE` with the actual child role
-- `PI_CREW_WORKER=1` for implementation workers
-- the child guard extension after the main extension
-- no controller outer-policy authorization
-
-When Superpowers is active, also expect selected worker guidance in the appended system prompt. When it is inactive, expect no Superpowers guidance while the child guard remains loaded.
-
-- [ ] **Step 2: Run tests and verify RED**
+- [ ] **Step 2: Run and verify RED**
 
 ```bash
-npm exec vitest -- run tests/crew/superpowers-launch.test.ts tests/crew/lobby.test.ts
+npm exec vitest -- run tests/crew/superpowers-policy.test.ts
 ```
 
-Expected: planner/analyst/lobby markers are not consistently treated as children, and lobby lacks the worker guard/guidance composition.
-
-- [ ] **Step 3: Use the trusted child check in `index.ts`**
-
-Replace the conditional activation-flag check with:
+- [ ] **Step 3: Use the trusted child check**
 
 ```ts
 const systemPrompt = applySuperpowersOuterPolicy(
@@ -184,46 +169,129 @@ const systemPrompt = applySuperpowersOuterPolicy(
 );
 ```
 
-Import `isCrewChildProcess` from `crew/utils/child-process.ts`.
+Import `isCrewChildProcess` from `crew/utils/child-process.ts`. Remove the direct activation-flag comparison at this call site.
 
-- [ ] **Step 4: Reuse the existing worker launch composition in lobby**
+- [ ] **Step 4: Run tests and typecheck**
 
-Extract only the smallest shared helper needed from `crew/agents.ts`, for example:
-
-```ts
-export interface WorkerLaunchPolicy {
-  extensionArgs: string[];
-  env: Record<string, string>;
-  systemPromptSuffix?: string;
-}
-
-export function prepareWorkerLaunchPolicy(
-  cwd: string,
-  role: "worker" | "reviewer" | "planner" | "analyst",
-): WorkerLaunchPolicy;
+```bash
+npm exec vitest -- run tests/crew/superpowers-policy.test.ts tests/crew/superpowers-extension.test.ts
+npm exec tsc -- --noEmit
 ```
 
-The helper must call existing Superpowers selection and guidance logic; it must not create a second policy implementation. Every Crew subprocess appends `SUPERPOWERS_GUARD_PATH` as the general child-boundary extension, even when Superpowers guidance is inactive. `spawnLobbyWorker` applies the returned environment markers and optional prompt suffix. Inside the guard extension, bootstrap/policy stripping remains conditional where needed, but the Task 3 Bash boundary uses the generic Crew-child markers.
+- [ ] **Step 5: Commit**
 
-- [ ] **Step 5: Run focused tests and typecheck**
+```bash
+git add index.ts tests/crew/superpowers-policy.test.ts
+git commit -m "fix: suppress controller policy for Crew children"
+```
+
+---
+
+### Task 3: Load the Child Guard for Every Crew Subprocess
+
+**Files:**
+- Modify: `crew/agents.ts:235-285`
+- Modify: `crew/lobby.ts:75-130`
+- Modify: `crew/superpowers-guard.ts:34-48`
+- Test: `tests/crew/superpowers-launch.test.ts`
+- Test: `tests/crew/lobby.test.ts`
+
+**Interfaces:**
+- Produces: every Crew subprocess loads `SUPERPOWERS_GUARD_PATH`
+- Preserves: Superpowers prompt stripping only when the active guidance flag is present
+
+- [ ] **Step 1: Write failing active and inactive launch tests**
+
+For fresh planner, analyst, reviewer, worker, and lobby launches, assert the child guard extension is present after the main extension whether Superpowers is active or inactive. Also assert each process has the correct `PI_CREW_ROLE`.
+
+- [ ] **Step 2: Run and verify RED**
+
+```bash
+npm exec vitest -- run tests/crew/superpowers-launch.test.ts tests/crew/lobby.test.ts
+```
+
+- [ ] **Step 3: Always append the child guard extension**
+
+Move this argument outside the active-guidance condition in both subprocess launch paths:
+
+```ts
+args.push("--extension", EXTENSION_DIR);
+args.push("--extension", SUPERPOWERS_GUARD_PATH);
+```
+
+Change `registerSuperpowersGuard` so the extension loads for every Crew child. Keep bootstrap and outer-policy stripping conditional on the active Superpowers flag; the child-action and Bash guards use generic Crew markers.
+
+- [ ] **Step 4: Run tests and typecheck**
 
 ```bash
 npm exec vitest -- run tests/crew/superpowers-launch.test.ts tests/crew/superpowers-guard.test.ts tests/crew/lobby.test.ts
 npm exec tsc -- --noEmit
 ```
 
-Expected: all pass.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add index.ts crew/agents.ts crew/lobby.ts tests/crew/superpowers-launch.test.ts tests/crew/lobby.test.ts
-git commit -m "fix: preserve Crew child launch boundaries"
+git add crew/agents.ts crew/lobby.ts crew/superpowers-guard.ts tests/crew/superpowers-launch.test.ts tests/crew/lobby.test.ts
+git commit -m "fix: load Crew child guard consistently"
 ```
 
 ---
 
-### Task 3: Block Nested Pi and Worktree Commands in Crew Children
+### Task 4: Apply Superpowers Worker Guidance to Lobby Workers
+
+**Files:**
+- Modify: `crew/agents.ts` to extract the existing guidance composition
+- Modify: `crew/lobby.ts:55-145`
+- Test: `tests/crew/lobby.test.ts`
+- Test: `tests/crew/superpowers-launch.test.ts`
+
+**Interfaces:**
+- Produces:
+
+```ts
+export interface WorkerGuidance {
+  active: boolean;
+  env: Record<string, string>;
+  systemPromptSuffix?: string;
+}
+
+export function prepareWorkerGuidance(
+  role: "worker" | "reviewer",
+  assignmentId?: string,
+): WorkerGuidance;
+```
+
+- [ ] **Step 1: Write failing lobby guidance tests**
+
+With active Superpowers, expect the lobby worker's appended prompt to contain the selected worker guidance and its environment to contain the active child flag. With fallback or inactive Superpowers, expect no guidance suffix and no active flag.
+
+- [ ] **Step 2: Run and verify RED**
+
+```bash
+npm exec vitest -- run tests/crew/lobby.test.ts tests/crew/superpowers-launch.test.ts
+```
+
+- [ ] **Step 3: Extract only guidance preparation**
+
+Implement `prepareWorkerGuidance` by calling the existing `prepareSuperpowersLaunch` and `renderSuperpowersGuidance`. Use it from fresh and lobby launch paths. Do not move model, tool, process, or registry logic into the helper.
+
+- [ ] **Step 4: Run tests and typecheck**
+
+```bash
+npm exec vitest -- run tests/crew/lobby.test.ts tests/crew/superpowers-launch.test.ts tests/crew/superpowers-extension.test.ts
+npm exec tsc -- --noEmit
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crew/agents.ts crew/lobby.ts tests/crew/lobby.test.ts tests/crew/superpowers-launch.test.ts
+git commit -m "fix: guide Superpowers lobby workers"
+```
+
+---
+
+### Task 5: Block Nested Pi and Worktree Commands in Crew Children
 
 **Files:**
 - Modify: `crew/superpowers-guard.ts`
@@ -304,7 +372,7 @@ git commit -m "fix: block nested Crew child workflows"
 
 ---
 
-### Task 4: Enforce Assigned-Worker Ownership for Task Progress and Completion
+### Task 6: Enforce Assigned-Worker Ownership for Task Progress and Completion
 
 **Files:**
 - Modify: `crew/handlers/task.ts:360-370,487-554`
@@ -379,7 +447,7 @@ git commit -m "fix: enforce Crew task ownership"
 
 ---
 
-### Task 5: Reject Structural Mutations While a Task Has an Active Worker
+### Task 7: Reject Structural Mutations While a Task Has an Active Worker
 
 **Files:**
 - Modify: `crew/handlers/task.ts:149-286,774-806`
@@ -443,7 +511,7 @@ git commit -m "fix: guard active Crew tasks from mutation"
 
 ---
 
-### Task 6: Preserve Team Approval Gates on Tree Revision
+### Task 8: Preserve Team Approval Gates on Tree Revision
 
 **Files:**
 - Modify: `crew/handlers/revise.ts:180-215`
@@ -514,7 +582,7 @@ git commit -m "fix: preserve Team gates during revision"
 
 ---
 
-### Task 7: Make Overlay Rendering Passive
+### Task 9: Make Overlay Rendering Passive
 
 **Files:**
 - Modify: `overlay.ts:129-206,591-630`
@@ -573,7 +641,7 @@ git commit -m "fix: keep overlay rendering passive"
 
 ---
 
-### Task 8: Record and Check Lobby Worker Compatibility
+### Task 10: Record and Check Lobby Worker Compatibility
 
 **Files:**
 - Modify: `crew/registry.ts`
@@ -643,7 +711,7 @@ git commit -m "fix: match lobby workers to task requirements"
 
 ---
 
-### Task 9: Apply One Concurrency Budget to Lobby and Fresh Workers
+### Task 11: Apply One Concurrency Budget to Lobby and Fresh Workers
 
 **Files:**
 - Modify: `crew/handlers/work.ts:130-210`
@@ -698,14 +766,12 @@ git commit -m "fix: share Crew worker concurrency budget"
 
 ---
 
-### Task 10: Join Lobby Worker Completion into the Work Wave
+### Task 12: Expose Lobby Worker Completion Results
 
 **Files:**
 - Modify: `crew/registry.ts`
-- Modify: `crew/lobby.ts:55-220,230-275`
-- Modify: `crew/handlers/work.ts:140-340`
+- Modify: `crew/lobby.ts:55-220`
 - Test: `tests/crew/lobby.test.ts`
-- Test: `tests/crew/graceful-shutdown.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -714,25 +780,19 @@ git commit -m "fix: share Crew worker concurrency budget"
 export function waitForLobbyWorker(worker: LobbyWorker): Promise<AgentResult>;
 ```
 
-- Lobby worker entries hold one completion promise resolved by the existing process `close` handler.
+- [ ] **Step 1: Write a failing completion-result test**
 
-- [ ] **Step 1: Write failing wave-ownership tests**
-
-Assign an autonomous task to a warm lobby worker and assert:
-
-- `work.execute` does not resolve before the worker exits.
-- autonomous state does not stop as `blocked` while the task is in progress.
-- the lobby result appears in the same `succeeded`, `failed`, or `blocked` processing as a fresh worker.
+Spawn a lobby worker, assign a task, emit process close, and assert `waitForLobbyWorker` resolves once with the assigned task ID, exit code, and final progress.
 
 - [ ] **Step 2: Run and verify RED**
 
 ```bash
-npm exec vitest -- run tests/crew/lobby.test.ts tests/crew/graceful-shutdown.test.ts
+npm exec vitest -- run tests/crew/lobby.test.ts
 ```
 
-- [ ] **Step 3: Add one completion promise to each lobby entry**
+- [ ] **Step 3: Add one completion promise**
 
-Create the promise during `spawnLobbyWorker`, resolve it from the existing `close` handler, and expose `waitForLobbyWorker`. Return the existing `AgentResult` shape:
+Create one promise and resolver on `LobbyWorkerEntry`. Resolve it from the existing close handler with the current `AgentResult` shape:
 
 ```ts
 {
@@ -745,11 +805,94 @@ Create the promise during `spawnLobbyWorker`, resolve it from the existing `clos
 }
 ```
 
-Mark assignments owned by `work` so the close handler does not independently reset a task that `work` will process.
+`waitForLobbyWorker` returns that promise. Do not add polling or events.
 
-- [ ] **Step 4: Await lobby and fresh results together**
+- [ ] **Step 4: Run tests and typecheck**
 
-In `work.execute`, collect lobby completion promises and combine their results with `spawnAgents` results before the existing result loop:
+```bash
+npm exec vitest -- run tests/crew/lobby.test.ts
+npm exec tsc -- --noEmit
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crew/registry.ts crew/lobby.ts tests/crew/lobby.test.ts
+git commit -m "feat: expose lobby worker completion"
+```
+
+---
+
+### Task 13: Give Work Exclusive Ownership of Assigned Lobby Results
+
+**Files:**
+- Modify: `crew/registry.ts`
+- Modify: `crew/lobby.ts:178-220,230-275`
+- Test: `tests/crew/lobby.test.ts`
+
+**Interfaces:**
+- Produces: `managedByWork: boolean` on process-local lobby entries
+- Consumes: existing lobby close handler and task reset behavior
+
+- [ ] **Step 1: Write failing double-mutation tests**
+
+For a work-managed assignment, emit process close and assert the close handler does not reset or block the task. For a manually started lobby worker, assert the existing close-handler recovery still runs.
+
+- [ ] **Step 2: Run and verify RED**
+
+```bash
+npm exec vitest -- run tests/crew/lobby.test.ts
+```
+
+- [ ] **Step 3: Add one ownership flag**
+
+Set `managedByWork = true` only when `work.execute` assigns the lobby worker. In the close handler:
+
+```ts
+if (worker.assignedTaskId && !worker.managedByWork) {
+  recoverUnmanagedLobbyTask(...);
+}
+```
+
+The flag is process-local and does not create persisted scheduler state.
+
+- [ ] **Step 4: Run tests and typecheck**
+
+```bash
+npm exec vitest -- run tests/crew/lobby.test.ts
+npm exec tsc -- --noEmit
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crew/registry.ts crew/lobby.ts tests/crew/lobby.test.ts
+git commit -m "fix: avoid duplicate lobby task recovery"
+```
+
+---
+
+### Task 14: Await Work-Managed Lobby Workers
+
+**Files:**
+- Modify: `crew/handlers/work.ts:140-235`
+- Test: `tests/crew/graceful-shutdown.test.ts`
+
+**Interfaces:**
+- Consumes: `waitForLobbyWorker(worker): Promise<AgentResult>`
+- Produces: `work.execute` waits for both fresh and lobby workers before result processing
+
+- [ ] **Step 1: Write the failing wait test**
+
+Assign a ready task to a warm lobby worker. Assert `work.execute` remains pending until the mocked lobby process closes.
+
+- [ ] **Step 2: Run and verify RED**
+
+```bash
+npm exec vitest -- run tests/crew/graceful-shutdown.test.ts
+```
+
+- [ ] **Step 3: Await both result sources**
 
 ```ts
 const [freshResults, lobbyResults] = await Promise.all([
@@ -759,25 +902,68 @@ const [freshResults, lobbyResults] = await Promise.all([
 const workerResults = [...freshResults, ...lobbyResults];
 ```
 
-Do not add polling or a second autonomous callback.
+Do not add a callback, polling loop, or second result processor.
 
-- [ ] **Step 5: Run focused tests and typecheck**
+- [ ] **Step 4: Run tests and typecheck**
 
 ```bash
-npm exec vitest -- run tests/crew/lobby.test.ts tests/crew/graceful-shutdown.test.ts tests/crew/agent-end-autonomous.test.ts
+npm exec vitest -- run tests/crew/graceful-shutdown.test.ts tests/crew/lobby.test.ts
 npm exec tsc -- --noEmit
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add crew/registry.ts crew/lobby.ts crew/handlers/work.ts tests/crew/lobby.test.ts tests/crew/graceful-shutdown.test.ts
-git commit -m "fix: keep lobby work inside Crew waves"
+git add crew/handlers/work.ts tests/crew/graceful-shutdown.test.ts
+git commit -m "fix: await lobby workers in Crew work"
 ```
 
 ---
 
-### Task 11: Use One Retry Rule for All Worker Failures
+### Task 15: Process Lobby Results Through Review and Autonomous Continuation
+
+**Files:**
+- Modify: `crew/handlers/work.ts:220-405`
+- Test: `tests/crew/graceful-shutdown.test.ts`
+- Test: `tests/crew/auto-review.test.ts`
+
+**Interfaces:**
+- Consumes: combined `AgentResult[]` from fresh and lobby workers
+- Produces: one result, review, and continuation path for both worker sources
+
+- [ ] **Step 1: Write failing lobby lifecycle tests**
+
+Prove a successful lobby task enters automatic review, a failed lobby task enters the normal failure list, and autonomous work does not stop as blocked before a lobby result is processed.
+
+- [ ] **Step 2: Run and verify RED**
+
+```bash
+npm exec vitest -- run tests/crew/graceful-shutdown.test.ts tests/crew/auto-review.test.ts
+```
+
+- [ ] **Step 3: Remove lobby-only exclusions**
+
+Feed the combined result array into the existing result loop. Include lobby task IDs in `tasksAttempted`. Calculate autonomous continuation only after all combined results and reviews are applied.
+
+Do not create a lobby-specific review or continuation function.
+
+- [ ] **Step 4: Run tests and typecheck**
+
+```bash
+npm exec vitest -- run tests/crew/graceful-shutdown.test.ts tests/crew/auto-review.test.ts tests/crew/agent-end-autonomous.test.ts
+npm exec tsc -- --noEmit
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crew/handlers/work.ts tests/crew/graceful-shutdown.test.ts tests/crew/auto-review.test.ts
+git commit -m "fix: process lobby results through Crew lifecycle"
+```
+
+---
+
+### Task 16: Use One Retry Rule for All Worker Failures
 
 **Files:**
 - Modify: `crew/handlers/work.ts:220-285`
@@ -846,60 +1032,97 @@ git commit -m "fix: unify Crew worker retry handling"
 
 ---
 
-### Task 12: Fail Closed When Automatic Review Does Not Accept Work
+### Task 17: Block Tasks When Automatic Review Cannot Run
 
 **Files:**
 - Modify: `crew/handlers/work.ts:285-335`
 - Test: `tests/crew/auto-review.test.ts`
-- Test: `tests/crew/graceful-shutdown.test.ts`
 
 **Interfaces:**
 - Produces:
 
 ```ts
-function applyReviewOutcome(
-  cwd: string,
-  taskId: string,
-  outcome: "SHIP" | "NEEDS_WORK" | "MAJOR_RETHINK" | "REVIEW_FAILED" | "REVIEW_EXHAUSTED",
-): "accepted" | "retry" | "blocked";
+function reviewUnavailableReason(
+  hasReviewer: boolean,
+  reviewCount: number,
+  maxIterations: number,
+  verdict?: string,
+): string | undefined;
 ```
 
-- [ ] **Step 1: Add failing end-to-end review tests**
+- [ ] **Step 1: Write failing unavailable-review tests**
 
-Mock a completed worker and the reviewer. Prove:
-
-- exactly one reviewer call for one successful completion
-- SHIP remains done
-- NEEDS_WORK resets
-- MAJOR_RETHINK blocks
-- missing verdict blocks
-- max review iterations blocks instead of silently accepting
-- dependent tasks are not ready after any non-SHIP outcome
+Prove a completed automatic task becomes blocked when the reviewer agent is missing, the reviewer returns no verdict, or the task has exhausted review iterations.
 
 - [ ] **Step 2: Run and verify RED**
 
 ```bash
-npm exec vitest -- run tests/crew/auto-review.test.ts tests/crew/graceful-shutdown.test.ts
+npm exec vitest -- run tests/crew/auto-review.test.ts
 ```
 
-- [ ] **Step 3: Add one local outcome helper**
+- [ ] **Step 3: Block instead of skipping**
 
-Map outcomes directly:
-
-```ts
-switch (outcome) {
-  case "SHIP": return "accepted";
-  case "NEEDS_WORK": store.resetTask(cwd, taskId); return "retry";
-  default: store.blockTask(cwd, taskId, reviewReason(outcome)); return "blocked";
-}
-```
-
-When review is enabled, do not leave a task accepted after reviewer absence, failure, missing verdict, or exhausted iterations. Keep the current review-count field; do not add a review state machine.
+Return a short reason from `reviewUnavailableReason` and call `store.blockTask`. Remove silent `continue` branches that leave the task accepted. Keep existing review counters.
 
 - [ ] **Step 4: Run tests and typecheck**
 
 ```bash
-npm exec vitest -- run tests/crew/auto-review.test.ts tests/crew/graceful-shutdown.test.ts tests/crew/store.test.ts
+npm exec vitest -- run tests/crew/auto-review.test.ts
+npm exec tsc -- --noEmit
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crew/handlers/work.ts tests/crew/auto-review.test.ts
+git commit -m "fix: block tasks without automatic review"
+```
+
+---
+
+### Task 18: Apply Automatic Review Verdicts Consistently
+
+**Files:**
+- Modify: `crew/handlers/work.ts:285-335`
+- Test: `tests/crew/auto-review.test.ts`
+
+**Interfaces:**
+- Produces:
+
+```ts
+function applyReviewVerdict(
+  cwd: string,
+  taskId: string,
+  verdict: "SHIP" | "NEEDS_WORK" | "MAJOR_RETHINK",
+): "accepted" | "retry" | "blocked";
+```
+
+- [ ] **Step 1: Write failing verdict transition tests**
+
+Run the real work result path and prove SHIP remains done, NEEDS_WORK resets to todo, and MAJOR_RETHINK blocks with reviewer context.
+
+- [ ] **Step 2: Run and verify RED**
+
+```bash
+npm exec vitest -- run tests/crew/auto-review.test.ts
+```
+
+- [ ] **Step 3: Add the three-case helper**
+
+```ts
+switch (verdict) {
+  case "SHIP": return "accepted";
+  case "NEEDS_WORK": store.resetTask(cwd, taskId); return "retry";
+  case "MAJOR_RETHINK": store.blockTask(cwd, taskId, reviewReason(taskId)); return "blocked";
+}
+```
+
+Use it once for fresh and lobby results. Do not add a review state machine.
+
+- [ ] **Step 4: Run tests and typecheck**
+
+```bash
+npm exec vitest -- run tests/crew/auto-review.test.ts tests/crew/graceful-shutdown.test.ts
 npm exec tsc -- --noEmit
 ```
 
@@ -907,12 +1130,54 @@ npm exec tsc -- --noEmit
 
 ```bash
 git add crew/handlers/work.ts tests/crew/auto-review.test.ts tests/crew/graceful-shutdown.test.ts
-git commit -m "fix: require accepted automatic reviews"
+git commit -m "fix: apply automatic review verdicts"
 ```
 
 ---
 
-### Task 13: Keep Temporary Rate Limits Retryable
+### Task 19: Prove One Review and Preserve Dependency Gates
+
+**Files:**
+- Test: `tests/crew/auto-review.test.ts`
+- Test: `tests/crew/store.test.ts`
+
+**Interfaces:**
+- Consumes: automatic review behavior from Tasks 17-18
+- Produces: regression coverage for review count and dependent readiness
+
+- [ ] **Step 1: Add end-to-end review-count tests**
+
+For one successful automatic completion, assert the reviewer is called exactly once. For NEEDS_WORK, MAJOR_RETHINK, missing review, and exhausted review, assert dependent tasks do not become ready.
+
+- [ ] **Step 2: Run and verify test behavior**
+
+```bash
+npm exec vitest -- run tests/crew/auto-review.test.ts tests/crew/store.test.ts
+```
+
+Expected: pass if Tasks 17-18 fully implement the contract; otherwise fail for the missing behavior.
+
+- [ ] **Step 3: Make only the smallest correction exposed by the tests**
+
+If a test fails, adjust the existing result/review ordering in `crew/handlers/work.ts`; do not add new state. If all tests pass, make no production edit.
+
+- [ ] **Step 4: Run tests and typecheck**
+
+```bash
+npm exec vitest -- run tests/crew/auto-review.test.ts tests/crew/store.test.ts tests/crew/graceful-shutdown.test.ts
+npm exec tsc -- --noEmit
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/crew/auto-review.test.ts tests/crew/store.test.ts crew/handlers/work.ts
+git commit -m "test: protect automatic review gates"
+```
+
+---
+
+### Task 20: Keep Temporary Rate Limits Retryable
 
 **Files:**
 - Modify: `crew/utils/progress.ts:120-165`
@@ -971,7 +1236,7 @@ git commit -m "fix: retry temporary provider rate limits"
 
 ---
 
-### Task 14: Update Product Documentation for the Safe Team Boundary
+### Task 21: Update Product Documentation for the Safe Team Boundary
 
 **Files:**
 - Modify: `README.md`
@@ -980,7 +1245,7 @@ git commit -m "fix: retry temporary provider rate limits"
 - Test: `tests/readme-branding.test.ts`
 
 **Interfaces:**
-- Consumes: implemented behavior from Tasks 1-13
+- Consumes: implemented behavior from Tasks 1-20
 - Produces: accurate user-facing Team, child-permission, `autoWork`, lobby, review, and rate-limit documentation
 
 - [ ] **Step 1: Add documentation assertions before changing prose**
@@ -1019,14 +1284,14 @@ git commit -m "docs: record safe Team integration behavior"
 
 ---
 
-### Task 15: Run Final Verification and Independent Review
+### Task 22: Run Final Verification and Independent Review
 
 **Files:**
 - Modify only if verification finds a confirmed defect; use a separate focused RED/GREEN commit for each defect
 - Verify: all files changed since `3315090`
 
 **Interfaces:**
-- Consumes: Tasks 1-14
+- Consumes: Tasks 1-21
 - Produces: merge-review evidence; no merge, push, publication, or release
 
 - [ ] **Step 1: Run proactive diagnostics**
