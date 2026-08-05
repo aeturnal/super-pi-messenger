@@ -2,11 +2,17 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MessengerState } from "../../lib.ts";
+import { spawnAgents } from "../../crew/agents.ts";
+import { createProgress } from "../../crew/utils/progress.ts";
 import * as taskHandler from "../../crew/handlers/task.ts";
 import * as store from "../../crew/store.ts";
 import * as teamStore from "../../crew/team/store.ts";
 import { createMockContext } from "../helpers/mock-context.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+
+vi.mock("../../crew/agents.ts", () => ({
+  spawnAgents: vi.fn(),
+}));
 
 function createState(agentName = "Lead"): MessengerState {
   return { agentName } as MessengerState;
@@ -65,6 +71,39 @@ describe("Team task approval gates", () => {
 
     expect(created.details.task).toMatchObject({ approval: { required: true, status: "pending" } });
     expect(created.content[0].text).toContain("Approve first");
+  });
+
+  it("classifies ungated revision replacements under the active Team policy", async () => {
+    const { cwd } = createTempCrewDirs();
+    process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(cwd, "profiles");
+    teamStore.useProfile(cwd, "migration-squad");
+    store.createPlan(cwd, "docs/PRD.md");
+    const source = store.createTask(cwd, "Migration", "", [], {
+      role: " Worker ",
+      risk_labels: ["Migration"],
+    });
+
+    vi.mocked(spawnAgents).mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement", "spec": "replacement spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+    const { executeReviseTree } = await import("../../crew/handlers/revise.ts");
+
+    const revised = await executeReviseTree(cwd, source.id, undefined, "Lead");
+    expect(revised.success).toBe(true);
+
+    const created = store.getTasks(cwd).find(task => task.title === "Replacement");
+    expect(created).toMatchObject({
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "pending" },
+    });
   });
 
   it("canonicalizes known Team roles and rejects unknown active-Team roles", async () => {

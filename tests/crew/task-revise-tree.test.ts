@@ -134,6 +134,35 @@ describe("executeReviseTree", () => {
     expect(store.getTask(tmpDir, t3.id)?.status).toBe("todo");
   });
 
+  it.each(["rejected", "pending", "approved"] as const)("creates a fresh pending gate from a %s gated source", async (status) => {
+    const source = store.createTask(tmpDir, "Migration", "spec", [], {
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status },
+    });
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement", "spec": "replacement spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    const r = await executeReviseTree(tmpDir, source.id, undefined, "agent");
+    expect(r.success).toBe(true);
+
+    const created = store.getTasks(tmpDir).find(task => task.title === "Replacement");
+    expect(created).toMatchObject({
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "pending" },
+    });
+  });
+
   it("creates new tasks from entries without id", async () => {
     const t1 = store.createTask(tmpDir, "Root", "spec");
     const t2 = store.createTask(tmpDir, "Child", "spec", [t1.id]);
