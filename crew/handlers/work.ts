@@ -7,7 +7,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Dirs } from "../../lib.ts";
-import type { CrewParams, AppendEntryFn } from "../types.ts";
+import type { CrewParams, AppendEntryFn, AgentResult } from "../types.ts";
 import { result } from "../utils/result.ts";
 import { prepareWorkerGuidance, resolveModel, spawnAgents } from "../agents.ts";
 import { loadCrewConfig } from "../utils/config.ts";
@@ -253,18 +253,34 @@ export async function execute(
     else signal.addEventListener("abort", terminateLobbyAssignments, { once: true });
   }
 
-  const [freshResults, lobbyResults] = await Promise.all([
-    spawnAgents(
-      workerTasks,
-      cwd,
-      {
-        signal,
-        messengerDirs: { registry: dirs.registry, inbox: dirs.inbox },
-      }
-    ),
-    Promise.all(lobbyAssignments.map(waitForLobbyWorker)),
-  ]);
-  signal?.removeEventListener("abort", terminateLobbyAssignments);
+  let freshResults: AgentResult[] = [];
+  let lobbyResults: AgentResult[] = [];
+  let aggregateFailure: { error: unknown } | undefined;
+  try {
+    const lobbyResultPromises = lobbyAssignments.map(waitForLobbyWorker);
+    try {
+      [freshResults, lobbyResults] = await Promise.all([
+        spawnAgents(
+          workerTasks,
+          cwd,
+          {
+            signal,
+            messengerDirs: { registry: dirs.registry, inbox: dirs.inbox },
+          }
+        ),
+        Promise.all(lobbyResultPromises),
+      ]);
+    } catch (error) {
+      aggregateFailure = { error };
+      terminateLobbyAssignments();
+      const settledLobbyResults = await Promise.allSettled(lobbyResultPromises);
+      lobbyResults = settledLobbyResults.flatMap(settled =>
+        settled.status === "fulfilled" ? [settled.value] : []
+      );
+    }
+  } finally {
+    signal?.removeEventListener("abort", terminateLobbyAssignments);
+  }
   for (const lobbyResult of lobbyResults) {
     if (lobbyResult.taskId && interruptedLobbyTasks.has(lobbyResult.taskId)) {
       lobbyResult.wasGracefullyShutdown = true;
@@ -340,6 +356,8 @@ export async function execute(
       }
     }
   }
+
+  if (aggregateFailure) throw aggregateFailure.error;
 
   // Auto-review succeeded tasks
   if (config.review.enabled && succeeded.length > 0) {

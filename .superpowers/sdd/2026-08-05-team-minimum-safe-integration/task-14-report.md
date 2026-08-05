@@ -80,3 +80,43 @@ Results:
 - Abort after assignment terminates only the assigned work-managed lobby worker, leaves an idle lobby worker alive, settles Work, and records exactly one graceful task recovery.
 - Non-zero lobby exit below the limit performs exactly one reset mutation.
 - Non-zero lobby exit at the limit performs exactly one block mutation.
+
+## Fix Round 2
+
+### Status
+Closed the aggregate-rejection gap without changing the shared concurrency budget or dispatcher ownership. Work now removes its abort listener in `finally`. If the combined fresh/lobby wait rejects, Work retains the original error, terminates its assigned lobby workers, waits for their close results, sends those results through the existing single result processor, and then rethrows the original error.
+
+### RED evidence
+Before the production correction, ran:
+
+```bash
+npm exec vitest -- run tests/crew/graceful-shutdown.test.ts
+```
+
+Result: the new regression failed as expected. After `spawnAgents` rejected following lobby assignment, the assigned lobby process had not received `SIGTERM` (`kill` was called 0 times instead of once).
+
+### Verification evidence
+Ran after the correction:
+
+```bash
+npm exec vitest -- run tests/crew/graceful-shutdown.test.ts
+npm exec vitest -- run tests/crew/graceful-shutdown.test.ts tests/crew/lobby.test.ts tests/crew/team-work.test.ts
+npm exec tsc -- --noEmit
+git diff --check
+```
+
+Results:
+- Graceful shutdown: 17 tests passed.
+- Focused Work/lobby suite: 3 files and 73 tests passed.
+- TypeScript typecheck: exited 0.
+- Diff check: exited 0.
+
+### Regression coverage
+- `spawnAgents` rejects only after the lobby assignment is visible.
+- Work sends `SIGTERM` to the assigned lobby process and remains pending until its `close` event.
+- Work removes the same abort listener it installed.
+- The lobby task is reset and cleared exactly once through the unified result processor.
+- Work propagates the original `spawnAgents` error after recovery.
+
+### Concerns
+- The full test suite was not run; verification remains focused on the directly affected Work, lobby, and Team Work suites plus typechecking.

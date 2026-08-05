@@ -727,6 +727,85 @@ describe("crew/graceful shutdown", () => {
     )).toHaveLength(1);
   });
 
+  it("cleans up and recovers assigned lobby work when fresh spawning rejects", async () => {
+    vi.resetModules();
+
+    const processes: MockLobbyProcess[] = [];
+    vi.doMock("node:child_process", () => ({
+      spawn: vi.fn(() => {
+        const proc = new EventEmitter() as MockLobbyProcess;
+        proc.pid = 4242;
+        proc.stdout = new EventEmitter();
+        proc.stderr = new EventEmitter();
+        proc.killed = false;
+        proc.exitCode = null;
+        proc.kill = vi.fn(() => {
+          proc.killed = true;
+          return true;
+        });
+        processes.push(proc);
+        return proc;
+      }),
+    }));
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const lobbyTask = store.createTask(dirs.cwd, "Lobby task", "Recover after aggregate failure");
+    store.createTask(dirs.cwd, "Fresh task", "Make fresh spawning reject");
+    const lobbyWorker = lobby.spawnLobbyWorker(dirs.cwd)!;
+    const originalError = new Error("fresh spawn failed");
+    vi.spyOn(agents, "spawnAgents").mockImplementation(async () => {
+      expect(lobbyWorker.assignedTaskId).toBe(lobbyTask.id);
+      throw originalError;
+    });
+    const updateSpy = vi.spyOn(store, "updateTask");
+    const controller = new AbortController();
+    const addListenerSpy = vi.spyOn(controller.signal, "addEventListener");
+    const removeListenerSpy = vi.spyOn(controller.signal, "removeEventListener");
+
+    let settled = false;
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 2 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+      controller.signal,
+    );
+    void execution.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    expect(processes[0].kill).toHaveBeenCalledTimes(1);
+    expect(processes[0].kill).toHaveBeenCalledWith("SIGTERM");
+    expect(settled).toBe(false);
+
+    closeLobbyProcess(processes[0], 143);
+    await expect(execution).rejects.toBe(originalError);
+
+    const abortListener = addListenerSpy.mock.calls[0][1];
+    expect(removeListenerSpy).toHaveBeenCalledTimes(1);
+    expect(removeListenerSpy).toHaveBeenCalledWith("abort", abortListener);
+    expect(store.getTask(dirs.cwd, lobbyTask.id)).toMatchObject({
+      status: "todo",
+      attempt_count: 1,
+    });
+    expect(store.getTask(dirs.cwd, lobbyTask.id)?.assigned_to).toBeUndefined();
+    expect(updateSpy.mock.calls.filter(([, id, patch]) =>
+      id === lobbyTask.id && patch.status === "todo"
+    )).toHaveLength(1);
+    const recoveries = store.getTaskProgress(dirs.cwd, lobbyTask.id)
+      ?.split("\n")
+      .filter(line => line.includes("Task interrupted (shutdown), reset to todo"));
+    expect(recoveries).toHaveLength(1);
+  });
+
   it("waits for an assigned lobby worker to close before completing the work wave", async () => {
     vi.resetModules();
 
