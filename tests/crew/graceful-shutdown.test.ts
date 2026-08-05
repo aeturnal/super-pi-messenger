@@ -215,6 +215,9 @@ describe("crew/graceful shutdown", () => {
     const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
+    fs.writeFileSync(path.join(dirs.crewDir, "config.json"), JSON.stringify({
+      review: { enabled: false },
+    }));
     store.createPlan(dirs.cwd, "docs/PRD.md");
     const t1 = store.createTask(dirs.cwd, "Task one", "Desc one");
     const t2 = store.createTask(dirs.cwd, "Task two", "Desc two");
@@ -604,6 +607,9 @@ describe("crew/graceful shutdown", () => {
     const workHandler = await import("../../crew/handlers/work.ts");
 
     writeWorkerAgent(dirs.cwd);
+    fs.writeFileSync(path.join(dirs.crewDir, "config.json"), JSON.stringify({
+      review: { enabled: false },
+    }));
     store.createPlan(dirs.cwd, "docs/PRD.md");
     const t1 = store.createTask(dirs.cwd, "Task one", "Desc one");
     const t2 = store.createTask(dirs.cwd, "Task two", "Desc two");

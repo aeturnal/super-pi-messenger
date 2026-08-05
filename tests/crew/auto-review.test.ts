@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as store from "../../crew/store.ts";
 import { readFeedEvents, isCrewEvent } from "../../feed.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
-import type { ReviewFeedback, Task } from "../../crew/types.ts";
+import type { AppendEntryFn, ReviewFeedback, Task } from "../../crew/types.ts";
 
 function completedTask(cwd: string, title: string, deps: string[] = []): Task {
   const task = store.createTask(cwd, title, `Spec for ${title}`, deps);
@@ -65,17 +65,29 @@ function storeReviewFeedback(cwd: string, taskId: string, verdict: ReviewFeedbac
   });
 }
 
-async function runCompletedTask(cwd: string, taskId: string, hasReviewer = false) {
+interface RunCompletedTaskOptions {
+  hasReviewer?: boolean;
+  baseCommit?: string | null;
+  autonomous?: boolean;
+  appendEntry?: AppendEntryFn;
+}
+
+async function runCompletedTask(
+  cwd: string,
+  taskId: string,
+  options: RunCompletedTaskOptions = {},
+) {
   const agents = await import("../../crew/agents.ts");
   const discover = await import("../../crew/utils/discover.ts");
   vi.spyOn(discover, "discoverCrewAgents").mockReturnValue([
     { name: "crew-worker" },
-    ...(hasReviewer ? [{ name: "crew-reviewer" }] : []),
+    ...(options.hasReviewer ? [{ name: "crew-reviewer" }] : []),
   ] as never);
   const workHandler = await import("../../crew/handlers/work.ts");
   vi.spyOn(agents, "spawnAgents").mockImplementation(async () => {
     store.startTask(cwd, taskId, "crew-worker");
-    store.updateTask(cwd, taskId, { base_commit: "abc123" });
+    const baseCommit = options.baseCommit === undefined ? "abc123" : options.baseCommit;
+    if (baseCommit) store.updateTask(cwd, taskId, { base_commit: baseCommit });
     store.completeTask(cwd, taskId, "Done");
     return [{
       agent: "crew-worker",
@@ -95,10 +107,10 @@ async function runCompletedTask(cwd: string, taskId: string, hasReviewer = false
   });
 
   return workHandler.execute(
-    { action: "work", concurrency: 1 },
+    { action: "work", concurrency: 1, autonomous: options.autonomous },
     createDirs(cwd),
     (await import("../helpers/mock-context.ts")).createMockContext(cwd),
-    () => {},
+    options.appendEntry ?? (() => {}),
   );
 }
 
@@ -260,7 +272,7 @@ describe("auto-review store operations", () => {
       details: { error: "reviewer_failed" },
     } as never);
 
-    const response = await runCompletedTask(cwd, task.id, true);
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
 
     expect(store.getTask(cwd, task.id)).toMatchObject({
       status: "blocked",
@@ -288,7 +300,7 @@ describe("auto-review store operations", () => {
       details: { verdict: "SHIP" },
     } as never);
 
-    const response = await runCompletedTask(cwd, task.id, true);
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
 
     expect(store.getTask(cwd, task.id)).toMatchObject({
       status: "blocked",
@@ -297,6 +309,55 @@ describe("auto-review store operations", () => {
     });
     expect(response.details.succeeded).toEqual([]);
     expect(response.details.blocked).toEqual([task.id]);
+  });
+
+  it("blocks NEEDS_WORK at the review limit without scheduling another autonomous wave", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    fs.writeFileSync(path.join(cwd, ".pi", "messenger", "crew", "config.json"), JSON.stringify({
+      review: { maxIterations: 1 },
+    }));
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(cwd, task.id, "NEEDS_WORK");
+      return { details: { verdict: "NEEDS_WORK" } } as never;
+    });
+    const state = await import("../../crew/state.ts");
+    const appendEntry = vi.fn<AppendEntryFn>();
+
+    const response = await runCompletedTask(cwd, task.id, {
+      hasReviewer: true,
+      autonomous: true,
+      appendEntry,
+    });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review limit (1) reached",
+      review_count: 1,
+      last_review: {
+        verdict: "NEEDS_WORK",
+        summary: "Review says NEEDS_WORK",
+        issues: ["Issue one"],
+      },
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(state.autonomousState.waveHistory.at(-1)).toMatchObject({
+      succeeded: [],
+      failed: [],
+      blocked: [task.id],
+    });
+    expect(appendEntry).toHaveBeenCalledWith("crew_wave_blocked", expect.objectContaining({
+      blockedTasks: [task.id],
+    }));
+    expect(appendEntry).not.toHaveBeenCalledWith("crew_wave_continue", expect.anything());
   });
 
   it("task.review feed event is recognized as crew event", () => {
@@ -390,13 +451,32 @@ describe("auto-review store operations", () => {
     vi.doUnmock("node:child_process");
   });
 
-  it("no base_commit: review should be skipped", () => {
+  it("blocks a completed task without a base commit and reports the unavailable review", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
     const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
     store.createPlan(cwd, "PRD.md");
-    const task = store.createTask(cwd, "No git task", "Desc");
-    store.updateTask(cwd, task.id, { status: "done", completed_at: new Date().toISOString() });
+    const task = store.createTask(cwd, "No git task", "Review requires a base commit");
 
-    const loaded = store.getTask(cwd, task.id)!;
-    expect(loaded.base_commit).toBeUndefined();
+    const response = await runCompletedTask(cwd, task.id, {
+      hasReviewer: true,
+      baseCommit: null,
+    });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review unavailable: base commit missing",
+    });
+    expect(store.getTask(cwd, task.id)?.review_count).toBeUndefined();
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(readFeedEvents(cwd, 10)).toContainEqual(expect.objectContaining({
+      agent: "crew",
+      type: "task.review",
+      target: task.id,
+      preview: "Automatic review unavailable: base commit missing",
+    }));
   });
 });

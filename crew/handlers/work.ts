@@ -390,7 +390,15 @@ export async function execute(
     for (const taskId of [...succeeded]) {
       if (signal?.aborted) break;
       const task = store.getTask(cwd, taskId);
-      if (!task || !task.base_commit) continue;
+      if (!task) continue;
+      if (!task.base_commit) {
+        const unavailableReason = "Automatic review unavailable: base commit missing";
+        store.blockTask(cwd, taskId, unavailableReason);
+        logFeedEvent(cwd, "crew", "task.review", taskId, unavailableReason);
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
+        continue;
+      }
 
       const reviewCount = task.review_count ?? 0;
       let unavailableReason = !hasReviewer || reviewCount >= config.review.maxIterations
@@ -420,15 +428,29 @@ export async function execute(
         continue;
       }
 
-      store.updateTask(cwd, taskId, { review_count: reviewCount + 1 });
+      const nextReviewCount = reviewCount + 1;
+      store.updateTask(cwd, taskId, { review_count: nextReviewCount });
 
       if (verdict === "SHIP") {
         logFeedEvent(cwd, "crew", "task.review", taskId, "SHIP");
       } else if (verdict === "NEEDS_WORK") {
-        store.resetTask(cwd, taskId);
-        logFeedEvent(cwd, "crew", "task.review", taskId, "NEEDS_WORK — reset for retry");
-        succeeded.splice(succeeded.indexOf(taskId), 1);
-        failed.push(taskId);
+        if (nextReviewCount >= config.review.maxIterations) {
+          const limitReason = reviewUnavailableReason(
+            true,
+            nextReviewCount,
+            config.review.maxIterations,
+            verdict,
+          )!;
+          store.blockTask(cwd, taskId, limitReason);
+          logFeedEvent(cwd, "crew", "task.review", taskId, limitReason);
+          succeeded.splice(succeeded.indexOf(taskId), 1);
+          blocked.push(taskId);
+        } else {
+          store.resetTask(cwd, taskId);
+          logFeedEvent(cwd, "crew", "task.review", taskId, "NEEDS_WORK — reset for retry");
+          succeeded.splice(succeeded.indexOf(taskId), 1);
+          failed.push(taskId);
+        }
       } else {
         const lastReview = store.getTask(cwd, taskId)?.last_review;
         const summary = lastReview?.summary
