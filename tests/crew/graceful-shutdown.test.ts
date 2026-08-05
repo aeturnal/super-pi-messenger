@@ -26,6 +26,46 @@ function createDirs(cwd: string) {
   return { base, registry, inbox };
 }
 
+type MockLobbyProcess = EventEmitter & {
+  pid: number;
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  killed: boolean;
+  exitCode: number | null;
+  kill: ReturnType<typeof vi.fn>;
+};
+
+function mockLobbyProcesses(): MockLobbyProcess[] {
+  const processes: MockLobbyProcess[] = [];
+  vi.doMock("node:child_process", () => ({
+    spawn: vi.fn(() => {
+      const proc = new EventEmitter() as MockLobbyProcess;
+      proc.pid = 4242 + processes.length;
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.killed = false;
+      proc.exitCode = null;
+      proc.kill = vi.fn((signal?: NodeJS.Signals) => {
+        proc.killed = true;
+        proc.exitCode = signal === "SIGKILL" ? 137 : 143;
+        queueMicrotask(() => {
+          proc.emit("exit", proc.exitCode);
+          proc.emit("close", proc.exitCode);
+        });
+        return true;
+      });
+      processes.push(proc);
+      return proc;
+    }),
+  }));
+  return processes;
+}
+
+function closeLobbyProcess(proc: MockLobbyProcess, exitCode: number): void {
+  proc.exitCode = exitCode;
+  proc.emit("close", exitCode);
+}
+
 describe("crew/graceful shutdown", () => {
   let dirs: TempCrewDirs;
 
@@ -514,6 +554,177 @@ describe("crew/graceful shutdown", () => {
     expect(reloaded?.assigned_to).toBeUndefined();
     expect(response.details.failed).toEqual([t1.id]);
     expect(response.details.blocked).toEqual([]);
+  });
+
+  it("does not assign lobby work when the signal is already aborted", async () => {
+    vi.resetModules();
+    const processes = mockLobbyProcesses();
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Lobby task", "Do not assign after cancellation");
+    const lobbyWorker = lobby.spawnLobbyWorker(dirs.cwd)!;
+    const controller = new AbortController();
+    controller.abort();
+
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+      controller.signal,
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    const assignedTaskId = lobbyWorker.assignedTaskId;
+    closeLobbyProcess(processes[0], 0);
+    await execution;
+
+    expect(assignedTaskId).toBeNull();
+    expect(processes[0].kill).not.toHaveBeenCalled();
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "todo",
+      attempt_count: 0,
+    });
+  });
+
+  it("aborts only assigned work-managed lobby workers and recovers the task once", async () => {
+    vi.resetModules();
+    const processes = mockLobbyProcesses();
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Lobby task", "Cancel after assignment");
+    const assignedWorker = lobby.spawnLobbyWorker(dirs.cwd)!;
+    const idleWorker = lobby.spawnLobbyWorker(dirs.cwd)!;
+    const controller = new AbortController();
+
+    let settled = false;
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+      controller.signal,
+    ).then(response => {
+      settled = true;
+      return response;
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    expect(assignedWorker.assignedTaskId).toBe(task.id);
+    expect(idleWorker.assignedTaskId).toBeNull();
+
+    controller.abort();
+    await new Promise(resolve => setImmediate(resolve));
+    const settledAfterAbort = settled;
+    if (!settled) closeLobbyProcess(processes[0], 143);
+    const response = await execution;
+
+    expect(settledAfterAbort).toBe(true);
+    expect(processes[0].kill).toHaveBeenCalledTimes(1);
+    expect(processes[0].kill).toHaveBeenCalledWith("SIGTERM");
+    expect(processes[1].kill).not.toHaveBeenCalled();
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "todo",
+      attempt_count: 1,
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.failed).toEqual([task.id]);
+    expect(response.details.blocked).toEqual([]);
+    const recoveries = store.getTaskProgress(dirs.cwd, task.id)
+      ?.split("\n")
+      .filter(line => line.includes("Task interrupted (shutdown), reset to todo"));
+    expect(recoveries).toHaveLength(1);
+
+    closeLobbyProcess(processes[1], 0);
+  });
+
+  it("recovers a work-managed lobby task once after a non-zero exit", async () => {
+    vi.resetModules();
+    const processes = mockLobbyProcesses();
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Lobby task", "Recover a crashed lobby assignment");
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+    const updateSpy = vi.spyOn(store, "updateTask");
+
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    closeLobbyProcess(processes[0], 1);
+    const response = await execution;
+
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "todo",
+      attempt_count: 1,
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.failed).toEqual([task.id]);
+    expect(updateSpy.mock.calls.filter(([, id, patch]) =>
+      id === task.id && patch.status === "todo"
+    )).toHaveLength(1);
+    const recoveries = store.getTaskProgress(dirs.cwd, task.id)
+      ?.split("\n")
+      .filter(line => line.includes("reset to todo"));
+    expect(recoveries).toHaveLength(1);
+  });
+
+  it("blocks a work-managed lobby task at the attempt limit after a non-zero exit", async () => {
+    vi.resetModules();
+    const processes = mockLobbyProcesses();
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    fs.writeFileSync(path.join(dirs.crewDir, "config.json"), JSON.stringify({
+      work: { maxAttemptsPerTask: 1 },
+    }));
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Lobby task", "Block a repeatedly crashing lobby assignment");
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+    const updateSpy = vi.spyOn(store, "updateTask");
+
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    closeLobbyProcess(processes[0], 1);
+    const response = await execution;
+
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "blocked",
+      attempt_count: 1,
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(updateSpy.mock.calls.filter(([, id, patch]) =>
+      id === task.id && patch.status === "blocked"
+    )).toHaveLength(1);
   });
 
   it("waits for an assigned lobby worker to close before completing the work wave", async () => {

@@ -19,7 +19,7 @@ import * as store from "../store.ts";
 import { getCrewDir } from "../store.ts";
 import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
 import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, waitForLobbyWorker, type LobbyCompatibility, type LobbyWorker } from "../lobby.ts";
-import { hasActiveWorker } from "../registry.ts";
+import { hasActiveWorker, killWorkerByTask } from "../registry.ts";
 import { logFeedEvent } from "../../feed.ts";
 import { approvalTaskSummaries } from "../utils/task-format.ts";
 
@@ -149,7 +149,9 @@ export async function execute(
   const activeTaskIds = new Set(store.getTasks(cwd)
     .filter(task => hasActiveWorker(cwd, task.id))
     .map(task => task.id));
-  let remainingSlots = Math.max(0, autonomousState.concurrency - activeTaskIds.size);
+  let remainingSlots = signal?.aborted
+    ? 0
+    : Math.max(0, autonomousState.concurrency - activeTaskIds.size);
   const candidateTasks = readyTasks.filter(task => !activeTaskIds.has(task.id));
 
   // Assign tasks to compatible lobby workers first (they're already running and warmed up).
@@ -237,6 +239,20 @@ export async function execute(
     };
   });
 
+  const interruptedLobbyTasks = new Set<string>();
+  const terminateLobbyAssignments = () => {
+    for (const worker of lobbyAssignments) {
+      const taskId = worker.assignedTaskId;
+      if (taskId && worker.managedByWork && killWorkerByTask(cwd, taskId)) {
+        interruptedLobbyTasks.add(taskId);
+      }
+    }
+  };
+  if (signal && lobbyAssignments.length > 0) {
+    if (signal.aborted) terminateLobbyAssignments();
+    else signal.addEventListener("abort", terminateLobbyAssignments, { once: true });
+  }
+
   const [freshResults, lobbyResults] = await Promise.all([
     spawnAgents(
       workerTasks,
@@ -248,6 +264,12 @@ export async function execute(
     ),
     Promise.all(lobbyAssignments.map(waitForLobbyWorker)),
   ]);
+  signal?.removeEventListener("abort", terminateLobbyAssignments);
+  for (const lobbyResult of lobbyResults) {
+    if (lobbyResult.taskId && interruptedLobbyTasks.has(lobbyResult.taskId)) {
+      lobbyResult.wasGracefullyShutdown = true;
+    }
+  }
   const workerResults = [...freshResults, ...lobbyResults];
 
   // Process results
@@ -288,6 +310,22 @@ export async function execute(
           store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
           failed.push(taskId);
         } else {
+          failed.push(taskId);
+        }
+      } else if (!autonomous && lobbyAssigned.has(taskId) && task?.status === "in_progress") {
+        if (task.attempt_count >= config.work.maxAttemptsPerTask) {
+          store.updateTask(cwd, taskId, {
+            status: "blocked",
+            blocked_reason: `Max attempts (${config.work.maxAttemptsPerTask}) reached`,
+            assigned_to: undefined,
+          });
+          logFeedEvent(cwd, task.assigned_to ?? "crew-worker", "task.block", taskId, "Max attempts reached");
+          blocked.push(taskId);
+        } else {
+          store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
+          store.appendTaskProgress(cwd, taskId, "system",
+            `Lobby worker ${task.assigned_to ?? "crew-worker"} exited (code ${r.exitCode}), reset to todo`);
+          logFeedEvent(cwd, task.assigned_to ?? "crew-worker", "task.reset", taskId, "worker exited");
           failed.push(taskId);
         }
       } else if (autonomous && task?.status === "in_progress") {
