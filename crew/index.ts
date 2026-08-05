@@ -13,6 +13,7 @@ import { result } from "./utils/result.ts";
 import { isPlanningForCwd, cancelPlanningRun, autonomousState, isAutonomousForCwd, stopAutonomous } from "./state.ts";
 import { logFeedEvent } from "../feed.ts";
 import { isCrewChildProcess } from "./utils/child-process.ts";
+import { isCrewChildActionAllowed } from "./child-actions.ts";
 
 type DeliverFn = (msg: AgentMailMessage) => void;
 type UpdateStatusFn = (ctx: ExtensionContext) => void;
@@ -76,6 +77,13 @@ export async function executeCrewAction(
   // ═══════════════════════════════════════════════════════════════════════
   if (!state.registered) {
     return handlers.notRegisteredError();
+  }
+
+  if (isCrewChildProcess() && !isCrewChildActionAllowed(action)) {
+    return result(`Error: ${action} is controller-only.`, {
+      mode: action,
+      error: "controller_only",
+    });
   }
 
   switch (group) {
@@ -172,13 +180,6 @@ export async function executeCrewAction(
     }
 
     case 'task': {
-      if ((op === "approve" || op === "reject") && isCrewChildProcess()) {
-        return result(`Error: task.${op} is controller-only. Crew child processes cannot decide approval gates.`, {
-          mode: `task.${op}`,
-          error: "controller_only",
-          ...(params.id ? { id: params.id } : {}),
-        });
-      }
       if (!op) {
         return result("Error: task action requires operation (e.g., 'task.show', 'task.list').",
           { mode: "task", error: "missing_operation" });

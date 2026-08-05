@@ -134,6 +134,59 @@ describe("crew action router status behavior", () => {
     expect(store.getTask(cwd, task.id)?.approval?.status).toBe("pending");
   });
 
+  it.each([
+    ["planner", { PI_CREW_ROLE: "planner" }],
+    ["reviewer", { PI_CREW_ROLE: "reviewer" }],
+    ["analyst", { PI_CREW_ROLE: "analyst" }],
+    ["worker", { PI_CREW_ROLE: "worker", PI_CREW_WORKER: "1" }],
+    ["lobby", { PI_CREW_ROLE: "worker", PI_CREW_WORKER: "1", PI_LOBBY_ID: "lobby-1" }],
+  ] as const)("allows only the safe action matrix for a %s child marker", async (_kind, env) => {
+    const allowed = [
+      "status", "list", "whois", "feed", "send", "broadcast",
+      "reserve", "release", "task.show", "task.list", "task.ready",
+      "task.progress", "task.done", "crew.status", "crew.agents",
+    ];
+    const denied = [
+      "plan", "plan.cancel", "work", "work.stop", "review", "sync",
+      "team.setup", "team.profile.use", "team.charter.update", "team.memory.note",
+      "task.create", "task.split", "task.start", "task.block", "task.unblock",
+      "task.reset", "task.delete", "task.approve", "task.reject",
+      "task.revise", "task.revise-tree", "future.action",
+    ];
+    const { cwd } = createTempCrewDirs();
+    const state = createTestState("CrewChild");
+    const dirs = createDirs(cwd);
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+
+    for (const action of allowed) {
+      const response = await executeCrewAction(
+        action,
+        {},
+        state,
+        dirs,
+        createMockContext(cwd),
+        () => {},
+        () => {},
+        vi.fn(),
+      );
+      expect(response.details.error, action).not.toBe("controller_only");
+    }
+
+    for (const action of denied) {
+      const response = await executeCrewAction(
+        action,
+        {},
+        state,
+        dirs,
+        createMockContext(cwd),
+        () => {},
+        () => {},
+        vi.fn(),
+      );
+      expect(response.details.error, action).toBe("controller_only");
+    }
+  });
+
   it("rejects task.reset through the pi_messenger route while its worker is active", async () => {
     const { cwd } = createTempCrewDirs();
     const state = createTestState("AgentOne");
