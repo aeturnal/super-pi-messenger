@@ -379,6 +379,60 @@ describe("crew/graceful shutdown", () => {
     expect(response.details.blocked).toEqual([task.id]);
   });
 
+  it("counts a failed lobby assignment and unchanged fresh startup failure before blocking", async () => {
+    vi.resetModules();
+    mockLobbyProcesses();
+
+    const store = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    fs.writeFileSync(path.join(dirs.crewDir, "config.json"), JSON.stringify({
+      work: { maxAttemptsPerTask: 2 },
+    }));
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Fresh task", "Count both failed launch paths");
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+
+    const messengerDirs = createDirs(dirs.cwd);
+    fs.rmSync(messengerDirs.inbox, { recursive: true });
+    fs.writeFileSync(messengerDirs.inbox, "not a directory");
+    vi.spyOn(agents, "spawnAgents").mockResolvedValue([{
+      agent: "crew-worker",
+      exitCode: 1,
+      output: "",
+      truncated: false,
+      progress: {
+        agent: "crew-worker",
+        status: "failed" as const,
+        recentTools: [],
+        toolCallCount: 0,
+        tokens: 0,
+        durationMs: 0,
+      },
+      taskId: task.id,
+      error: "provider startup failed",
+    }]);
+
+    const response = await workHandler.execute(
+      { action: "work", concurrency: 1 },
+      messengerDirs,
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "blocked",
+      attempt_count: 2,
+      blocked_reason: "Max attempts (2) reached",
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+  });
+
   it("blocks a fresh worker failure at the attempt limit and clears ownership", async () => {
     const store = await import("../../crew/store.ts");
     const agents = await import("../../crew/agents.ts");

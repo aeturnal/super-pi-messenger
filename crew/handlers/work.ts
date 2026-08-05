@@ -238,10 +238,10 @@ export async function execute(
     remainingSlots,
   );
   const teamRoles = teamStore.resolveRoles(cwd);
-  const freshAttemptCounts = new Map(
-    remainingTasks.map(task => [task.id, task.attempt_count]),
-  );
-  const workerTasks = remainingTasks.map(task => {
+  const freshAttemptCounts = new Map<string, number>();
+  const workerTasks = remainingTasks.map(candidateTask => {
+    const task = store.getTask(cwd, candidateTask.id) ?? candidateTask;
+    freshAttemptCounts.set(task.id, task.attempt_count);
     const roleName = teamStore.resolveRoleName(cwd, task.role);
     const roleModel = roleName ? teamRoles[roleName]?.model : undefined;
     const taskModel = resolveModel(
