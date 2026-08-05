@@ -6,6 +6,7 @@
  */
 
 import type { ChildProcess } from "node:child_process";
+import type { AgentResult } from "./types.ts";
 import type { CoordinationLevel } from "./utils/config.ts";
 import { normalizeCwd } from "./state.ts";
 
@@ -31,6 +32,8 @@ export interface LobbyWorkerEntry extends BaseWorkerEntry {
   model?: string;
   role?: string;
   superpowersActive: boolean;
+  completion: Promise<AgentResult>;
+  resolveCompletion: (result: AgentResult) => void;
 }
 
 export type WorkerEntry = RegularWorker | LobbyWorkerEntry;

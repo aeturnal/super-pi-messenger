@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import { generateMemorableName } from "../lib.ts";
 import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
 import { normalizeCwd } from "./state.ts";
+import type { AgentResult } from "./types.ts";
 import {
   resolveThinking,
   modelHasThinkingSuffix,
@@ -165,6 +166,10 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   try { fs.writeFileSync(aliveFile, "", { mode: 0o600 }); } catch {}
 
   const taskId = lobbyTaskId(id);
+  let resolveCompletion!: (result: AgentResult) => void;
+  const completion = new Promise<AgentResult>((resolve) => {
+    resolveCompletion = resolve;
+  });
   const worker: LobbyWorkerEntry = {
     type: "lobby",
     lobbyId: id,
@@ -180,6 +185,8 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     model,
     role: "worker",
     superpowersActive: workerGuidance.active,
+    completion,
+    resolveCompletion,
   };
 
   registerWorker(worker);
@@ -217,6 +224,18 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   });
 
   proc.on("close", (exitCode) => {
+    const finalExitCode = exitCode ?? 1;
+    progress.status = finalExitCode === 0 ? "completed" : "failed";
+    progress.durationMs = Date.now() - worker.startedAt;
+    worker.resolveCompletion({
+      agent: "crew-worker",
+      taskId: worker.assignedTaskId ?? undefined,
+      exitCode: finalExitCode,
+      output: "",
+      truncated: false,
+      progress,
+    });
+
     const displayId = worker.assignedTaskId ?? taskId;
     removeLiveWorker(cwd, displayId);
     unregisterWorker(cwd, taskId);
@@ -258,6 +277,10 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   });
 
   return worker;
+}
+
+export function waitForLobbyWorker(worker: LobbyWorker): Promise<AgentResult> {
+  return worker.completion;
 }
 
 export function getLobbyWorkerCount(cwd: string): number {

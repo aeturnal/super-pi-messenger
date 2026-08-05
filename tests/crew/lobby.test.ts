@@ -383,6 +383,31 @@ describe("lobby workers", () => {
     expect(worker.assignedTaskId).toBe("task-1");
   });
 
+  it("waitForLobbyWorker resolves an assigned worker's completion result", async () => {
+    const cwd = createTestCwd();
+    const worker = lobby.spawnLobbyWorker(cwd)!;
+    const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    expect(lobby.assignTaskToLobbyWorker(worker, "task-complete", "# Task", inboxDir)).toBe(true);
+
+    const resultPromise = lobby.waitForLobbyWorker(worker);
+    const proc = worker.proc as any;
+    const stdoutHandler = vi.mocked(proc.stdout.on).mock.calls.find(([event]: [string]) => event === "data")![1];
+    stdoutHandler(Buffer.from(`${JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", usage: { input: 12, output: 30 } },
+    })}\n`));
+    proc._handlers["close"](0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      agent: "crew-worker",
+      taskId: "task-complete",
+      exitCode: 0,
+      output: "",
+      truncated: false,
+      progress: expect.objectContaining({ tokens: 42 }),
+    });
+  });
+
   it("manages keep-alive file lifecycle on spawn, assignment, direct assignment, and shutdown", async () => {
     const cwd = createTestCwd();
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
