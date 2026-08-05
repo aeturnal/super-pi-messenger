@@ -179,6 +179,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     taskId,
     startedAt: Date.now(),
     assignedTaskId: null,
+    managedByWork: false,
     coordination: config.coordination ?? "chatty",
     promptTmpDir,
     aliveFile,
@@ -245,7 +246,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     if (worker.aliveFile) {
       try { fs.unlinkSync(worker.aliveFile); } catch {}
     }
-    if (worker.assignedTaskId) {
+    if (worker.assignedTaskId && !worker.managedByWork) {
       const task = store.getTask(cwd, worker.assignedTaskId);
       if (task && task.status === "in_progress" && task.assigned_to === worker.name) {
         const config = loadCrewConfig(store.getCrewDir(cwd));

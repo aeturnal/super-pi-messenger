@@ -25,6 +25,7 @@ export interface LobbyWorkerEntry extends BaseWorkerEntry {
   type: "lobby";
   lobbyId: string;
   assignedTaskId: string | null;
+  managedByWork: boolean;
   coordination: CoordinationLevel;
   startedAt: number;
   promptTmpDir: string | null;

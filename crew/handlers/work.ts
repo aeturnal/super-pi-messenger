@@ -198,6 +198,7 @@ export async function execute(
       store.updateTask(cwd, task.id, { status: "todo", assigned_to: undefined });
       continue;
     }
+    lobbyWorker.managedByWork = true;
     store.appendTaskProgress(cwd, task.id, "system", `Assigned to lobby worker ${lobbyWorker.name} (attempt ${task.attempt_count + 1})`);
     logFeedEvent(cwd, lobbyWorker.name, "task.start", task.id, task.title);
     lobbyAssigned.add(task.id);

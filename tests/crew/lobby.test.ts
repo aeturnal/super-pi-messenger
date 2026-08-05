@@ -481,7 +481,27 @@ describe("lobby workers", () => {
     expect(promptArg).toContain("TASK ASSIGNMENT");
   });
 
-  it("close handler resets orphaned in_progress task to todo", async () => {
+  it("close handler leaves work-managed task recovery to work.execute", async () => {
+    const storeModule = await import("../../crew/store.ts");
+
+    const worker = lobby.spawnLobbyWorker("/test/cwd")!;
+    worker.assignedTaskId = "task-work-managed";
+    worker.managedByWork = true;
+
+    vi.mocked(storeModule.getTask).mockReturnValue({
+      id: "task-work-managed", title: "Managed", status: "in_progress", attempt_count: 3,
+      depends_on: [], description: "", created_at: "", milestone: false,
+      assigned_to: worker.name,
+    } as any);
+
+    const proc = worker.proc as any;
+    proc._handlers["close"](1);
+
+    expect(storeModule.updateTask).not.toHaveBeenCalled();
+    expect(storeModule.appendTaskProgress).not.toHaveBeenCalled();
+  });
+
+  it("close handler resets manually started orphaned in_progress task to todo", async () => {
     const storeModule = await import("../../crew/store.ts");
     const feedModule = await import("../../feed.ts");
 

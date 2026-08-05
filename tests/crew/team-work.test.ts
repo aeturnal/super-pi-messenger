@@ -106,6 +106,28 @@ describe("work with Team approval", () => {
     expect(freshAssignments).toHaveLength(concurrency - lobbyAssignments);
   });
 
+  it("marks lobby workers assigned by work as work-managed", async () => {
+    store.createPlan(cwd, "docs/PRD.md");
+    store.createTask(cwd, "Lobby work", "Do work");
+    const lobbyWorker = {
+      name: "LobbyWorker",
+      lobbyId: "lobby-1",
+      assignedTaskId: null as string | null,
+      managedByWork: false,
+      cwd,
+      model: undefined,
+      role: "worker",
+      superpowersActive: false,
+    };
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue([lobbyWorker]);
+    lobbyMock.isLobbyWorkerCompatible.mockReturnValue(true);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([]);
+
+    await workHandler.execute({ concurrency: 1 }, dirs, createMockContext(cwd), vi.fn());
+
+    expect(lobbyWorker.managedByWork).toBe(true);
+  });
+
   it("reserves concurrency slots for active workers in this project", async () => {
     store.createPlan(cwd, "docs/PRD.md");
     const activeTask = store.createTask(cwd, "Already running", "Do work");
