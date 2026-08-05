@@ -409,7 +409,7 @@ export async function execute(
   if (autonomous) {
     addWaveResult({
       waveNumber: currentWave,
-      tasksAttempted: remainingTasks.map(t => t.id),
+      tasksAttempted: [...remainingTasks.map(t => t.id), ...lobbyAssigned],
       succeeded,
       failed,
       blocked,

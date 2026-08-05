@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { describe, expect, it, vi } from "vitest";
 import * as store from "../../crew/store.ts";
 import { readFeedEvents, isCrewEvent } from "../../feed.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
@@ -17,6 +18,39 @@ function completedTask(cwd: string, title: string, deps: string[] = []): Task {
   });
   store.completeTask(cwd, task.id, "Done");
   return store.getTask(cwd, task.id)!;
+}
+
+function writeWorkerAgent(cwd: string): void {
+  const filePath = path.join(cwd, ".pi", "messenger", "crew", "agents", "crew-worker.md");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `---
+name: crew-worker
+description: Test worker
+crewRole: worker
+---
+You are a worker.
+`);
+}
+
+function writeReviewerAgent(cwd: string): void {
+  const filePath = path.join(cwd, ".pi", "messenger", "crew", "agents", "crew-reviewer.md");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `---
+name: crew-reviewer
+description: Test reviewer
+crewRole: reviewer
+---
+You are a reviewer.
+`);
+}
+
+function createDirs(cwd: string) {
+  const base = path.join(cwd, ".pi", "messenger");
+  const registry = path.join(base, "registry");
+  const inbox = path.join(base, "inbox");
+  fs.mkdirSync(registry, { recursive: true });
+  fs.mkdirSync(inbox, { recursive: true });
+  return { base, registry, inbox };
 }
 
 function storeReviewFeedback(cwd: string, taskId: string, verdict: ReviewFeedback["verdict"]): void {
@@ -175,6 +209,77 @@ describe("auto-review store operations", () => {
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe("task.review");
     expect(isCrewEvent("task.review")).toBe(true);
+  });
+
+  it("processes an autonomous lobby completion through review before continuing", async () => {
+    vi.resetModules();
+
+    let lobbyProc: (EventEmitter & {
+      pid: number;
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      killed: boolean;
+      exitCode: number | null;
+      kill: () => boolean;
+    }) | undefined;
+    vi.doMock("node:child_process", () => ({
+      spawn: vi.fn(() => {
+        const proc = new EventEmitter() as NonNullable<typeof lobbyProc>;
+        proc.pid = 4242;
+        proc.stdout = new EventEmitter();
+        proc.stderr = new EventEmitter();
+        proc.killed = false;
+        proc.exitCode = null;
+        proc.kill = () => false;
+        lobbyProc = proc;
+        return proc;
+      }),
+    }));
+
+    const dirs = createTempCrewDirs();
+    const { createMockContext } = await import("../helpers/mock-context.ts");
+    const runtimeStore = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const review = await import("../../crew/handlers/review.ts");
+    const state = await import("../../crew/state.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    writeReviewerAgent(dirs.cwd);
+    runtimeStore.createPlan(dirs.cwd, "PRD.md");
+    const task = runtimeStore.createTask(dirs.cwd, "Lobby task", "Complete through review");
+    const dependent = runtimeStore.createTask(dirs.cwd, "Dependent task", "Wait for reviewed lobby task", [task.id]);
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+    const reviewSpy = vi.spyOn(review, "reviewImplementation").mockResolvedValue({
+      details: { verdict: "SHIP" },
+    } as never);
+
+    const appendEntry = vi.fn();
+    const execution = workHandler.execute(
+      { action: "work", autonomous: true, concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      appendEntry,
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    runtimeStore.updateTask(dirs.cwd, task.id, {
+      status: "done",
+      base_commit: "abc123",
+    });
+    lobbyProc!.exitCode = 0;
+    lobbyProc!.emit("close", 0);
+
+    const response = await execution;
+
+    expect(reviewSpy).toHaveBeenCalledWith(dirs.cwd, task.id, undefined);
+    expect(state.autonomousState.waveHistory.at(-1)?.tasksAttempted).toEqual([task.id]);
+    expect(appendEntry).toHaveBeenCalledWith("crew_wave_continue", expect.objectContaining({
+      readyTasks: expect.arrayContaining([dependent.id]),
+    }));
+    expect(response.details.succeeded).toEqual([task.id]);
+
+    vi.doUnmock("node:child_process");
   });
 
   it("no base_commit: review should be skipped", () => {
