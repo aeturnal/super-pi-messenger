@@ -36,6 +36,27 @@ export function takeWorkSlots<T>(items: T[], limit: number): T[] {
   return items.slice(0, Math.max(0, limit));
 }
 
+function recordWorkerFailure(
+  cwd: string,
+  taskId: string,
+  message: string,
+  maxAttempts: number,
+): "retry" | "blocked" {
+  const task = store.getTask(cwd, taskId)!;
+  if (task.attempt_count >= maxAttempts) {
+    store.appendTaskProgress(cwd, taskId, "system", message);
+    store.updateTask(cwd, taskId, {
+      status: "blocked",
+      assigned_to: undefined,
+      blocked_reason: `Max attempts (${maxAttempts}) reached`,
+    });
+    return "blocked";
+  }
+  store.appendTaskProgress(cwd, taskId, "system", `${message}, reset to todo`);
+  store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
+  return "retry";
+}
+
 export async function execute(
   params: CrewParams,
   dirs: Dirs,
@@ -328,30 +349,21 @@ export async function execute(
         } else {
           failed.push(taskId);
         }
-      } else if (!autonomous && lobbyAssigned.has(taskId) && task?.status === "in_progress") {
-        if (task.attempt_count >= config.work.maxAttemptsPerTask) {
-          store.updateTask(cwd, taskId, {
-            status: "blocked",
-            blocked_reason: `Max attempts (${config.work.maxAttemptsPerTask}) reached`,
-            assigned_to: undefined,
-          });
+      } else if (task?.status === "in_progress") {
+        const failure = recordWorkerFailure(
+          cwd,
+          taskId,
+          `Worker failed: ${r.error ?? `exit code ${r.exitCode}`}`,
+          config.work.maxAttemptsPerTask,
+        );
+        if (failure === "blocked") {
           logFeedEvent(cwd, task.assigned_to ?? "crew-worker", "task.block", taskId, "Max attempts reached");
           blocked.push(taskId);
         } else {
-          store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
-          store.appendTaskProgress(cwd, taskId, "system",
-            `Lobby worker ${task.assigned_to ?? "crew-worker"} exited (code ${r.exitCode}), reset to todo`);
           logFeedEvent(cwd, task.assigned_to ?? "crew-worker", "task.reset", taskId, "worker exited");
           failed.push(taskId);
         }
-      } else if (autonomous && task?.status === "in_progress") {
-        store.appendTaskProgress(cwd, taskId, "system", `Worker crashed: ${r.error ?? "Unknown error"}`);
-        store.blockTask(cwd, taskId, `Worker failed: ${r.error ?? "Unknown error"}`);
-        blocked.push(taskId);
       } else {
-        if (task?.status === "in_progress") {
-          store.appendTaskProgress(cwd, taskId, "system", `Worker failed: ${r.error ?? "Unknown error"}`);
-        }
         failed.push(taskId);
       }
     }

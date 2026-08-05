@@ -209,7 +209,7 @@ describe("crew/graceful shutdown", () => {
     expect(response.details.blocked).toEqual([]);
   });
 
-  it("graceful non-zero exit with done task is credited as success; crash blocks in autonomous mode", async () => {
+  it("graceful non-zero exit with done task is credited as success; autonomous crash retries below the attempt limit", async () => {
     const store = await import("../../crew/store.ts");
     const agents = await import("../../crew/agents.ts");
     const workHandler = await import("../../crew/handlers/work.ts");
@@ -277,8 +277,61 @@ describe("crew/graceful shutdown", () => {
       createMockContext(dirs.cwd),
       () => {},
     );
-    expect(second.details.blocked).toEqual([t2.id]);
-    expect(store.getTask(dirs.cwd, t2.id)?.status).toBe("blocked");
+    expect(second.details.failed).toEqual([t2.id]);
+    expect(second.details.blocked).toEqual([]);
+    expect(store.getTask(dirs.cwd, t2.id)?.status).toBe("todo");
+    expect(store.getTask(dirs.cwd, t2.id)?.assigned_to).toBeUndefined();
+  });
+
+  it("blocks a fresh worker failure at the attempt limit and clears ownership", async () => {
+    const store = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    fs.writeFileSync(path.join(dirs.crewDir, "config.json"), JSON.stringify({
+      work: { maxAttemptsPerTask: 1 },
+    }));
+    store.createPlan(dirs.cwd, "docs/PRD.md");
+    const task = store.createTask(dirs.cwd, "Fresh task", "Block after one failed attempt");
+
+    vi.spyOn(agents, "spawnAgents").mockImplementation(async (tasks: Array<{ taskId?: string }>) => {
+      for (const workerTask of tasks) {
+        if (workerTask.taskId) store.startTask(dirs.cwd, workerTask.taskId, "crew-worker");
+      }
+      return tasks.map(workerTask => ({
+        agent: "crew-worker",
+        exitCode: 1,
+        output: "",
+        truncated: false,
+        progress: {
+          agent: "crew-worker",
+          status: "failed" as const,
+          recentTools: [],
+          toolCallCount: 0,
+          tokens: 0,
+          durationMs: 0,
+        },
+        taskId: workerTask.taskId,
+        error: "crash",
+      }));
+    });
+
+    const response = await workHandler.execute(
+      { action: "work", concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "blocked",
+      attempt_count: 1,
+      blocked_reason: "Max attempts (1) reached",
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
   });
 
   it("autonomous mode stops with manual reason when signal is aborted", async () => {
@@ -806,7 +859,7 @@ describe("crew/graceful shutdown", () => {
     expect(recoveries).toHaveLength(1);
   });
 
-  it("records a non-zero lobby close as blocked in the autonomous wave", async () => {
+  it("records a non-zero lobby close as retried in the autonomous wave below the attempt limit", async () => {
     vi.resetModules();
     const processes = mockLobbyProcesses();
 
@@ -831,18 +884,22 @@ describe("crew/graceful shutdown", () => {
     closeLobbyProcess(processes[0], 1);
     const response = await execution;
 
-    expect(store.getTask(dirs.cwd, task.id)?.status).toBe("blocked");
-    expect(response.details.blocked).toEqual([task.id]);
-    expect(response.details.failed).toEqual([]);
+    expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
+      status: "todo",
+      attempt_count: 1,
+    });
+    expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
+    expect(response.details.failed).toEqual([task.id]);
+    expect(response.details.blocked).toEqual([]);
     expect(state.autonomousState.waveHistory.at(-1)).toMatchObject({
       tasksAttempted: [task.id],
       succeeded: [],
-      failed: [],
-      blocked: [task.id],
+      failed: [task.id],
+      blocked: [],
     });
   });
 
-  it("does not emit an autonomous blocked wave before its lobby worker closes", async () => {
+  it("does not stop autonomous work before an assigned lobby worker closes", async () => {
     vi.resetModules();
     const processes = mockLobbyProcesses();
 
@@ -872,9 +929,10 @@ describe("crew/graceful shutdown", () => {
     closeLobbyProcess(processes[0], 1);
     await execution;
 
-    expect(state.autonomousState.stopReason).toBe("blocked");
-    expect(appendEntry).toHaveBeenCalledWith("crew_wave_blocked", expect.objectContaining({
-      blockedTasks: [task.id],
+    expect(state.autonomousState.active).toBe(true);
+    expect(state.autonomousState.stopReason).toBeNull();
+    expect(appendEntry).toHaveBeenCalledWith("crew_wave_continue", expect.objectContaining({
+      readyTasks: [task.id],
     }));
   });
 
