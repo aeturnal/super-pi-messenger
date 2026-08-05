@@ -9,7 +9,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Dirs } from "../../lib.ts";
 import type { CrewParams, AppendEntryFn } from "../types.ts";
 import { result } from "../utils/result.ts";
-import { resolveModel, spawnAgents } from "../agents.ts";
+import { prepareWorkerGuidance, resolveModel, spawnAgents } from "../agents.ts";
 import { loadCrewConfig } from "../utils/config.ts";
 import { discoverCrewAgents, discoverCrewSkills } from "../utils/discover.ts";
 import { buildWorkerPrompt } from "../prompt.ts";
@@ -18,7 +18,7 @@ import { reviewImplementation } from "./review.ts";
 import * as store from "../store.ts";
 import { getCrewDir } from "../store.ts";
 import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
-import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles } from "../lobby.ts";
+import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, type LobbyCompatibility } from "../lobby.ts";
 import { logFeedEvent } from "../../feed.ts";
 import { approvalTaskSummaries } from "../utils/task-format.ts";
 
@@ -142,13 +142,37 @@ export async function execute(
 
   const skills = discoverCrewSkills(cwd);
 
-  // Assign tasks to lobby workers first (they're already running and warmed up)
+  // Assign tasks to compatible lobby workers first (they're already running and warmed up).
   const prdLabel = store.getPlanLabel(plan);
   const lobbyAssigned = new Set<string>();
+  const workerAgent = availableAgents.find(a => a.name === "crew-worker");
+  const superpowersActive = prepareWorkerGuidance("worker").active;
+  const lobbyRequirements = new Map<string, LobbyCompatibility>();
+  for (const task of readyTasks) {
+    const roleName = teamStore.resolveRoleName(cwd, task.role);
+    const roleModel = roleName ? teamStore.resolveRoles(cwd)[roleName]?.model : undefined;
+    lobbyRequirements.set(task.id, {
+      cwd,
+      model: resolveModel(
+        task.model,
+        params.model,
+        roleModel,
+        config.models?.worker,
+        sessionModel,
+        workerAgent?.model,
+      ),
+      role: "worker",
+      superpowersActive,
+    });
+  }
+
   const lobbyWorkers = getAvailableLobbyWorkers(cwd);
   for (const lobbyWorker of lobbyWorkers) {
-    const task = readyTasks.find(t => !lobbyAssigned.has(t.id));
-    if (!task) break;
+    const task = readyTasks.find(t =>
+      !lobbyAssigned.has(t.id)
+      && isLobbyWorkerCompatible(lobbyWorker, lobbyRequirements.get(t.id)!),
+    );
+    if (!task) continue;
 
     const others = readyTasks.filter(t => t.id !== task.id);
     const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));

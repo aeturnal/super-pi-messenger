@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateMemorableName } from "../lib.ts";
 import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
+import { normalizeCwd } from "./state.ts";
 import {
   resolveThinking,
   modelHasThinkingSuffix,
@@ -56,6 +57,23 @@ export const LOBBY_TOKEN_BUDGETS: Record<string, number> = {
 };
 
 export type LobbyWorker = LobbyWorkerEntry;
+
+export interface LobbyCompatibility {
+  cwd: string;
+  model?: string;
+  role?: string;
+  superpowersActive: boolean;
+}
+
+export function isLobbyWorkerCompatible(
+  worker: LobbyWorker,
+  required: LobbyCompatibility,
+): boolean {
+  return worker.cwd === normalizeCwd(required.cwd)
+    && worker.model === required.model
+    && worker.role === required.role
+    && worker.superpowersActive === required.superpowersActive;
+}
 
 function lobbyTaskId(id: string): string {
   return `__lobby-${id}__`;
@@ -151,7 +169,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     type: "lobby",
     lobbyId: id,
     name,
-    cwd,
+    cwd: normalizeCwd(cwd),
     proc,
     taskId,
     startedAt: Date.now(),
@@ -159,6 +177,9 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     coordination: config.coordination ?? "chatty",
     promptTmpDir,
     aliveFile,
+    model,
+    role: "worker",
+    superpowersActive: workerGuidance.active,
   };
 
   registerWorker(worker);

@@ -6,9 +6,27 @@ import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 import { createMockContext } from "../helpers/mock-context.ts";
 import { createProgress } from "../../crew/utils/progress.ts";
 
+const lobbyMock = vi.hoisted(() => ({
+  getAvailableLobbyWorkers: vi.fn(() => [] as Array<{ name: string; lobbyId: string }>),
+  assignTaskToLobbyWorker: vi.fn((worker: { assignedTaskId: string | null }, taskId: string) => {
+    worker.assignedTaskId = taskId;
+    return true;
+  }),
+  cleanupUnassignedAliveFiles: vi.fn(),
+  isLobbyWorkerCompatible: vi.fn(() => false),
+}));
+
 vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
   resolveModel: vi.fn((...models: Array<string | undefined>) => models.find(Boolean)),
+  prepareWorkerGuidance: vi.fn(() => ({ active: false, env: {} })),
+}));
+
+vi.mock("../../crew/lobby.ts", () => ({
+  getAvailableLobbyWorkers: lobbyMock.getAvailableLobbyWorkers,
+  assignTaskToLobbyWorker: lobbyMock.assignTaskToLobbyWorker,
+  cleanupUnassignedAliveFiles: lobbyMock.cleanupUnassignedAliveFiles,
+  isLobbyWorkerCompatible: lobbyMock.isLobbyWorkerCompatible,
 }));
 
 describe("work with Team approval", () => {
@@ -25,6 +43,13 @@ describe("work with Team approval", () => {
     agents = await import("../../crew/agents.ts");
     store = await import("../../crew/store.ts");
     teamStore = await import("../../crew/team/store.ts");
+    vi.clearAllMocks();
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue([]);
+    lobbyMock.assignTaskToLobbyWorker.mockImplementation((worker, taskId) => {
+      worker.assignedTaskId = taskId;
+      return true;
+    });
+    lobbyMock.isLobbyWorkerCompatible.mockReturnValue(false);
 
     cwd = createTempCrewDirs().cwd;
     process.env.PI_MESSENGER_TEAM_PROFILE_DIR = path.join(cwd, "profiles");
@@ -42,6 +67,36 @@ describe("work with Team approval", () => {
 
   afterEach(() => {
     delete process.env.PI_MESSENGER_TEAM_PROFILE_DIR;
+  });
+
+  it("leaves an incompatible lobby worker and task unchanged for a fresh worker", async () => {
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Model-specific work", "Do work", [], { model: "task-model" });
+    const worker = {
+      name: "LobbyWorker",
+      lobbyId: "lobby-1",
+      assignedTaskId: null,
+      cwd,
+      model: "lobby-model",
+      role: "worker",
+      superpowersActive: false,
+    };
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue([worker]);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([
+      { exitCode: 1, output: "", truncated: false, progress: createProgress("crew-worker"), agent: "crew-worker", taskId: task.id },
+    ]);
+
+    await workHandler.execute({}, dirs, createMockContext(cwd), vi.fn());
+
+    expect(lobbyMock.isLobbyWorkerCompatible).toHaveBeenCalledWith(worker, expect.objectContaining({
+      cwd,
+      model: "task-model",
+      role: "worker",
+      superpowersActive: false,
+    }));
+    expect(lobbyMock.assignTaskToLobbyWorker).not.toHaveBeenCalled();
+    expect(worker.assignedTaskId).toBeNull();
+    expect(store.getTask(cwd, task.id)?.status).toBe("todo");
   });
 
   it("skips approval-gated ready tasks without spawning workers", async () => {

@@ -268,6 +268,37 @@ describe("lobby workers", () => {
     }
   });
 
+  it("records and exactly matches lobby worker launch compatibility", () => {
+    const cwd = createTestCwd();
+    const worker = lobby.spawnLobbyWorker(path.join(cwd, "."))!;
+    const same = {
+      cwd,
+      model: "claude-opus-4-5",
+      role: "worker",
+      superpowersActive: false,
+    };
+
+    expect(worker).toMatchObject(same);
+    expect(lobby.isLobbyWorkerCompatible(worker, same)).toBe(true);
+    expect(lobby.isLobbyWorkerCompatible(worker, { ...same, cwd: "/other/cwd" })).toBe(false);
+    expect(lobby.isLobbyWorkerCompatible(worker, { ...same, model: "other/model" })).toBe(false);
+    expect(lobby.isLobbyWorkerCompatible(worker, { ...same, role: "reviewer" })).toBe(false);
+    expect(lobby.isLobbyWorkerCompatible(worker, { ...same, superpowersActive: true })).toBe(false);
+
+    const fixture = createStockSuperpowersFixture();
+    try {
+      superpowers.captureSuperpowersSkills(fixture.skills);
+      const guidedWorker = lobby.spawnLobbyWorker(cwd)!;
+      const guided = { ...same, superpowersActive: true };
+      expect(guidedWorker).toMatchObject(guided);
+      expect(lobby.isLobbyWorkerCompatible(guidedWorker, guided)).toBe(true);
+      expect(lobby.isLobbyWorkerCompatible(guidedWorker, same)).toBe(false);
+    } finally {
+      fixture.cleanup();
+      superpowers.resetSuperpowersStateForTests();
+    }
+  });
+
   it("counts available lobby workers for a cwd", () => {
     expect(lobby.getLobbyWorkerCount("/test/cwd")).toBe(0);
     lobby.spawnLobbyWorker("/test/cwd");
