@@ -42,9 +42,9 @@ import {
 import { getLiveWorkers, hasLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.ts";
 import { loadConfig } from "./config.ts";
 import { discoverCrewAgents } from "./crew/utils/discover.ts";
-import { spawnSingleWorker, spawnWorkersForReadyTasks } from "./crew/spawn.ts";
+import { spawnSingleWorker } from "./crew/spawn.ts";
 import * as teamStore from "./crew/team/store.ts";
-import { spawnLobbyWorker, removeLobbyWorkerByIndex, cleanupUnassignedAliveFiles } from "./crew/lobby.ts";
+import { spawnLobbyWorker, removeLobbyWorkerByIndex } from "./crew/lobby.ts";
 
 export interface OverlayCallbacks {
   onBackground?: (snapshot: string) => void;
@@ -65,8 +65,6 @@ export class MessengerOverlay implements Component, Focusable {
   private sawIncompleteWork = false;
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
   private completionDismissed = false;
-  private wasPlanning: boolean;
-  private prevInProgressCount = 0;
 
   constructor(
     private tui: TUI,
@@ -85,8 +83,6 @@ export class MessengerOverlay implements Component, Focusable {
     for (const key of this.state.unreadCounts.keys()) {
       this.state.unreadCounts.set(key, 0);
     }
-
-    this.wasPlanning = isPlanningForCwd(this.cwd);
 
     this.progressUnsubscribe = onLiveWorkersChanged(() => {
       this.syncCrewRefreshTimers();
@@ -145,64 +141,6 @@ export class MessengerOverlay implements Component, Focusable {
 
   private isPlanningActiveForCurrentProject(): boolean {
     return isPlanningForCwd(this.cwd);
-  }
-
-  private checkAutoSpawnOnPlanComplete(planning: boolean, tasks: Task[]): boolean {
-    const wasPlanningBefore = this.wasPlanning;
-    this.wasPlanning = planning;
-
-    if (!wasPlanningBefore || planning) return false;
-
-    const config = loadCrewConfig(crewStore.getCrewDir(this.cwd));
-    const readyTasks = crewStore.getReadyTasksFrom(tasks, { advisory: config.dependencies === "advisory" });
-    const startableTasks = readyTasks.filter(t => !teamStore.taskNeedsApproval(t));
-    let mutated = false;
-    if (startableTasks.length > 0) {
-      const target = Math.min(startableTasks.length, autonomousState.concurrency);
-      const { assigned, mutated: spawnMutated } = spawnWorkersForReadyTasks(this.cwd, target, this.getCurrentSessionModel());
-      if (spawnMutated) {
-        mutated = true;
-      }
-      if (assigned > 0) {
-        setNotification(this.crewViewState, this.tui, true, `Plan ready — ${assigned} worker${assigned > 1 ? "s" : ""} started`);
-        this.tui.requestRender();
-      }
-    } else if (readyTasks.length > 0) {
-      const rejected = readyTasks.filter(teamStore.taskNeedsRevision);
-      const pending = readyTasks.filter(teamStore.taskPendingApproval);
-      const message = rejected.length > 0
-        ? `Plan ready — ${rejected.length} task${rejected.length > 1 ? "s" : ""} need revision`
-        : `Plan ready — ${pending.length} task${pending.length > 1 ? "s" : ""} need lead approval`;
-      setNotification(this.crewViewState, this.tui, false, message);
-      this.tui.requestRender();
-    }
-
-    cleanupUnassignedAliveFiles(this.cwd);
-    return mutated;
-  }
-
-  private checkAutoRefillWorkers(tasks: Task[], hasPlan: boolean): boolean {
-    const inProgressCount = tasks.filter(t => t.status === "in_progress").length;
-    const prev = this.prevInProgressCount;
-    this.prevInProgressCount = inProgressCount;
-
-    if (inProgressCount >= prev || inProgressCount >= autonomousState.concurrency || !hasPlan) return false;
-
-    const config = loadCrewConfig(crewStore.getCrewDir(this.cwd));
-    const readyTasks = crewStore.getReadyTasksFrom(tasks, { advisory: config.dependencies === "advisory" });
-    const startableTasks = readyTasks.filter(t => !teamStore.taskNeedsApproval(t));
-    if (startableTasks.length === 0) return false;
-
-    const slots = autonomousState.concurrency - inProgressCount;
-    const target = Math.min(startableTasks.length, slots);
-    if (target <= 0) return false;
-
-    const { assigned, mutated } = spawnWorkersForReadyTasks(this.cwd, target, this.getCurrentSessionModel());
-    if (assigned > 0) {
-      setNotification(this.crewViewState, this.tui, true, `${assigned} worker${assigned > 1 ? "s" : ""} → ready tasks`);
-      this.tui.requestRender();
-    }
-    return mutated;
   }
 
   private syncCrewRefreshTimers(): void {
@@ -605,7 +543,7 @@ export class MessengerOverlay implements Component, Focusable {
     const emptyRow = () => border("│") + " ".repeat(innerW) + border("│");
     const sectionSeparator = this.theme.fg("dim", "─".repeat(sectionW));
 
-    let tasks = crewStore.getTasks(this.cwd);
+    const tasks = crewStore.getTasks(this.cwd);
     if (tasks.length === 0) {
       this.crewViewState.selectedTaskIndex = 0;
       if (this.crewViewState.mode === "detail") this.crewViewState.mode = "list";
@@ -615,18 +553,6 @@ export class MessengerOverlay implements Component, Focusable {
 
     const hasPlan = this.hasPlan();
     const planning = this.isPlanningActiveForCurrentProject();
-    if (this.checkAutoSpawnOnPlanComplete(planning, tasks)) {
-      tasks = crewStore.getTasks(this.cwd);
-    }
-    if (this.checkAutoRefillWorkers(tasks, hasPlan)) {
-      tasks = crewStore.getTasks(this.cwd);
-    }
-    if (tasks.length === 0) {
-      this.crewViewState.selectedTaskIndex = 0;
-      if (this.crewViewState.mode === "detail") this.crewViewState.mode = "list";
-    } else {
-      this.crewViewState.selectedTaskIndex = Math.max(0, Math.min(this.crewViewState.selectedTaskIndex, tasks.length - 1));
-    }
     const selectedTask = tasks[this.crewViewState.selectedTaskIndex] ?? null;
 
     const lines: string[] = [];

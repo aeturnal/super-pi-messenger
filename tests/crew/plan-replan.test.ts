@@ -443,7 +443,7 @@ describe("plan with autoWork", () => {
     expect(r.content[0].text).toContain("Workers will start automatically");
   });
 
-  it("does not set pendingAutoWork when autoWork is false", async () => {
+  it("creates tasks that await explicit start when autoWork is false", async () => {
     spawnAgents.mockResolvedValue([{
       exitCode: 0,
       output: plannerOutput,
@@ -459,6 +459,7 @@ describe("plan with autoWork", () => {
 
     expect(r.details?.error).toBeUndefined();
     expect(state.isPendingAutoWork()).toBe(false);
+    expect(store.getTasks(tmpDir)[0]?.status).toBe("todo");
     expect(r.content[0].text).toContain("Next steps");
     expect(r.content[0].text).not.toContain("Workers will start automatically");
   });

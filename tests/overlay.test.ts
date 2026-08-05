@@ -59,7 +59,7 @@ afterEach(() => {
 });
 
 describe("MessengerOverlay current host model routing", () => {
-  it("uses the provider-qualified current model after a switch for manual worker launch", () => {
+  it("uses the provider-qualified current model after a switch for an explicit task-start key", () => {
     const { cwd } = createTempCrewDirs();
     crewStore.createPlan(cwd, "docs/PRD.md");
     const task = crewStore.createTask(cwd, "Launch manually");
@@ -129,60 +129,6 @@ describe("MessengerOverlay current host model routing", () => {
     overlay.handleInput("+");
 
     expect(spawnLobbyWorker).toHaveBeenCalledWith(cwd, undefined, "anthropic/claude-opus-4-6");
-    overlay.dispose();
-  });
-
-  it("uses the provider-qualified current model after a switch for auto-spawn", () => {
-    const { cwd } = createTempCrewDirs();
-    crewStore.createPlan(cwd, "docs/PRD.md");
-    crewStore.createTask(cwd, "Auto-spawn with current model");
-    let currentModel = "openai-codex/gpt-5.6-terra";
-    vi.mocked(spawnWorkersForReadyTasks).mockReturnValue({ assigned: 0, firstWorkerName: null, mutated: false });
-    startPlanningRun(cwd, 1);
-    const overlay = new MessengerOverlay(
-      { requestRender: vi.fn() } as any,
-      theme,
-      createState(cwd),
-      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
-      () => {},
-      {},
-      cwd,
-      () => currentModel,
-    );
-
-    currentModel = "anthropic/claude-opus-4-6";
-    clearPlanningState(cwd);
-    overlay.render(80);
-
-    expect(spawnWorkersForReadyTasks).toHaveBeenCalledWith(cwd, 1, "anthropic/claude-opus-4-6");
-    overlay.dispose();
-  });
-
-  it("uses the provider-qualified current model after a switch for auto-refill", () => {
-    const { cwd } = createTempCrewDirs();
-    crewStore.createPlan(cwd, "docs/PRD.md");
-    const completed = crewStore.createTask(cwd, "Completing worker");
-    crewStore.createTask(cwd, "Refill worker");
-    crewStore.updateTask(cwd, completed.id, { status: "in_progress", assigned_to: "WorkerOne" });
-    let currentModel = "openai-codex/gpt-5.6-terra";
-    vi.mocked(spawnWorkersForReadyTasks).mockReturnValue({ assigned: 0, firstWorkerName: null, mutated: false });
-    const overlay = new MessengerOverlay(
-      { requestRender: vi.fn() } as any,
-      theme,
-      createState(cwd),
-      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
-      () => {},
-      {},
-      cwd,
-      () => currentModel,
-    );
-    overlay.render(80);
-
-    currentModel = "anthropic/claude-opus-4-6";
-    crewStore.updateTask(cwd, completed.id, { status: "done", assigned_to: undefined });
-    overlay.render(80);
-
-    expect(spawnWorkersForReadyTasks).toHaveBeenCalledWith(cwd, 1, "anthropic/claude-opus-4-6");
     overlay.dispose();
   });
 
@@ -262,115 +208,11 @@ describe("MessengerOverlay task snapshots", () => {
     overlay.dispose();
   });
 
-  it("reloads the auto-spawn result before auto-refill checks task readiness", () => {
+  it("does not dispatch when planning completes during repeated renders", () => {
     const { cwd } = createTempCrewDirs();
     crewStore.createPlan(cwd, "docs/PRD.md");
-    crewStore.createTask(cwd, "Auto-spawn first");
-    crewStore.createTask(cwd, "Auto-refill second");
-    const firstTask = crewStore.getTasks(cwd)[0]!;
-    const readySnapshots = vi.spyOn(crewStore, "getReadyTasksFrom");
-
-    vi.mocked(spawnWorkersForReadyTasks).mockImplementationOnce(() => {
-      crewStore.updateTask(cwd, firstTask.id, { status: "in_progress", assigned_to: "WorkerOne" });
-      return { assigned: 1, firstWorkerName: "WorkerOne", mutated: true };
-    }).mockReturnValue({ assigned: 0, firstWorkerName: null, mutated: false });
-
-    startPlanningRun(cwd, 1);
-    const overlay = new MessengerOverlay(
-      { requestRender: vi.fn() } as any,
-      theme,
-      createState(cwd),
-      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
-      () => {},
-      {},
-      cwd,
-    );
-    clearPlanningState(cwd);
-    (overlay as any).prevInProgressCount = 2;
-
-    overlay.render(80);
-
-    expect(readySnapshots.mock.calls[1]?.[0].map(task => task.status)).toEqual(["in_progress", "todo"]);
-    overlay.dispose();
-  });
-
-  it("renders an auto-refill assignment in the same frame", () => {
-    const { cwd } = createTempCrewDirs();
-    crewStore.createPlan(cwd, "docs/PRD.md");
-    crewStore.createTask(cwd, "Completed work");
-    crewStore.createTask(cwd, "Refilled work");
-    const [completedTask, refilledTask] = crewStore.getTasks(cwd);
-    crewStore.updateTask(cwd, completedTask!.id, { status: "in_progress", assigned_to: "WorkerOne" });
-    const overlay = new MessengerOverlay(
-      { requestRender: vi.fn() } as any,
-      theme,
-      createState(cwd),
-      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
-      () => {},
-      {},
-      cwd,
-    );
-    overlay.render(80);
-    crewStore.updateTask(cwd, completedTask!.id, { status: "done", assigned_to: undefined });
-    vi.mocked(spawnWorkersForReadyTasks).mockImplementation(() => {
-      crewStore.updateTask(cwd, refilledTask!.id, { status: "in_progress", assigned_to: "WorkerTwo" });
-      return { assigned: 1, firstWorkerName: "WorkerTwo", mutated: true };
-    });
-
-    const frame = overlay.render(80).join("\n");
-
-    expect(frame).toContain("● task-2  Refilled work (WorkerTwo)");
-    overlay.dispose();
-  });
-
-  it("reloads failed lobby assignment metadata before detail output", () => {
-    const { cwd } = createTempCrewDirs();
-    crewStore.createPlan(cwd, "docs/PRD.md");
-    crewStore.createTask(cwd, "Retry the lobby assignment");
-    const task = crewStore.getTasks(cwd)[0]!;
-
-    vi.mocked(spawnWorkersForReadyTasks).mockImplementation(() => {
-      crewStore.updateTask(cwd, task.id, {
-        status: "in_progress",
-        started_at: new Date().toISOString(),
-        base_commit: "base-before-delivery",
-        assigned_to: "LobbyOne",
-        attempt_count: 1,
-      });
-      crewStore.updateTask(cwd, task.id, { status: "todo", assigned_to: undefined });
-      return { assigned: 0, firstWorkerName: null, mutated: true };
-    });
-
-    startPlanningRun(cwd, 1);
-    const overlay = new MessengerOverlay(
-      { requestRender: vi.fn() } as any,
-      theme,
-      createState(cwd),
-      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
-      () => {},
-      {},
-      cwd,
-    );
-    clearPlanningState(cwd);
-    (overlay as any).crewViewState.mode = "detail";
-
-    const frame = overlay.render(80).join("\n");
-
-    expect(frame).toContain("Status: todo  │  Attempts: 1");
-    overlay.dispose();
-  });
-
-  it("reloads tasks after auto-spawn before rendering the completed planning frame", () => {
-    const { cwd } = createTempCrewDirs();
-    crewStore.createPlan(cwd, "docs/PRD.md");
-    crewStore.createTask(cwd, "Implement snapshot reload");
-    const task = crewStore.getTasks(cwd)[0]!;
-
-    vi.mocked(spawnWorkersForReadyTasks).mockImplementation(() => {
-      crewStore.updateTask(cwd, task.id, { status: "in_progress", assigned_to: "WorkerOne" });
-      return { assigned: 1, firstWorkerName: "WorkerOne", mutated: true };
-    });
-
+    const task = crewStore.createTask(cwd, "Await explicit start");
+    vi.mocked(spawnWorkersForReadyTasks).mockReturnValue({ assigned: 0, firstWorkerName: null, mutated: false });
     startPlanningRun(cwd, 1);
     const overlay = new MessengerOverlay(
       { requestRender: vi.fn() } as any,
@@ -383,9 +225,36 @@ describe("MessengerOverlay task snapshots", () => {
     );
     clearPlanningState(cwd);
 
-    const frame = overlay.render(80).join("\n");
+    for (let i = 0; i < 3; i++) overlay.render(120);
 
-    expect(frame).toContain("● task-1  Implement snapshot reload (WorkerOne)");
+    expect(spawnWorkersForReadyTasks).not.toHaveBeenCalled();
+    expect(crewStore.getTask(cwd, task.id)?.status).toBe("todo");
+    overlay.dispose();
+  });
+
+  it("does not refill workers when in-progress work completes during repeated renders", () => {
+    const { cwd } = createTempCrewDirs();
+    crewStore.createPlan(cwd, "docs/PRD.md");
+    const completed = crewStore.createTask(cwd, "Completed work");
+    const task = crewStore.createTask(cwd, "Await explicit refill");
+    crewStore.updateTask(cwd, completed.id, { status: "in_progress", assigned_to: "WorkerOne" });
+    vi.mocked(spawnWorkersForReadyTasks).mockReturnValue({ assigned: 0, firstWorkerName: null, mutated: false });
+    const overlay = new MessengerOverlay(
+      { requestRender: vi.fn() } as any,
+      theme,
+      createState(cwd),
+      { base: cwd, registry: `${cwd}/registry`, inbox: `${cwd}/inbox` } as Dirs,
+      () => {},
+      {},
+      cwd,
+    );
+    overlay.render(120);
+    crewStore.updateTask(cwd, completed.id, { status: "done", assigned_to: undefined });
+
+    for (let i = 0; i < 3; i++) overlay.render(120);
+
+    expect(spawnWorkersForReadyTasks).not.toHaveBeenCalled();
+    expect(crewStore.getTask(cwd, task.id)?.status).toBe("todo");
     overlay.dispose();
   });
 });
