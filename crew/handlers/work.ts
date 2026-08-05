@@ -146,10 +146,11 @@ export async function execute(
   }
 
   const skills = discoverCrewSkills(cwd);
-  const activeWorkerCount = store.getTasks(cwd).filter(task =>
-    task.status === "in_progress" && hasActiveWorker(cwd, task.id),
-  ).length;
-  let remainingSlots = Math.max(0, autonomousState.concurrency - activeWorkerCount);
+  const activeTaskIds = new Set(store.getTasks(cwd)
+    .filter(task => hasActiveWorker(cwd, task.id))
+    .map(task => task.id));
+  let remainingSlots = Math.max(0, autonomousState.concurrency - activeTaskIds.size);
+  const candidateTasks = readyTasks.filter(task => !activeTaskIds.has(task.id));
 
   // Assign tasks to compatible lobby workers first (they're already running and warmed up).
   const prdLabel = store.getPlanLabel(plan);
@@ -157,7 +158,7 @@ export async function execute(
   const workerAgent = availableAgents.find(a => a.name === "crew-worker");
   const superpowersActive = prepareWorkerGuidance("worker").active;
   const lobbyRequirements = new Map<string, LobbyCompatibility>();
-  for (const task of readyTasks) {
+  for (const task of candidateTasks) {
     const roleName = teamStore.resolveRoleName(cwd, task.role);
     const roleModel = roleName ? teamStore.resolveRoles(cwd)[roleName]?.model : undefined;
     lobbyRequirements.set(task.id, {
@@ -178,7 +179,7 @@ export async function execute(
   const lobbyWorkers = getAvailableLobbyWorkers(cwd);
   for (const lobbyWorker of lobbyWorkers) {
     if (lobbyAssigned.size >= remainingSlots) break;
-    const task = readyTasks.find(t =>
+    const task = candidateTasks.find(t =>
       !lobbyAssigned.has(t.id)
       && isLobbyWorkerCompatible(lobbyWorker, lobbyRequirements.get(t.id)!),
     );
@@ -207,7 +208,7 @@ export async function execute(
 
   // Build prompts for remaining tasks — spawnAgents throttles via autonomousState.concurrency
   const remainingTasks = takeWorkSlots(
-    readyTasks.filter(t => !lobbyAssigned.has(t.id)),
+    candidateTasks.filter(t => !lobbyAssigned.has(t.id)),
     remainingSlots,
   );
   const teamRoles = teamStore.resolveRoles(cwd);

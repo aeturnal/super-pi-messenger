@@ -152,6 +152,40 @@ describe("work with Team approval", () => {
     expect(lobbyAssignments + freshAssignments.length).toBe(1);
   });
 
+  it("does not redispatch a registered active worker whose task remains todo", async () => {
+    store.createPlan(cwd, "docs/PRD.md");
+    const activeTask = store.createTask(cwd, "Already assigned", "Do work");
+    for (let i = 0; i < 3; i++) {
+      store.createTask(cwd, `Task ${i + 1}`, "Do work");
+    }
+    const registry = await import("../../crew/registry.ts");
+    registry.registerWorker({
+      type: "worker",
+      name: "ActiveWorker",
+      cwd,
+      taskId: activeTask.id,
+      proc: { exitCode: null, killed: false } as never,
+    });
+    const lobbyWorker = {
+      name: "LobbyWorker",
+      lobbyId: "lobby-1",
+      assignedTaskId: null,
+      cwd,
+      model: undefined,
+      role: "worker",
+      superpowersActive: false,
+    };
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue([lobbyWorker]);
+    lobbyMock.isLobbyWorkerCompatible.mockReturnValue(true);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([]);
+
+    await workHandler.execute({ concurrency: 3 }, dirs, createMockContext(cwd), vi.fn());
+
+    const freshAssignments = vi.mocked(agents.spawnAgents).mock.calls[0]?.[0] ?? [];
+    expect(lobbyWorker.assignedTaskId).not.toBe(activeTask.id);
+    expect(freshAssignments).not.toContainEqual(expect.objectContaining({ taskId: activeTask.id }));
+  });
+
   it("leaves an incompatible lobby worker and task unchanged for a fresh worker", async () => {
     store.createPlan(cwd, "docs/PRD.md");
     const task = store.createTask(cwd, "Model-specific work", "Do work", [], { model: "task-model" });
