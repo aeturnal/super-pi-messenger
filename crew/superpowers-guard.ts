@@ -28,8 +28,21 @@ export function stripSuperpowersOuterPolicy(systemPrompt: string): string {
   return markerIndex === -1 ? systemPrompt : systemPrompt.slice(0, markerIndex);
 }
 
+export function isForbiddenCrewChildCommand(command: string): boolean {
+  return /(^|[;&|]\s*)(?:npx\s+)?pi(?:\s|$)/i.test(command)
+    || /\bgit\s+worktree\s+(?:add|remove|move|prune)\b/i.test(command);
+}
+
 export default function registerSuperpowersGuard(pi: ExtensionAPI): void {
   if (!isCrewChildProcess()) return;
+
+  pi.on("tool_call", (event) => {
+    if (event.toolName !== "bash") return;
+    const command = (event.input as { command?: unknown }).command;
+    if (typeof command === "string" && isForbiddenCrewChildCommand(command)) {
+      return { block: true, reason: "Crew children cannot start nested Pi or manage worktrees." };
+    }
+  });
 
   const role = process.env.PI_CREW_ROLE;
   if (

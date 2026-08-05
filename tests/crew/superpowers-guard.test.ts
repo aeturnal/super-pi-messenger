@@ -1,8 +1,11 @@
 import type {
+  BashToolCallEvent,
   BeforeAgentStartEvent,
   BeforeAgentStartEventResult,
   ContextEvent,
   ExtensionAPI,
+  ToolCallEvent,
+  ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SUPERPOWERS_OUTER_POLICY_MARKER } from "../../crew/superpowers-policy.js";
@@ -20,27 +23,33 @@ type BeforeAgentStartHandler = (
 type ContextHandler = (
   event: ContextEvent,
 ) => MaybePromise<{ messages?: ContextEvent["messages"] } | void>;
+type ToolCallHandler = (event: ToolCallEvent) => MaybePromise<ToolCallEventResult | void>;
 type GuardRegistration =
   | [event: "before_agent_start", handler: BeforeAgentStartHandler]
-  | [event: "context", handler: ContextHandler];
+  | [event: "context", handler: ContextHandler]
+  | [event: "tool_call", handler: ToolCallHandler];
 
 type CapturedHandlers = {
   before_agent_start: BeforeAgentStartHandler[];
   context: ContextHandler[];
+  tool_call: ToolCallHandler[];
 };
 
 function captureHandlers(): { pi: ExtensionAPI; handlers: CapturedHandlers } {
   const handlers: CapturedHandlers = {
     before_agent_start: [],
     context: [],
+    tool_call: [],
   };
   const pi: Partial<ExtensionAPI> = {};
   Object.assign(pi, {
     on: vi.fn((...registration: GuardRegistration) => {
       if (registration[0] === "before_agent_start") {
         handlers.before_agent_start.push(registration[1]);
-      } else {
+      } else if (registration[0] === "context") {
         handlers.context.push(registration[1]);
+      } else {
+        handlers.tool_call.push(registration[1]);
       }
     }),
   });
@@ -51,6 +60,16 @@ function captureHandlers(): { pi: ExtensionAPI; handlers: CapturedHandlers } {
 afterEach(() => {
   vi.unstubAllEnvs();
 });
+
+function emitBashToolCall(handlers: CapturedHandlers, command: string) {
+  const event: BashToolCallEvent = {
+    type: "tool_call",
+    toolCallId: "test-call",
+    toolName: "bash",
+    input: { command },
+  };
+  return handlers.tool_call.map((handler) => handler(event));
+}
 
 describe("Superpowers child guidance markers", () => {
   it("removes whole messages with the exact stock marker and preserves retained identities", () => {
@@ -112,12 +131,12 @@ describe("Superpowers child guidance markers", () => {
 
 describe("Superpowers child guard activation", () => {
   it.each([
-    [undefined, "worker"],
-    ["0", "worker"],
-    ["true", "reviewer"],
-    ["1", undefined],
-    ["1", "planner"],
-  ])("registers no handlers for flag %s and role %s", (flag, role) => {
+    [undefined, "worker", 1],
+    ["0", "worker", 1],
+    ["true", "reviewer", 1],
+    ["1", undefined, 0],
+    ["1", "planner", 1],
+  ])("registers only the Bash guard for inactive flag %s and role %s", (flag, role, toolCallCount) => {
     vi.stubEnv(SUPERPOWERS_CHILD_FLAG, flag);
     vi.stubEnv("PI_CREW_ROLE", role);
     const { pi, handlers } = captureHandlers();
@@ -126,6 +145,7 @@ describe("Superpowers child guard activation", () => {
 
     expect(handlers.before_agent_start).toHaveLength(0);
     expect(handlers.context).toHaveLength(0);
+    expect(handlers.tool_call).toHaveLength(toolCallCount);
   });
 
   it.each(["worker", "reviewer"])(
@@ -139,8 +159,38 @@ describe("Superpowers child guard activation", () => {
 
       expect(handlers.before_agent_start).toHaveLength(1);
       expect(handlers.context).toHaveLength(1);
+      expect(handlers.tool_call).toHaveLength(1);
     },
   );
+
+  it.each([
+    "pi -p 'start another agent'",
+    "npx pi -p 'nested agent'",
+    "git worktree add ../other branch",
+    "git worktree remove ../other",
+  ])("blocks forbidden Bash command %s for every Crew child", (command) => {
+    vi.stubEnv("PI_CREW_ROLE", "planner");
+    const { pi, handlers } = captureHandlers();
+    registerSuperpowersGuard(pi);
+
+    expect(emitBashToolCall(handlers, command)).toEqual([{
+      block: true,
+      reason: "Crew children cannot start nested Pi or manage worktrees.",
+    }]);
+  });
+
+  it.each([
+    "npm test",
+    "git status --short",
+    "git diff --check",
+    "git branch --show-current",
+  ])("allows ordinary Bash command %s for every Crew child", (command) => {
+    vi.stubEnv("PI_CREW_ROLE", "planner");
+    const { pi, handlers } = captureHandlers();
+    registerSuperpowersGuard(pi);
+
+    expect(emitBashToolCall(handlers, command)).toEqual([undefined]);
+  });
 
   it("returns Pi's event result shapes from active handlers", async () => {
     vi.stubEnv(SUPERPOWERS_CHILD_FLAG, "1");
