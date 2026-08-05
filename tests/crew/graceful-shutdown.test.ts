@@ -300,7 +300,7 @@ describe("crew/graceful shutdown", () => {
     expect(response.content[0].text).toContain("Autonomous mode stopped (cancelled).");
   });
 
-  it("clamps fractional concurrency and passes all ready tasks to spawnAgents", async () => {
+  it("clamps fractional concurrency and passes only available work slots to spawnAgents", async () => {
     const store = await import("../../crew/store.ts");
     const agents = await import("../../crew/agents.ts");
     const state = await import("../../crew/state.ts");
@@ -324,7 +324,7 @@ describe("crew/graceful shutdown", () => {
     expect(state.autonomousState.concurrency).toBe(1);
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     const workerTasks = spawnSpy.mock.calls[0][0] as Array<{ taskId: string }>;
-    expect(workerTasks).toHaveLength(3);
+    expect(workerTasks).toHaveLength(1);
   });
 
   it("reconciles completed_count before returning from a no-ready wave", async () => {

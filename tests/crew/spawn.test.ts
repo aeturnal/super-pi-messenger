@@ -84,6 +84,19 @@ describe("spawnWorkersForReadyTasks", () => {
     expect(lobbyMock.spawnWorkerForTask).toHaveBeenCalledTimes(2);
   });
 
+  it("shares the caller worker cap between lobby and fresh workers", () => {
+    writeProjectConfig(dirs.crewDir, { concurrency: { workers: 2, max: 2 } });
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue([
+      { name: "Lobby1", lobbyId: "lb-1" },
+    ]);
+
+    const result = spawn.spawnWorkersForReadyTasks(dirs.cwd, 2);
+
+    expect(result.assigned).toBe(2);
+    expect(lobbyMock.assignTaskToLobbyWorker).toHaveBeenCalledTimes(1);
+    expect(lobbyMock.spawnWorkerForTask).toHaveBeenCalledTimes(1);
+  });
+
   it("caps lobby assignments by config.concurrency.max", () => {
     writeProjectConfig(dirs.crewDir, { concurrency: { workers: 1, max: 1 } });
     lobbyMock.getAvailableLobbyWorkers.mockReturnValue([

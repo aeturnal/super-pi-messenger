@@ -19,6 +19,7 @@ import * as store from "../store.ts";
 import { getCrewDir } from "../store.ts";
 import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
 import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, type LobbyCompatibility } from "../lobby.ts";
+import { hasActiveWorker } from "../registry.ts";
 import { logFeedEvent } from "../../feed.ts";
 import { approvalTaskSummaries } from "../utils/task-format.ts";
 
@@ -29,6 +30,10 @@ function revisionHint(taskId: string): string {
 function rejectedTasksText(tasks: { id: string; title: string; approval?: { feedback?: string } }[]): string {
   if (tasks.length === 0) return "";
   return `\n\nRejected tasks need revision:\n${tasks.map(t => `  - ${t.id}: ${t.title}${t.approval?.feedback ? ` — ${t.approval.feedback}` : ""}\n    Revise with: \`${revisionHint(t.id)}\``).join("\n")}`;
+}
+
+export function takeWorkSlots<T>(items: T[], limit: number): T[] {
+  return items.slice(0, Math.max(0, limit));
 }
 
 export async function execute(
@@ -141,6 +146,10 @@ export async function execute(
   }
 
   const skills = discoverCrewSkills(cwd);
+  const activeWorkerCount = store.getTasks(cwd).filter(task =>
+    task.status === "in_progress" && hasActiveWorker(cwd, task.id),
+  ).length;
+  let remainingSlots = Math.max(0, autonomousState.concurrency - activeWorkerCount);
 
   // Assign tasks to compatible lobby workers first (they're already running and warmed up).
   const prdLabel = store.getPlanLabel(plan);
@@ -168,6 +177,7 @@ export async function execute(
 
   const lobbyWorkers = getAvailableLobbyWorkers(cwd);
   for (const lobbyWorker of lobbyWorkers) {
+    if (lobbyAssigned.size >= remainingSlots) break;
     const task = readyTasks.find(t =>
       !lobbyAssigned.has(t.id)
       && isLobbyWorkerCompatible(lobbyWorker, lobbyRequirements.get(t.id)!),
@@ -193,8 +203,13 @@ export async function execute(
   }
   cleanupUnassignedAliveFiles(cwd);
 
+  remainingSlots -= lobbyAssigned.size;
+
   // Build prompts for remaining tasks — spawnAgents throttles via autonomousState.concurrency
-  const remainingTasks = readyTasks.filter(t => !lobbyAssigned.has(t.id));
+  const remainingTasks = takeWorkSlots(
+    readyTasks.filter(t => !lobbyAssigned.has(t.id)),
+    remainingSlots,
+  );
   const teamRoles = teamStore.resolveRoles(cwd);
   const workerTasks = remainingTasks.map(task => {
     const roleName = teamStore.resolveRoleName(cwd, task.role);

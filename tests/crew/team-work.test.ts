@@ -69,6 +69,89 @@ describe("work with Team approval", () => {
     delete process.env.PI_MESSENGER_TEAM_PROFILE_DIR;
   });
 
+  it.each([1, 2])("uses one concurrency budget across compatible lobby and fresh workers (%i slots)", async (concurrency) => {
+    store.createPlan(cwd, "docs/PRD.md");
+    for (let i = 0; i < 3; i++) {
+      store.createTask(cwd, `Task ${i + 1}`, "Do work");
+    }
+    const lobbyWorkers = [
+      {
+        name: "LobbyWorker1",
+        lobbyId: "lobby-1",
+        assignedTaskId: null,
+        cwd,
+        model: undefined,
+        role: "worker",
+        superpowersActive: false,
+      },
+      {
+        name: "LobbyWorker2",
+        lobbyId: "lobby-2",
+        assignedTaskId: null,
+        cwd,
+        model: undefined,
+        role: "worker",
+        superpowersActive: false,
+      },
+    ];
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue(lobbyWorkers);
+    lobbyMock.isLobbyWorkerCompatible.mockReturnValue(true);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([]);
+
+    await workHandler.execute({ concurrency }, dirs, createMockContext(cwd), vi.fn());
+
+    const lobbyAssignments = lobbyWorkers.filter(worker => worker.assignedTaskId !== null).length;
+    const freshAssignments = vi.mocked(agents.spawnAgents).mock.calls[0]?.[0] ?? [];
+    expect(lobbyAssignments + freshAssignments.length).toBe(concurrency);
+    expect(freshAssignments).toHaveLength(concurrency - lobbyAssignments);
+  });
+
+  it("reserves concurrency slots for active workers in this project", async () => {
+    store.createPlan(cwd, "docs/PRD.md");
+    const activeTask = store.createTask(cwd, "Already running", "Do work");
+    store.updateTask(cwd, activeTask.id, { status: "in_progress" });
+    for (let i = 0; i < 3; i++) {
+      store.createTask(cwd, `Task ${i + 1}`, "Do work");
+    }
+    const registry = await import("../../crew/registry.ts");
+    registry.registerWorker({
+      type: "worker",
+      name: "ActiveWorker",
+      cwd,
+      taskId: activeTask.id,
+      proc: { exitCode: null, killed: false } as never,
+    });
+    const lobbyWorkers = [
+      {
+        name: "LobbyWorker1",
+        lobbyId: "lobby-1",
+        assignedTaskId: null,
+        cwd,
+        model: undefined,
+        role: "worker",
+        superpowersActive: false,
+      },
+      {
+        name: "LobbyWorker2",
+        lobbyId: "lobby-2",
+        assignedTaskId: null,
+        cwd,
+        model: undefined,
+        role: "worker",
+        superpowersActive: false,
+      },
+    ];
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue(lobbyWorkers);
+    lobbyMock.isLobbyWorkerCompatible.mockReturnValue(true);
+    vi.mocked(agents.spawnAgents).mockResolvedValue([]);
+
+    await workHandler.execute({ concurrency: 2 }, dirs, createMockContext(cwd), vi.fn());
+
+    const lobbyAssignments = lobbyWorkers.filter(worker => worker.assignedTaskId !== null).length;
+    const freshAssignments = vi.mocked(agents.spawnAgents).mock.calls[0]?.[0] ?? [];
+    expect(lobbyAssignments + freshAssignments.length).toBe(1);
+  });
+
   it("leaves an incompatible lobby worker and task unchanged for a fresh worker", async () => {
     store.createPlan(cwd, "docs/PRD.md");
     const task = store.createTask(cwd, "Model-specific work", "Do work", [], { model: "task-model" });
