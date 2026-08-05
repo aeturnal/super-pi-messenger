@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { SUPERPOWERS_OUTER_POLICY_MARKER } from "./superpowers-policy.js";
+import { isCrewChildProcess } from "./utils/child-process.ts";
 
 export const SUPERPOWERS_CHILD_FLAG = "PI_CREW_SUPERPOWERS_MVP";
 export const STOCK_BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
@@ -28,6 +29,8 @@ export function stripSuperpowersOuterPolicy(systemPrompt: string): string {
 }
 
 export default function registerSuperpowersGuard(pi: ExtensionAPI): void {
+  if (!isCrewChildProcess()) return;
+
   const role = process.env.PI_CREW_ROLE;
   if (
     process.env[SUPERPOWERS_CHILD_FLAG] !== "1"

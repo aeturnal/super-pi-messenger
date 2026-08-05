@@ -176,7 +176,7 @@ Keep this spacing.
   });
 
   it.each(["planner", "reviewer", "analyst", "worker"] as const)(
-    "marks an inactive %s subprocess as a Crew child without activating Superpowers",
+    "loads the child guard for an inactive %s subprocess without activating Superpowers",
     async (role) => {
       resetSuperpowersStateForTests();
       captureSuperpowersSkills([]);
@@ -189,12 +189,44 @@ Keep this spacing.
       }], dirs.cwd);
 
       const capture = captures[0]!;
+      const extensionPaths = capture.args.flatMap((arg, index) =>
+        arg === "--extension" ? [capture.args[index + 1]!] : []
+      );
       expect(capture.options.env).toMatchObject({ PI_CREW_ROLE: role });
       expect(capture.options.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
-      expect(capture.args).not.toContain(fileURLToPath(
-        new URL("../../crew/superpowers-guard.ts", import.meta.url),
-      ));
+      expect(extensionPaths.slice(-2)).toEqual([
+        path.resolve(fileURLToPath(new URL("../..", import.meta.url))),
+        fileURLToPath(new URL("../../crew/superpowers-guard.ts", import.meta.url)),
+      ]);
       expect(capture.prompt).toBe(`You are a test ${role}.`);
+    },
+  );
+
+  it.each(["planner", "reviewer", "analyst", "worker"] as const)(
+    "loads the child guard for a %s subprocess when Superpowers is active",
+    async (role) => {
+      writeAgent(dirs.cwd, role);
+
+      await spawnAgents([{
+        agent: `crew-${role}`,
+        task: `Run active ${role}`,
+        taskId: `${role}-active`,
+      }], dirs.cwd);
+
+      const capture = captures[0]!;
+      const extensionPaths = capture.args.flatMap((arg, index) =>
+        arg === "--extension" ? [capture.args[index + 1]!] : []
+      );
+      expect(capture.options.env).toMatchObject({ PI_CREW_ROLE: role });
+      if (role === "worker" || role === "reviewer") {
+        expect(capture.options.env).toMatchObject({ PI_CREW_SUPERPOWERS_MVP: "1" });
+      } else {
+        expect(capture.options.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+      }
+      expect(extensionPaths.slice(-2)).toEqual([
+        path.resolve(fileURLToPath(new URL("../..", import.meta.url))),
+        fileURLToPath(new URL("../../crew/superpowers-guard.ts", import.meta.url)),
+      ]);
     },
   );
 
@@ -216,7 +248,7 @@ Keep this spacing.
     const inactive = captures[1]!;
 
     expect(comparableCapture(inactive)).toEqual(comparableCapture(baseline));
-    expect(inactive.args).not.toContain(fileURLToPath(
+    expect(inactive.args).toContain(fileURLToPath(
       new URL("../../crew/superpowers-guard.ts", import.meta.url),
     ));
     expect(inactive.options.env).toMatchObject({
@@ -252,7 +284,7 @@ Keep this spacing.
     const fallback = captures[1]!;
 
     expect(comparableCapture(fallback)).toEqual(comparableCapture(baseline));
-    expect(fallback.args).not.toContain(fileURLToPath(
+    expect(fallback.args).toContain(fileURLToPath(
       new URL("../../crew/superpowers-guard.ts", import.meta.url),
     ));
     expect(fallback.options.env).toMatchObject({

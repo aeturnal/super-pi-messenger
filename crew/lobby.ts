@@ -38,6 +38,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const EXTENSION_DIR = path.resolve(__dirname, "..");
+const SUPERPOWERS_GUARD_PATH = path.join(__dirname, "superpowers-guard.ts");
 
 export const LOBBY_TOKEN_BUDGETS: Record<string, number> = {
   none: 10_000,
@@ -96,6 +97,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   }
 
   args.push("--extension", EXTENSION_DIR);
+  args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
   let promptTmpDir: string | null = null;
   if (workerConfig.systemPrompt) {

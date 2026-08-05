@@ -244,11 +244,9 @@ async function runAgent(
       }
     }
 
-    // Pass extension so workers can use pi_messenger
+    // Pass extensions to every Crew child.
     args.push("--extension", EXTENSION_DIR);
-    if (superpowersLaunch) {
-      args.push("--extension", SUPERPOWERS_GUARD_PATH);
-    }
+    args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
     let promptTmpDir: string | null = null;
     if (agentConfig?.systemPrompt || superpowersLaunch) {

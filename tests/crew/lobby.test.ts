@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => {
@@ -112,6 +113,19 @@ describe("lobby workers", () => {
       PI_CREW_WORKER: "1",
       PI_LOBBY_ID: expect.any(String),
     });
+  });
+
+  it("loads the child guard after the main extension for lobby workers", () => {
+    lobby.spawnLobbyWorker("/test/cwd");
+
+    const args = vi.mocked(spawn).mock.calls.at(-1)?.[1] as string[];
+    const extensionPaths = args.flatMap((arg, index) =>
+      arg === "--extension" ? [args[index + 1]!] : []
+    );
+    expect(extensionPaths.slice(-2)).toEqual([
+      path.resolve(fileURLToPath(new URL("../..", import.meta.url))),
+      fileURLToPath(new URL("../../crew/superpowers-guard.ts", import.meta.url)),
+    ]);
   });
 
   it("keeps declared extension tools in the lobby allowed-tools list", () => {
