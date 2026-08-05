@@ -1054,7 +1054,7 @@ Usage (action-based API - preferred):
 
     // --- Auto-work after plan completion ---
     const autoWork = consumePendingAutoWork();
-    if (autoWork && !overlayTui) {
+    if (autoWork) {
       const cwd = autoWork.cwd;
       const crewConfig = loadCrewConfig(crewStore.getCrewDir(cwd));
       const readyTasks = crewStore.getReadyTasks(cwd, { advisory: crewConfig.dependencies === "advisory" });
