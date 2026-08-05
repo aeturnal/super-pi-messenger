@@ -29,7 +29,7 @@ export function stripSuperpowersOuterPolicy(systemPrompt: string): string {
 }
 
 export function isForbiddenCrewChildCommand(command: string): boolean {
-  return /(^|[;&|]\s*)(?:npx\s+)?pi(?:\s|$)/i.test(command)
+  return /(^\s*|[;&|]\s*)(?:npx\s+)?pi(?:\s|$)/i.test(command)
     || /\bgit\s+worktree\s+(?:add|remove|move|prune)\b/i.test(command);
 }
 

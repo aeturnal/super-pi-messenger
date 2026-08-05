@@ -166,6 +166,8 @@ describe("Superpowers child guard activation", () => {
   it.each([
     "pi -p 'start another agent'",
     "npx pi -p 'nested agent'",
+    "  pi -p 'indented nested agent'",
+    "\tnpx pi -p 'indented nested agent'",
     "git worktree add ../other branch",
     "git worktree remove ../other",
   ])("blocks forbidden Bash command %s for every Crew child", (command) => {
