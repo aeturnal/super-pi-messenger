@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateMemorableName } from "../lib.ts";
+import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
 import {
   resolveThinking,
   modelHasThinkingSuffix,
@@ -122,15 +123,19 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   args.push(prompt);
 
   const envOverrides = config.work.env ?? {};
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...envOverrides,
     PI_AGENT_NAME: name,
     PI_CREW_WORKER: "1",
     PI_CREW_ROLE: "worker",
     PI_LOBBY_ID: id,
-    ...workerGuidance.env,
   };
+  if (workerGuidance.active) {
+    Object.assign(env, workerGuidance.env);
+  } else {
+    delete env[SUPERPOWERS_CHILD_FLAG];
+  }
 
   const proc = spawn(getPiCommand(), args, {
     cwd,

@@ -288,13 +288,17 @@ async function runAgent(
     const workerFlag = role === "worker"
       ? { PI_CREW_WORKER: "1", PI_AGENT_NAME: workerName }
       : {};
-    const env = {
+    const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...envOverrides,
       ...workerFlag,
       PI_CREW_ROLE: role,
-      ...workerGuidance.env,
     };
+    if (workerGuidance.active) {
+      Object.assign(env, workerGuidance.env);
+    } else {
+      delete env[SUPERPOWERS_CHILD_FLAG];
+    }
 
     const proc = spawn(getPiCommand(), args, {
       cwd,

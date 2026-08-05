@@ -173,6 +173,49 @@ describe("lobby workers", () => {
     }
   });
 
+  it.each(["inactive", "fallback"] as const)(
+    "removes inherited and configured Superpowers flags for %s lobby workers",
+    async (state) => {
+      const originalFlag = process.env.PI_CREW_SUPERPOWERS_MVP;
+      let fixture: ReturnType<typeof createStockSuperpowersFixture> | undefined;
+      try {
+        if (state === "inactive") {
+          superpowers.captureSuperpowersSkills([]);
+        } else {
+          fixture = createStockSuperpowersFixture({ version: "7.0.0" });
+          superpowers.captureSuperpowersSkills(fixture.skills);
+        }
+
+        process.env.PI_CREW_SUPERPOWERS_MVP = "inherited";
+        lobby.spawnLobbyWorker("/test/cwd");
+        let options = vi.mocked(spawn).mock.calls.at(-1)?.[2];
+        expect(options?.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+
+        delete process.env.PI_CREW_SUPERPOWERS_MVP;
+        const config = await import("../../crew/utils/config.ts");
+        vi.mocked(config.loadCrewConfig).mockReturnValueOnce({
+          concurrency: { workers: 4, max: 10 },
+          models: {},
+          artifacts: { enabled: false, cleanupDays: 7 },
+          work: {
+            maxAttemptsPerTask: 5,
+            maxWaves: 50,
+            stopOnBlock: false,
+            env: { PI_CREW_SUPERPOWERS_MVP: "configured" },
+          },
+          coordination: "chatty",
+        } as any);
+        lobby.spawnLobbyWorker("/test/cwd");
+        options = vi.mocked(spawn).mock.calls.at(-1)?.[2];
+        expect(options?.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+      } finally {
+        if (originalFlag === undefined) delete process.env.PI_CREW_SUPERPOWERS_MVP;
+        else process.env.PI_CREW_SUPERPOWERS_MVP = originalFlag;
+        fixture?.cleanup();
+      }
+    },
+  );
+
   it("keeps declared extension tools in the lobby allowed-tools list", () => {
     lobby.spawnLobbyWorker("/test/cwd");
 

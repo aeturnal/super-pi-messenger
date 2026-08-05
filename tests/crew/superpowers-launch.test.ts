@@ -82,6 +82,13 @@ function writeReviewerAgent(cwd: string): void {
   writeAgent(cwd, "reviewer");
 }
 
+function writeWorkEnvOverride(dirs: TempCrewDirs): void {
+  fs.writeFileSync(
+    path.join(dirs.crewDir, "config.json"),
+    JSON.stringify({ work: { env: { PI_CREW_SUPERPOWERS_MVP: "configured" } } }),
+  );
+}
+
 describe("Crew Superpowers launch boundary", () => {
   let dirs: TempCrewDirs;
   let fixture: StockSuperpowersFixture;
@@ -304,6 +311,43 @@ Keep this spacing.
     expect(fallback.prompt).toBe("You are a test worker.");
     expect(fallback.prompt).not.toContain("Selected Superpowers skills:");
   });
+
+  it.each(["inactive", "fallback"] as const)(
+    "removes inherited and configured Superpowers flags for %s worker launches",
+    async (state) => {
+      const originalFlag = process.env.PI_CREW_SUPERPOWERS_MVP;
+      let fallbackFixture: StockSuperpowersFixture | undefined;
+      try {
+        if (state === "inactive") {
+          captureSuperpowersSkills([]);
+        } else {
+          fallbackFixture = createStockSuperpowersFixture({ version: "7.0.0" });
+          captureSuperpowersSkills(fallbackFixture.skills);
+        }
+
+        process.env.PI_CREW_SUPERPOWERS_MVP = "inherited";
+        await spawnAgents([{
+          agent: "crew-worker",
+          task: `Run ${state} inherited worker`,
+          taskId: `${state}-inherited`,
+        }], dirs.cwd);
+        expect(captures.at(-1)?.options.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+
+        delete process.env.PI_CREW_SUPERPOWERS_MVP;
+        writeWorkEnvOverride(dirs);
+        await spawnAgents([{
+          agent: "crew-worker",
+          task: `Run ${state} configured worker`,
+          taskId: `${state}-configured`,
+        }], dirs.cwd);
+        expect(captures.at(-1)?.options.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+      } finally {
+        if (originalFlag === undefined) delete process.env.PI_CREW_SUPERPOWERS_MVP;
+        else process.env.PI_CREW_SUPERPOWERS_MVP = originalFlag;
+        fallbackFixture?.cleanup();
+      }
+    },
+  );
 
   it("adds the guard and metadata for active child activation", async () => {
     await spawnAgents([{
