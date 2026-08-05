@@ -80,7 +80,7 @@ import { shutdownAllWorkers } from "./crew/agents.ts";
 import { shutdownLobbyWorkers } from "./crew/lobby.ts";
 import { captureSuperpowersSkills, takeSuperpowersWarning } from "./crew/superpowers.ts";
 import { applySuperpowersOuterPolicy } from "./crew/superpowers-policy.ts";
-import { SUPERPOWERS_CHILD_FLAG } from "./crew/superpowers-guard.ts";
+import { isCrewChildProcess } from "./crew/utils/child-process.ts";
 
 let overlayTui: TUI | null = null;
 let overlayHandle: OverlayHandle | null = null;
@@ -855,7 +855,7 @@ Usage (action-based API - preferred):
     const systemPrompt = applySuperpowersOuterPolicy(
       event.systemPrompt,
       superpowersState,
-      process.env[SUPERPOWERS_CHILD_FLAG] === "1",
+      isCrewChildProcess(),
     );
 
     return systemPrompt === event.systemPrompt ? undefined : { systemPrompt };
