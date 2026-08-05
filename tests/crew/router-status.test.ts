@@ -147,6 +147,7 @@ describe("crew action router status behavior", () => {
       "task.progress", "task.done", "crew.status", "crew.agents",
     ];
     const denied = [
+      "join", "autoRegisterPath",
       "plan", "plan.cancel", "work", "work.stop", "review", "sync",
       "team.setup", "team.profile.use", "team.charter.update", "team.memory.note",
       "task.create", "task.split", "task.start", "task.block", "task.unblock",

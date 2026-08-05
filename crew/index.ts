@@ -54,6 +54,13 @@ export async function executeCrewAction(
   const group = dotIndex > 0 ? action.slice(0, dotIndex) : action;
   const op = dotIndex > 0 ? action.slice(dotIndex + 1) : null;
 
+  if (isCrewChildProcess() && !isCrewChildActionAllowed(action)) {
+    return result(`Error: ${action} is controller-only.`, {
+      mode: action,
+      error: "controller_only",
+    });
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // Actions that DON'T require registration
   // ═══════════════════════════════════════════════════════════════════════
@@ -77,13 +84,6 @@ export async function executeCrewAction(
   // ═══════════════════════════════════════════════════════════════════════
   if (!state.registered) {
     return handlers.notRegisteredError();
-  }
-
-  if (isCrewChildProcess() && !isCrewChildActionAllowed(action)) {
-    return result(`Error: ${action} is controller-only.`, {
-      mode: action,
-      error: "controller_only",
-    });
   }
 
   switch (group) {
