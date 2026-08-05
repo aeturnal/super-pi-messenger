@@ -13,7 +13,14 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateMemorableName } from "../lib.ts";
-import { resolveThinking, modelHasThinkingSuffix, pushModelArgs, getPiCommand, resolveModel } from "./agents.ts";
+import {
+  resolveThinking,
+  modelHasThinkingSuffix,
+  pushModelArgs,
+  getPiCommand,
+  prepareWorkerGuidance,
+  resolveModel,
+} from "./agents.ts";
 import { discoverCrewAgents } from "./utils/discover.ts";
 import { loadCrewConfig, type CrewConfig } from "./utils/config.ts";
 import * as teamStore from "./team/store.ts";
@@ -60,6 +67,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
 
   const crewDir = store.getCrewDir(cwd);
   const config = loadCrewConfig(crewDir);
+  const workerGuidance = prepareWorkerGuidance("worker");
   const id = randomUUID().slice(0, 6);
   let name = generateMemorableName();
   for (let i = 0; i < 5; i++) {
@@ -100,10 +108,14 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
   let promptTmpDir: string | null = null;
-  if (workerConfig.systemPrompt) {
+  if (workerConfig.systemPrompt || workerGuidance.systemPromptSuffix) {
     promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-lobby-"));
     const promptPath = path.join(promptTmpDir, "crew-worker.md");
-    fs.writeFileSync(promptPath, workerConfig.systemPrompt, { mode: 0o600 });
+    let appendSystemPrompt = workerConfig.systemPrompt ?? "";
+    if (workerGuidance.systemPromptSuffix) {
+      appendSystemPrompt += appendSystemPrompt ? `\n\n${workerGuidance.systemPromptSuffix}` : workerGuidance.systemPromptSuffix;
+    }
+    fs.writeFileSync(promptPath, appendSystemPrompt, { mode: 0o600 });
     args.push("--append-system-prompt", promptPath);
   }
 
@@ -117,6 +129,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     PI_CREW_WORKER: "1",
     PI_CREW_ROLE: "worker",
     PI_LOBBY_ID: id,
+    ...workerGuidance.env,
   };
 
   const proc = spawn(getPiCommand(), args, {

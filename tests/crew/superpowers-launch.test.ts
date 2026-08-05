@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { spawnAgents } from "../../crew/agents.js";
+import { prepareWorkerGuidance, spawnAgents } from "../../crew/agents.js";
 import {
   captureSuperpowersSkills,
   resetSuperpowersStateForTests,
@@ -109,6 +109,14 @@ describe("Crew Superpowers launch boundary", () => {
   afterEach(() => {
     fixture.cleanup();
     resetSuperpowersStateForTests();
+  });
+
+  it("prepares active worker guidance for launch paths", () => {
+    expect(prepareWorkerGuidance("worker", "task-1")).toMatchObject({
+      active: true,
+      env: { PI_CREW_SUPERPOWERS_MVP: "1" },
+      systemPromptSuffix: expect.stringContaining("test-driven-development"),
+    });
   });
 
   it("adds ordered active guidance to the worker prompt", async () => {

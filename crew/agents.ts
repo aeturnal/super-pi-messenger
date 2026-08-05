@@ -49,6 +49,26 @@ export interface SpawnOptions {
   messengerDirs?: { registry: string; inbox: string };
 }
 
+export interface WorkerGuidance {
+  active: boolean;
+  env: Record<string, string>;
+  systemPromptSuffix?: string;
+}
+
+export function prepareWorkerGuidance(
+  role: "worker" | "reviewer",
+  assignmentId?: string,
+): WorkerGuidance {
+  const launch = prepareSuperpowersLaunch(role, assignmentId);
+  if (!launch) return { active: false, env: {} };
+
+  return {
+    active: true,
+    env: { [SUPERPOWERS_CHILD_FLAG]: "1" },
+    systemPromptSuffix: renderSuperpowersGuidance(launch),
+  };
+}
+
 export function shutdownAllWorkers(): void {
   killAll();
 }
@@ -194,7 +214,9 @@ async function runAgent(
   const workerName = generateMemorableName();
 
   const role = agentConfig?.crewRole ?? "worker";
-  const superpowersLaunch = prepareSuperpowersLaunch(role, task.taskId);
+  const workerGuidance: WorkerGuidance = role === "worker" || role === "reviewer"
+    ? prepareWorkerGuidance(role, task.taskId)
+    : { active: false, env: {} };
   const maxOutput = task.maxOutput
     ?? agentConfig?.maxOutput
     ?? getTruncationForRole(config, role);
@@ -249,13 +271,12 @@ async function runAgent(
     args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
     let promptTmpDir: string | null = null;
-    if (agentConfig?.systemPrompt || superpowersLaunch) {
+    if (agentConfig?.systemPrompt || workerGuidance.systemPromptSuffix) {
       promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-agent-"));
       const promptPath = path.join(promptTmpDir, `${task.agent.replace(/[^\w.-]/g, "_")}.md`);
       let appendSystemPrompt = agentConfig?.systemPrompt ?? "";
-      if (superpowersLaunch) {
-        const guidance = renderSuperpowersGuidance(superpowersLaunch);
-        appendSystemPrompt += appendSystemPrompt ? `\n\n${guidance}` : guidance;
+      if (workerGuidance.systemPromptSuffix) {
+        appendSystemPrompt += appendSystemPrompt ? `\n\n${workerGuidance.systemPromptSuffix}` : workerGuidance.systemPromptSuffix;
       }
       fs.writeFileSync(promptPath, appendSystemPrompt, { mode: 0o600 });
       args.push("--append-system-prompt", promptPath);
@@ -267,15 +288,12 @@ async function runAgent(
     const workerFlag = role === "worker"
       ? { PI_CREW_WORKER: "1", PI_AGENT_NAME: workerName }
       : {};
-    const superpowersFlag = superpowersLaunch
-      ? { [SUPERPOWERS_CHILD_FLAG]: "1" }
-      : {};
     const env = {
       ...process.env,
       ...envOverrides,
       ...workerFlag,
       PI_CREW_ROLE: role,
-      ...superpowersFlag,
+      ...workerGuidance.env,
     };
 
     const proc = spawn(getPiCommand(), args, {

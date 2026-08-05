@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createStockSuperpowersFixture } from "../helpers/superpowers.ts";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => {
@@ -84,11 +85,18 @@ function createTestCwd(): string {
 describe("lobby workers", () => {
   let lobby: typeof import("../../crew/lobby.ts");
   let liveProgress: typeof import("../../crew/live-progress.ts");
+  let superpowers: typeof import("../../crew/superpowers.ts");
 
   beforeEach(async () => {
     vi.resetModules();
+    superpowers = await import("../../crew/superpowers.ts");
+    superpowers.resetSuperpowersStateForTests();
     lobby = await import("../../crew/lobby.ts");
     liveProgress = await import("../../crew/live-progress.ts");
+  });
+
+  afterEach(() => {
+    superpowers.resetSuperpowersStateForTests();
   });
 
   it("spawns a lobby worker and registers it in live progress", () => {
@@ -126,6 +134,43 @@ describe("lobby workers", () => {
       path.resolve(fileURLToPath(new URL("../..", import.meta.url))),
       fileURLToPath(new URL("../../crew/superpowers-guard.ts", import.meta.url)),
     ]);
+  });
+
+  it("adds active Superpowers worker guidance to a lobby worker", () => {
+    const fixture = createStockSuperpowersFixture();
+    try {
+      superpowers.captureSuperpowersSkills(fixture.skills);
+
+      lobby.spawnLobbyWorker("/test/cwd");
+
+      const [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+      const promptPath = args[args.indexOf("--append-system-prompt") + 1]!;
+      expect(fs.readFileSync(promptPath, "utf8")).toContain("test-driven-development");
+      expect(options?.env).toMatchObject({ PI_CREW_SUPERPOWERS_MVP: "1" });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("keeps lobby workers native when Superpowers is inactive or falls back", () => {
+    lobby.spawnLobbyWorker("/test/cwd");
+    let [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+    let promptPath = args[args.indexOf("--append-system-prompt") + 1]!;
+    expect(fs.readFileSync(promptPath, "utf8")).toBe("# Crew Worker\nYou implement tasks.");
+    expect(options?.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+
+    const fixture = createStockSuperpowersFixture({ version: "7.0.0" });
+    try {
+      superpowers.captureSuperpowersSkills(fixture.skills);
+      lobby.spawnLobbyWorker("/test/cwd");
+
+      [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+      promptPath = args[args.indexOf("--append-system-prompt") + 1]!;
+      expect(fs.readFileSync(promptPath, "utf8")).toBe("# Crew Worker\nYou implement tasks.");
+      expect(options?.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+    } finally {
+      fixture.cleanup();
+    }
   });
 
   it("keeps declared extension tools in the lobby allowed-tools list", () => {
