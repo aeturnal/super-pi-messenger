@@ -67,7 +67,7 @@ export function findWorkerByTask(cwd: string, taskId: string): WorkerEntry | nul
 export function hasActiveWorker(cwd: string, taskId: string): boolean {
   const entry = findWorkerByTask(cwd, taskId);
   if (!entry) return false;
-  return entry.proc.exitCode === null && !entry.proc.killed;
+  return entry.proc.exitCode === null && entry.proc.signalCode == null;
 }
 
 export function killWorkerByTask(cwd: string, taskId: string): boolean {
