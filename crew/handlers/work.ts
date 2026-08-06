@@ -404,13 +404,20 @@ export async function execute(
     }
   }
 
-  if (aggregateFailure) throw aggregateFailure.error;
-
   // Auto-review succeeded tasks
   if (config.review.enabled && succeeded.length > 0) {
     const hasReviewer = availableAgents.some(a => a.name === "crew-reviewer");
+    const blockUnreviewed = (taskId: string, reason: string) => {
+      store.blockTask(cwd, taskId, reason);
+      logFeedEvent(cwd, "crew", "task.review", taskId, reason);
+      succeeded.splice(succeeded.indexOf(taskId), 1);
+      blocked.push(taskId);
+    };
     for (const taskId of [...succeeded]) {
-      if (signal?.aborted) break;
+      if (signal?.aborted) {
+        blockUnreviewed(taskId, "Automatic review unavailable: work cancelled");
+        continue;
+      }
       const task = store.getTask(cwd, taskId);
       if (!task) continue;
       if (!task.base_commit) {
@@ -434,7 +441,14 @@ export async function execute(
         continue;
       }
 
-      const rr = await reviewImplementation(cwd, taskId, config.models?.reviewer ?? sessionModel);
+      let rr;
+      try {
+        rr = await reviewImplementation(cwd, taskId, config.models?.reviewer ?? sessionModel);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown error";
+        blockUnreviewed(taskId, `Automatic review failed: ${message}`);
+        continue;
+      }
       const verdict = rr.details?.verdict as ReviewVerdict | undefined;
       unavailableReason = reviewUnavailableReason(
         true,
@@ -483,6 +497,8 @@ export async function execute(
   }
 
   syncCompletedCount(cwd);
+
+  if (aggregateFailure) throw aggregateFailure.error;
 
   // Save current wave number BEFORE addWaveResult increments it
   const currentWave = autonomous ? autonomousState.waveNumber : 1;
