@@ -139,6 +139,8 @@ describe("crew agent event handling", () => {
     ["message_end", "429: Quota has been exhausted for this account"],
     ["message_update", "429: Quota is exhausted for this account"],
     ["message_end", "429: Quota is exhausted for this account"],
+    ["message_update", "429: Billing disabled for this account"],
+    ["message_end", "429: Billing disabled for this account"],
   ])("fails fast on terminal assistant %s errors: %s", async (type, errorMessage) => {
     const proc = createProcess();
     spawnMock.mockReturnValue(proc);
@@ -175,6 +177,7 @@ describe("crew agent event handling", () => {
     "429: Requests per minute exceeded",
     "429: Tokens per minute exceeded",
     "429: RESOURCE_EXHAUSTED",
+    "429: Billing service temporarily unavailable; retry after 10 seconds",
   ])("does not fail fast on terminal assistant temporary rate limits: %s", async (errorMessage) => {
     const proc = createProcess();
     spawnMock.mockReturnValue(proc);
