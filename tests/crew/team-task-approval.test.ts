@@ -84,13 +84,14 @@ describe("Team task approval gates", () => {
     });
 
     vi.mocked(spawnAgents).mockResolvedValue([{
+      agent: "crew-planner",
       exitCode: 0,
       output: `\`\`\`tasks-json
 [
   {"title": "Replacement", "spec": "replacement spec", "dependsOn": []}
 ]
 \`\`\``,
-      error: null,
+      truncated: false,
       progress: createProgress("crew-planner"),
     }]);
     const { executeReviseTree } = await import("../../crew/handlers/revise.ts");
