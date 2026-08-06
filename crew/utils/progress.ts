@@ -153,7 +153,7 @@ export function getTerminalProviderError(event: PiEvent): string | null {
 
   const text = assistantError ? errorMessage ?? "" : collectStrings(event).join(" ");
   const normalized = text.toLowerCase();
-  if (!/(quota (?:is )?exhausted|billing|payment required|invalid (?:api )?(?:key|credentials?)|account disabled|extra usage|add more (?:credits|usage))/.test(normalized)) {
+  if (!/(quota (?:is |has been )?exhausted|billing|payment required|invalid (?:api )?(?:key|credentials?)|unauthorized|forbidden|authentication failed|account disabled|extra usage|add more (?:credits|usage))/.test(normalized)) {
     return null;
   }
 
