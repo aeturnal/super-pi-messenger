@@ -115,6 +115,107 @@ async function runCompletedTask(
 }
 
 describe("auto-review store operations", () => {
+  it("applies each automatic review verdict through the exported helper", async () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "PRD.md");
+    const ship = completedTask(cwd, "Ship task");
+    const retry = completedTask(cwd, "Retry task");
+    const blocked = completedTask(cwd, "Blocked task");
+    storeReviewFeedback(cwd, blocked.id, "MAJOR_RETHINK");
+
+    const { applyReviewVerdict } = await import("../../crew/handlers/work.ts");
+
+    expect(typeof applyReviewVerdict).toBe("function");
+    expect(applyReviewVerdict(cwd, ship.id, "SHIP")).toBe("accepted");
+    expect(store.getTask(cwd, ship.id)?.status).toBe("done");
+    expect(applyReviewVerdict(cwd, retry.id, "NEEDS_WORK")).toBe("retry");
+    expect(store.getTask(cwd, retry.id)?.status).toBe("todo");
+    expect(applyReviewVerdict(cwd, blocked.id, "MAJOR_RETHINK")).toBe("blocked");
+    expect(store.getTask(cwd, blocked.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Reviewer: Review says MAJOR_RETHINK",
+    });
+  });
+
+  it("keeps a fresh completed task done after a SHIP review", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(cwd, task.id, "SHIP");
+      return { details: { verdict: "SHIP" } } as never;
+    });
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "done",
+      review_count: 1,
+      last_review: { verdict: "SHIP" },
+    });
+    expect(response.details.succeeded).toEqual([task.id]);
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([]);
+  });
+
+  it("resets a fresh completed task after a NEEDS_WORK review", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(cwd, task.id, "NEEDS_WORK");
+      return { details: { verdict: "NEEDS_WORK" } } as never;
+    });
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "todo",
+      review_count: 1,
+      last_review: { verdict: "NEEDS_WORK", issues: ["Issue one"] },
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.failed).toEqual([task.id]);
+    expect(response.details.blocked).toEqual([]);
+  });
+
+  it("blocks a fresh completed task with reviewer context after a MAJOR_RETHINK review", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(cwd, task.id, "MAJOR_RETHINK");
+      return { details: { verdict: "MAJOR_RETHINK" } } as never;
+    });
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Reviewer: Review says MAJOR_RETHINK",
+      review_count: 1,
+      last_review: { verdict: "MAJOR_RETHINK" },
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+  });
+
   it("SHIP: task stays done, review_count incremented", () => {
     const { cwd } = createTempCrewDirs();
     store.createPlan(cwd, "PRD.md");

@@ -7,7 +7,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Dirs } from "../../lib.ts";
-import type { CrewParams, AppendEntryFn, AgentResult } from "../types.ts";
+import type { CrewParams, AppendEntryFn, AgentResult, ReviewVerdict } from "../types.ts";
 import { result } from "../utils/result.ts";
 import { prepareWorkerGuidance, resolveModel, spawnAgents } from "../agents.ts";
 import { loadCrewConfig } from "../utils/config.ts";
@@ -46,6 +46,28 @@ function reviewUnavailableReason(
   if (reviewCount >= maxIterations) return `Automatic review limit (${maxIterations}) reached`;
   if (!verdict) return "Automatic review unavailable: reviewer returned no verdict";
   return undefined;
+}
+
+function reviewReason(cwd: string, taskId: string): string {
+  const summary = store.getTask(cwd, taskId)?.last_review?.summary;
+  return `Reviewer: ${summary ? summary.split("\n")[0].slice(0, 120) : "Major issues found"}`;
+}
+
+export function applyReviewVerdict(
+  cwd: string,
+  taskId: string,
+  verdict: ReviewVerdict,
+): "accepted" | "retry" | "blocked" {
+  switch (verdict) {
+    case "SHIP":
+      return "accepted";
+    case "NEEDS_WORK":
+      store.resetTask(cwd, taskId);
+      return "retry";
+    case "MAJOR_RETHINK":
+      store.blockTask(cwd, taskId, reviewReason(cwd, taskId));
+      return "blocked";
+  }
 }
 
 function recordWorkerFailure(
@@ -413,7 +435,7 @@ export async function execute(
       }
 
       const rr = await reviewImplementation(cwd, taskId, config.models?.reviewer ?? sessionModel);
-      const verdict = rr.details?.verdict as string | undefined;
+      const verdict = rr.details?.verdict as ReviewVerdict | undefined;
       unavailableReason = reviewUnavailableReason(
         true,
         reviewCount,
@@ -431,32 +453,28 @@ export async function execute(
       const nextReviewCount = reviewCount + 1;
       store.updateTask(cwd, taskId, { review_count: nextReviewCount });
 
-      if (verdict === "SHIP") {
+      if (verdict === "NEEDS_WORK" && nextReviewCount >= config.review.maxIterations) {
+        const limitReason = reviewUnavailableReason(
+          true,
+          nextReviewCount,
+          config.review.maxIterations,
+          verdict,
+        )!;
+        store.blockTask(cwd, taskId, limitReason);
+        logFeedEvent(cwd, "crew", "task.review", taskId, limitReason);
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
+        continue;
+      }
+
+      const outcome = applyReviewVerdict(cwd, taskId, verdict);
+      if (outcome === "accepted") {
         logFeedEvent(cwd, "crew", "task.review", taskId, "SHIP");
-      } else if (verdict === "NEEDS_WORK") {
-        if (nextReviewCount >= config.review.maxIterations) {
-          const limitReason = reviewUnavailableReason(
-            true,
-            nextReviewCount,
-            config.review.maxIterations,
-            verdict,
-          )!;
-          store.blockTask(cwd, taskId, limitReason);
-          logFeedEvent(cwd, "crew", "task.review", taskId, limitReason);
-          succeeded.splice(succeeded.indexOf(taskId), 1);
-          blocked.push(taskId);
-        } else {
-          store.resetTask(cwd, taskId);
-          logFeedEvent(cwd, "crew", "task.review", taskId, "NEEDS_WORK — reset for retry");
-          succeeded.splice(succeeded.indexOf(taskId), 1);
-          failed.push(taskId);
-        }
+      } else if (outcome === "retry") {
+        logFeedEvent(cwd, "crew", "task.review", taskId, "NEEDS_WORK — reset for retry");
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        failed.push(taskId);
       } else {
-        const lastReview = store.getTask(cwd, taskId)?.last_review;
-        const summary = lastReview?.summary
-          ? lastReview.summary.split("\n")[0].slice(0, 120)
-          : "Major issues found";
-        store.blockTask(cwd, taskId, `Reviewer: ${summary}`);
         logFeedEvent(cwd, "crew", "task.review", taskId, "MAJOR_RETHINK — blocked");
         succeeded.splice(succeeded.indexOf(taskId), 1);
         blocked.push(taskId);
