@@ -378,7 +378,10 @@ describe("work with Team approval", () => {
 
   it("reports approval-gated tasks unlocked after a wave", async () => {
     fs.mkdirSync(path.join(cwd, ".pi", "messenger", "crew"), { recursive: true });
-    fs.writeFileSync(path.join(cwd, ".pi", "messenger", "crew", "config.json"), JSON.stringify({ dependencies: "strict" }));
+    fs.writeFileSync(path.join(cwd, ".pi", "messenger", "crew", "config.json"), JSON.stringify({
+      dependencies: "strict",
+      review: { enabled: false },
+    }));
     store.createPlan(cwd, "docs/PRD.md");
     const first = store.createTask(cwd, "Prepare", "Do prep");
     const gated = store.createTask(cwd, "Change auth", "Edit auth", [first.id], {
