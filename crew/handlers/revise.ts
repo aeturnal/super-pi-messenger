@@ -129,7 +129,7 @@ export async function executeReviseTree(
 
   const doneTasks = subtreeAll.filter(t => t.status === "done");
   const revisable = subtreeAll.filter(t => t.status !== "done");
-  const requiresFreshApproval = revisable.some(task => task.approval?.required === true);
+  const requiresFreshApproval = subtreeAll.some(task => task.approval?.required === true);
 
   if (prompt) {
     store.appendTaskProgress(cwd, taskId, agentName, `Tree revision requested: "${prompt}"`);

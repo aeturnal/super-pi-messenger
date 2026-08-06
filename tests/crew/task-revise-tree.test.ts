@@ -244,6 +244,77 @@ describe("executeReviseTree", () => {
     }
   });
 
+  it("requires fresh pending approval for replacements when an ungated root has a completed approved gated descendant", async () => {
+    const root = store.createTask(tmpDir, "Root", "root spec", [], {
+      role: "scout",
+      risk_labels: ["research"],
+    });
+    const completedGated = store.createTask(tmpDir, "Gated child", "child spec", [root.id], {
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "approved" },
+    });
+    store.startTask(tmpDir, completedGated.id, "WorkerA");
+    store.completeTask(tmpDir, completedGated.id, "Done");
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement one", "spec": "replacement one spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    const revised = await executeReviseTree(tmpDir, root.id, undefined, "agent");
+    expect(revised.success).toBe(true);
+
+    const replacement = store.getTasks(tmpDir).find(task => task.title === "Replacement one");
+    expect(replacement).toMatchObject({
+      role: "scout",
+      risk_labels: ["research"],
+      approval: { required: true, status: "pending" },
+    });
+
+    const start = await taskHandler.execute("start", { id: replacement!.id }, { agentName: "Worker" } as any, createMockContext(tmpDir));
+    expect(start.details.error).toBe("needs_approval");
+  });
+
+  it("requires fresh pending approval for replacements when revising a completed gated root", async () => {
+    const completedRoot = store.createTask(tmpDir, "Root", "root spec", [], {
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "approved" },
+    });
+    store.startTask(tmpDir, completedRoot.id, "WorkerA");
+    store.completeTask(tmpDir, completedRoot.id, "Done");
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement one", "spec": "replacement one spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    const revised = await executeReviseTree(tmpDir, completedRoot.id, undefined, "agent");
+    expect(revised.success).toBe(true);
+
+    const replacement = store.getTasks(tmpDir).find(task => task.title === "Replacement one");
+    expect(replacement).toMatchObject({
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "pending" },
+    });
+
+    const start = await taskHandler.execute("start", { id: replacement!.id }, { agentName: "Worker" } as any, createMockContext(tmpDir));
+    expect(start.details.error).toBe("needs_approval");
+  });
   it("keeps the root role and risk classification when no subtree task is gated", async () => {
     const root = store.createTask(tmpDir, "Root", "root spec", [], {
       role: "scout",
