@@ -408,6 +408,58 @@ describe("lobby workers", () => {
     });
   });
 
+  it("fails an assigned warm worker on a durable terminal assistant provider error", async () => {
+    const cwd = createTestCwd();
+    const worker = lobby.spawnLobbyWorker(cwd)!;
+    const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    expect(lobby.assignTaskToLobbyWorker(worker, "task-provider-error", "# Task", inboxDir)).toBe(true);
+
+    const resultPromise = lobby.waitForLobbyWorker(worker);
+    const proc = worker.proc as any;
+    const stdoutHandler = vi.mocked(proc.stdout.on).mock.calls.find(([event]: [string]) => event === "data")![1];
+    stdoutHandler(Buffer.from(`${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: quota exhausted. Add more credits to continue.",
+      },
+    })}\n`));
+    proc._handlers["close"](0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      taskId: "task-provider-error",
+      exitCode: 1,
+      error: "Provider error 400: 400: quota exhausted. Add more credits to continue.",
+    });
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it.each([
+    "429: Too many requests",
+    "429: Billing service temporarily unavailable; retry after 10 seconds",
+  ])("keeps an assigned warm worker alive for a temporary assistant provider error: %s", (errorMessage) => {
+    const cwd = createTestCwd();
+    const worker = lobby.spawnLobbyWorker(cwd)!;
+    const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    expect(lobby.assignTaskToLobbyWorker(worker, "task-temporary-error", "# Task", inboxDir)).toBe(true);
+
+    const proc = worker.proc as any;
+    const stdoutHandler = vi.mocked(proc.stdout.on).mock.calls.find(([event]: [string]) => event === "data")![1];
+    stdoutHandler(Buffer.from(`${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage,
+      },
+    })}\n`));
+
+    expect(proc.kill).not.toHaveBeenCalled();
+  });
+
   it("manages keep-alive file lifecycle on spawn, assignment, direct assignment, and shutdown", async () => {
     const cwd = createTestCwd();
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");

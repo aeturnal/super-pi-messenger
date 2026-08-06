@@ -29,6 +29,7 @@ import { loadCrewConfig, type CrewConfig } from "./utils/config.ts";
 import * as teamStore from "./team/store.ts";
 import {
   createProgress,
+  getTerminalProviderError,
   parseJsonlLine,
   updateProgress,
 } from "./utils/progress.ts";
@@ -195,6 +196,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   const progress = createProgress("crew-worker");
 
   let jsonlBuffer = "";
+  let terminalProviderError: string | null = null;
   proc.stdout?.on("data", (data) => {
     try {
       jsonlBuffer += data.toString();
@@ -204,6 +206,12 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
         const event = parseJsonlLine(line);
         if (event) {
           updateProgress(progress, event, worker.startedAt);
+          const providerError = worker.assignedTaskId ? getTerminalProviderError(event) : null;
+          if (providerError && !terminalProviderError) {
+            terminalProviderError = providerError;
+            progress.error = providerError;
+            proc.kill("SIGTERM");
+          }
           const displayId = worker.assignedTaskId ?? taskId;
           updateLiveWorker(cwd, displayId, {
             taskId: displayId,
@@ -225,7 +233,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   });
 
   proc.on("close", (exitCode) => {
-    const finalExitCode = exitCode ?? 1;
+    const finalExitCode = terminalProviderError ? 1 : exitCode ?? 1;
     progress.status = finalExitCode === 0 ? "completed" : "failed";
     progress.durationMs = Date.now() - worker.startedAt;
     worker.resolveCompletion({
@@ -235,6 +243,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
       output: "",
       truncated: false,
       progress,
+      error: terminalProviderError ?? undefined,
     });
 
     const displayId = worker.assignedTaskId ?? taskId;
