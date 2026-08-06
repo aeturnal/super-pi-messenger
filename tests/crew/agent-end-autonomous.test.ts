@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { autonomousState, consumePendingAutoWork, startAutonomous } from "../../crew/state.ts";
+import { createProgress } from "../../crew/utils/progress.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 
 vi.mock("@earendil-works/pi-tui", () => ({
@@ -122,10 +123,11 @@ describe("agent_end autonomous continuation guards", () => {
     const planHandler = await import("../../crew/handlers/plan.ts");
     const { spawnAgents } = await import("../../crew/agents.ts");
     vi.mocked(spawnAgents).mockResolvedValue([{
+      agent: "crew-planner",
       exitCode: 0,
       output: "## 1. PRD Understanding Summary\nSummary\n## 2. Relevant Code/Docs/Resources Reviewed\nResources\n## 3. Sequential Implementation Steps\nSteps\n## 4. Parallelized Task Graph\nGraph\n```tasks-json\n[{\"title\":\"Task A\",\"description\":\"Do A\",\"dependsOn\":[]}]\n```",
-      error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      truncated: false,
+      progress: createProgress("crew-planner"),
     }]);
     piMessengerExtension(pi as any);
 
