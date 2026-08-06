@@ -735,6 +735,109 @@ describe("auto-review store operations", () => {
     vi.doUnmock("node:child_process");
   });
 
+  it("settles and reviews every durable fresh completion before rethrowing a sibling launch error", async () => {
+    vi.resetModules();
+
+    type MockProcess = EventEmitter & {
+      pid: number;
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      killed: boolean;
+      exitCode: number | null;
+      kill: () => boolean;
+    };
+    const processes: MockProcess[] = [];
+    const originalError = new Error("fresh launch failed");
+    const spawnMock = vi.fn(() => {
+      if (processes.length === 2) throw originalError;
+      const proc = new EventEmitter() as MockProcess;
+      proc.pid = 5000 + processes.length;
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.killed = false;
+      proc.exitCode = null;
+      proc.kill = () => false;
+      processes.push(proc);
+      return proc;
+    });
+    vi.doMock("node:child_process", () => ({ spawn: spawnMock }));
+
+    const dirs = createTempCrewDirs();
+    const { createMockContext } = await import("../helpers/mock-context.ts");
+    const runtimeStore = await import("../../crew/store.ts");
+    const review = await import("../../crew/handlers/review.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    writeReviewerAgent(dirs.cwd);
+    runtimeStore.createPlan(dirs.cwd, "PRD.md");
+    const shipped = runtimeStore.createTask(dirs.cwd, "Reviewed completion", "Complete before sibling failure");
+    const blocked = runtimeStore.createTask(dirs.cwd, "Fail-closed completion", "Complete before sibling failure");
+    runtimeStore.createTask(dirs.cwd, "Launch failure", "Reject during launch");
+    const reviewSpy = vi.spyOn(review, "reviewImplementation").mockImplementation(async (_cwd, taskId) => {
+      if (taskId === blocked.id) throw new Error("reviewer crashed");
+      runtimeStore.updateTask(dirs.cwd, taskId, {
+        last_review: {
+          verdict: "SHIP",
+          summary: "Review says SHIP",
+          issues: [],
+          suggestions: [],
+          reviewed_at: new Date().toISOString(),
+        },
+      });
+      return { details: { verdict: "SHIP" } } as never;
+    });
+
+    let propagated = false;
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 3 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+    const observedError = execution.catch(error => {
+      propagated = true;
+      return error;
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    expect(spawnMock).toHaveBeenCalledTimes(3);
+    expect(propagated).toBe(false);
+
+    runtimeStore.startTask(dirs.cwd, shipped.id, "FirstWorker");
+    runtimeStore.updateTask(dirs.cwd, shipped.id, { base_commit: "abc123" });
+    runtimeStore.completeTask(dirs.cwd, shipped.id, "Done before exit");
+    processes[0].exitCode = 0;
+    processes[0].emit("close", 0);
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(propagated).toBe(false);
+    expect(reviewSpy).not.toHaveBeenCalled();
+
+    runtimeStore.startTask(dirs.cwd, blocked.id, "SecondWorker");
+    runtimeStore.updateTask(dirs.cwd, blocked.id, { base_commit: "def456" });
+    runtimeStore.completeTask(dirs.cwd, blocked.id, "Done before nonzero exit");
+    processes[1].exitCode = 17;
+    processes[1].emit("close", 17);
+
+    expect(await observedError).toBe(originalError);
+    expect(reviewSpy).toHaveBeenCalledTimes(2);
+    expect(reviewSpy).toHaveBeenNthCalledWith(1, dirs.cwd, shipped.id, undefined);
+    expect(reviewSpy).toHaveBeenNthCalledWith(2, dirs.cwd, blocked.id, undefined);
+    expect(runtimeStore.getTask(dirs.cwd, shipped.id)).toMatchObject({
+      status: "done",
+      review_count: 1,
+      last_review: { verdict: "SHIP" },
+    });
+    expect(runtimeStore.getTask(dirs.cwd, blocked.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review failed: reviewer crashed",
+    });
+    expect(runtimeStore.getPlan(dirs.cwd)?.completed_count).toBe(1);
+
+    vi.doUnmock("node:child_process");
+  });
+
   it("blocks a completed task without a base commit and reports the unavailable review", async () => {
     vi.restoreAllMocks();
     vi.resetModules();

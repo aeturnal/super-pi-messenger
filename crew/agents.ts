@@ -174,23 +174,33 @@ export async function spawnAgents(
   const results: AgentResult[] = [];
   const queue = tasks.map((task, index) => ({ task, index }));
   const running: Promise<void>[] = [];
+  let aggregateFailure: { error: unknown } | undefined;
 
   while (queue.length > 0 || running.length > 0) {
     if (options.signal?.aborted && running.length === 0) break;
 
-    while (running.length < autonomousState.concurrency && queue.length > 0) {
+    while (!aggregateFailure && running.length < autonomousState.concurrency && queue.length > 0) {
       if (options.signal?.aborted) break;
       const { task, index } = queue.shift()!;
       const promise = runAgent(task, index, cwd, agents, config, runId, artifactsDir, options)
         .then(result => {
           results.push(result);
-          running.splice(running.indexOf(promise), 1);
           options.onProgress?.(results);
+        })
+        .catch(error => {
+          aggregateFailure ??= { error };
+        })
+        .finally(() => {
+          running.splice(running.indexOf(promise), 1);
         });
       running.push(promise);
     }
     if (running.length > 0) {
       await Promise.race([...running, waitForConcurrencyChange()]);
+      if (aggregateFailure) {
+        await Promise.all(running);
+        throw aggregateFailure.error;
+      }
       if (options.signal?.aborted) continue;
     }
   }

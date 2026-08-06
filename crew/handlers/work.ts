@@ -324,6 +324,9 @@ export async function execute(
           {
             signal,
             messengerDirs: { registry: dirs.registry, inbox: dirs.inbox },
+            onProgress: results => {
+              freshResults = [...results];
+            },
           }
         ),
         Promise.all(lobbyResultPromises),
