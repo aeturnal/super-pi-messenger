@@ -201,7 +201,7 @@ Retry fairness remains an open product-policy question, not a deterministic asse
 
 ## Rollout implications
 
-The authoritative Phase 1 scope remains the reliability and observability work listed in `PRD.md`. Plan authorization, worker tool capability, exit lifecycle, and effective concurrency are evidence-backed proposed additions that require explicit approval in the Phase 1 design. Task and integration review belong to Phase 2. Retry fairness requires a product decision before test design.
+At the time of this investigation, the authoritative Phase 1 scope was the reliability and observability work listed in `PRD.md`. Plan authorization, worker tool capability, exit lifecycle, and effective concurrency are evidence-backed proposed additions that require explicit approval in the Phase 1 design. Task and integration review belong to Phase 2. Retry fairness requires a product decision before test design.
 
 Production fixes are intentionally not selected in this report. The central architectural question is whether the overlay may execute work directly or must remain a display/control surface that delegates to one authoritative work lifecycle. A separate immediate eval-harness requirement is to prove and retain effective configuration before any future comparative run.
 
