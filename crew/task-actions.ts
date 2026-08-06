@@ -105,7 +105,7 @@ export function executeTaskAction(
     }
 
     case "delete": {
-      if (task.status === "in_progress" && options?.isWorkerActive?.(taskId)) {
+      if (options?.isWorkerActive?.(taskId)) {
         return { success: false, error: "active_worker", message: `Cannot delete ${taskId} while its worker is active` };
       }
       if (!store.deleteTask(cwd, taskId)) return { success: false, error: "delete_failed", message: `Failed to delete ${taskId}` };

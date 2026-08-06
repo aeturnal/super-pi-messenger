@@ -5,7 +5,7 @@ import type { MessengerState } from "../../lib.ts";
 import * as taskHandler from "../../crew/handlers/task.ts";
 import * as store from "../../crew/store.ts";
 import { executeTaskAction } from "../../crew/task-actions.ts";
-import { registerWorker, unregisterWorker } from "../../crew/registry.ts";
+import { hasActiveWorker, registerWorker, unregisterWorker } from "../../crew/registry.ts";
 import { createMockContext } from "../helpers/mock-context.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 
@@ -175,19 +175,53 @@ describe("crew/task-actions", () => {
     }
   });
 
-  it("prevents deleting active in-progress worker tasks", () => {
+  it("prevents deleting a todo task with a live registered worker", () => {
     const { cwd } = createTempCrewDirs();
     store.createPlan(cwd, "docs/PRD.md");
     const task = store.createTask(cwd, "Task", "Desc");
-    store.startTask(cwd, task.id, "AgentA");
-
-    const result = executeTaskAction(cwd, "delete", task.id, "AgentA", undefined, {
-      isWorkerActive: () => true,
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "AgentA",
+      proc: { exitCode: null, killed: false } as any,
     });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBe("active_worker");
-    expect(store.getTask(cwd, task.id)).not.toBeNull();
+    try {
+      const result = executeTaskAction(cwd, "delete", task.id, "AgentA", undefined, {
+        isWorkerActive: workerTaskId => hasActiveWorker(cwd, workerTaskId),
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("active_worker");
+      expect(store.getTask(cwd, task.id)).not.toBeNull();
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
+  });
+
+  it("allows deleting a todo task with a dead registered worker", () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Task", "Desc");
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "AgentA",
+      proc: { exitCode: 1, killed: false } as any,
+    });
+
+    try {
+      const result = executeTaskAction(cwd, "delete", task.id, "AgentA", undefined, {
+        isWorkerActive: workerTaskId => hasActiveWorker(cwd, workerTaskId),
+      });
+
+      expect(result.success).toBe(true);
+      expect(store.getTask(cwd, task.id)).toBeNull();
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
   });
 
   it("prevents resetting active worker tasks", () => {

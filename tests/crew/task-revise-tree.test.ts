@@ -103,6 +103,48 @@ describe("executeReviseTree", () => {
     }
   });
 
+  it("rejects tree revision without changing existing tasks or creating replacements when a worker becomes active while planning", async () => {
+    const root = store.createTask(tmpDir, "Root", "root spec");
+    const child = store.createTask(tmpDir, "Child", "child spec", [root.id]);
+    const tasksBefore = store.getTasks(tmpDir);
+    const rootSpecBefore = store.getTaskSpec(tmpDir, root.id);
+    const childSpecBefore = store.getTaskSpec(tmpDir, child.id);
+    let resolvePlanner!: (value: any) => void;
+    spawnAgents.mockImplementation(() => new Promise<any>(resolve => {
+      resolvePlanner = resolve;
+    }));
+
+    const revision = executeReviseTree(tmpDir, root.id, undefined, "agent");
+    registry.registerWorker({
+      type: "worker",
+      cwd: tmpDir,
+      taskId: child.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+    resolvePlanner([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"id": "${child.id}", "title": "Updated child", "spec": "updated child spec", "dependsOn": []},
+  {"title": "Replacement", "spec": "replacement spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    try {
+      await expect(revision).resolves.toMatchObject({ success: false, error: "active_worker" });
+      expect(store.getTasks(tmpDir)).toEqual(tasksBefore);
+      expect(store.getTaskSpec(tmpDir, root.id)).toBe(rootSpecBefore);
+      expect(store.getTaskSpec(tmpDir, child.id)).toBe(childSpecBefore);
+      expect(store.getTasks(tmpDir).find(task => task.title === "Replacement")).toBeUndefined();
+    } finally {
+      registry.unregisterWorker(tmpDir, child.id);
+    }
+  });
+
   it("revises subtree: updates specs and resets non-done tasks", async () => {
     const t1 = store.createTask(tmpDir, "Root", "root spec");
     const t2 = store.createTask(tmpDir, "Child", "child spec", [t1.id]);

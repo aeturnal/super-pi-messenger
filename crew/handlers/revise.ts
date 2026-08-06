@@ -78,6 +78,9 @@ export async function executeRevise(
     logFeedEvent(cwd, agentName, "task.revise", taskId, msg);
     return { success: false, message: msg };
   }
+  if (hasActiveWorker(cwd, task.id)) {
+    return { success: false, error: "active_worker", message: `Cannot revise ${task.id} while its worker is active.` };
+  }
 
   if (parsed.title) store.updateTask(cwd, taskId, { title: parsed.title });
   store.setTaskSpec(cwd, taskId, parsed.spec);
@@ -180,6 +183,11 @@ export async function executeReviseTree(
     const msg = `Tree revision failed: too many new tasks (${newEntries.length}, max ${maxNew})`;
     logFeedEvent(cwd, agentName, "task.revise-tree", taskId, msg);
     return { success: false, message: msg };
+  }
+
+  const activeTaskAfterPlanning = subtreeAll.find(task => hasActiveWorker(cwd, task.id));
+  if (activeTaskAfterPlanning) {
+    return { success: false, error: "active_worker", message: `Cannot revise-tree ${activeTaskAfterPlanning.id} while its worker is active.` };
   }
 
   for (const entry of existingEntries) {

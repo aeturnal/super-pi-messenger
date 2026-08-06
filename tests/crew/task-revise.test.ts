@@ -121,6 +121,39 @@ describe("executeRevise", () => {
     expect(r.message).toContain("autonomous");
   });
 
+  it("rejects revision without changing a task when its worker becomes active while planning", async () => {
+    const task = store.createTask(tmpDir, "old title", "old spec content");
+    const before = store.getTask(tmpDir, task.id);
+    const specBefore = store.getTaskSpec(tmpDir, task.id);
+    let resolvePlanner!: (value: any) => void;
+    spawnAgents.mockImplementation(() => new Promise<any>(resolve => {
+      resolvePlanner = resolve;
+    }));
+
+    const revision = executeRevise(tmpDir, task.id, undefined, "agent");
+    registry.registerWorker({
+      type: "worker",
+      cwd: tmpDir,
+      taskId: task.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+    resolvePlanner([{
+      exitCode: 0,
+      output: '```revised-task\n{"title": "new title", "spec": "new spec"}\n```',
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    try {
+      await expect(revision).resolves.toMatchObject({ success: false, error: "active_worker" });
+      expect(store.getTask(tmpDir, task.id)).toEqual(before);
+      expect(store.getTaskSpec(tmpDir, task.id)).toBe(specBefore);
+    } finally {
+      registry.unregisterWorker(tmpDir, task.id);
+    }
+  });
+
   it("revises task with prompt and updates spec", async () => {
     const task = store.createTask(tmpDir, "old title", "old spec content");
     spawnAgents.mockResolvedValue([{
