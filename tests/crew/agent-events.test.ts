@@ -276,6 +276,51 @@ describe("crew agent event handling", () => {
         errorMessage: "429: Unauthorized request burst; retry later",
       },
     }],
+    ["a 400 message containing authentication failed", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: Authentication failed for this request",
+      },
+    }],
+    ["a 403 message containing authentication failed", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "403: Authentication failed for this request",
+      },
+    }],
+    ["a 429 message containing authentication failed", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "429: Authentication failed for this request",
+      },
+    }],
+    ["a 401 message containing forbidden", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "401: Forbidden request",
+      },
+    }],
+    ["a 403 message containing unauthorized", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "403: Unauthorized request",
+      },
+    }],
     ["an unrelated 4xx status", {
       type: "message_end",
       message: {
