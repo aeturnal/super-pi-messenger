@@ -367,6 +367,24 @@ describe("crew/store", () => {
       expect(ready).toContain(t2.id);
     });
 
+    it("removes a dependent from ready tasks when its completed dependency is reset or blocked", () => {
+      store.createPlan(cwd, "docs/PRD.md");
+      const dependency = store.createTask(cwd, "Foundation", "Desc one");
+      const dependent = store.createTask(cwd, "Feature", "Desc two", [dependency.id]);
+
+      store.startTask(cwd, dependency.id, "WorkerA");
+      store.completeTask(cwd, dependency.id, "Done");
+      expect(store.getReadyTasks(cwd).map(task => task.id)).toContain(dependent.id);
+
+      store.resetTask(cwd, dependency.id);
+      expect(store.getReadyTasks(cwd).map(task => task.id)).not.toContain(dependent.id);
+
+      store.startTask(cwd, dependency.id, "WorkerA");
+      store.completeTask(cwd, dependency.id, "Done again");
+      store.blockTask(cwd, dependency.id, "Automatic review unavailable");
+      expect(store.getReadyTasks(cwd).map(task => task.id)).not.toContain(dependent.id);
+    });
+
     it("never returns in_progress, done, or blocked tasks", () => {
       store.createPlan(cwd, "docs/PRD.md");
       const t1 = store.createTask(cwd, "Task one", "Desc one");

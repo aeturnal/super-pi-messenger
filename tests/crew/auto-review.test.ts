@@ -146,13 +146,14 @@ describe("auto-review store operations", () => {
     store.createPlan(cwd, "PRD.md");
     const task = store.createTask(cwd, "Build API", "Review required");
     const review = await import("../../crew/handlers/review.ts");
-    vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+    const reviewSpy = vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
       storeReviewFeedback(cwd, task.id, "SHIP");
       return { details: { verdict: "SHIP" } } as never;
     });
 
     const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
 
+    expect(reviewSpy).toHaveBeenCalledTimes(1);
     expect(store.getTask(cwd, task.id)).toMatchObject({
       status: "done",
       review_count: 1,
@@ -171,6 +172,7 @@ describe("auto-review store operations", () => {
     writeReviewerAgent(cwd);
     store.createPlan(cwd, "PRD.md");
     const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
     const review = await import("../../crew/handlers/review.ts");
     vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
       storeReviewFeedback(cwd, task.id, "NEEDS_WORK");
@@ -187,6 +189,7 @@ describe("auto-review store operations", () => {
     expect(response.details.succeeded).toEqual([]);
     expect(response.details.failed).toEqual([task.id]);
     expect(response.details.blocked).toEqual([]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
   });
 
   it("blocks a fresh completed task with reviewer context after a MAJOR_RETHINK review", async () => {
@@ -197,6 +200,7 @@ describe("auto-review store operations", () => {
     writeReviewerAgent(cwd);
     store.createPlan(cwd, "PRD.md");
     const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
     const review = await import("../../crew/handlers/review.ts");
     vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
       storeReviewFeedback(cwd, task.id, "MAJOR_RETHINK");
@@ -214,6 +218,7 @@ describe("auto-review store operations", () => {
     expect(response.details.succeeded).toEqual([]);
     expect(response.details.failed).toEqual([]);
     expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
   });
 
   it("SHIP: task stays done, review_count incremented", () => {
@@ -348,6 +353,7 @@ describe("auto-review store operations", () => {
     writeWorkerAgent(cwd);
     store.createPlan(cwd, "PRD.md");
     const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
 
     const response = await runCompletedTask(cwd, task.id);
 
@@ -358,6 +364,7 @@ describe("auto-review store operations", () => {
     expect(store.getTask(cwd, task.id)?.review_count).toBeUndefined();
     expect(response.details.succeeded).toEqual([]);
     expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
   });
 
   it("blocks a completed task when the automatic reviewer returns no verdict", async () => {
@@ -368,6 +375,7 @@ describe("auto-review store operations", () => {
     writeReviewerAgent(cwd);
     store.createPlan(cwd, "PRD.md");
     const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
     const review = await import("../../crew/handlers/review.ts");
     vi.spyOn(review, "reviewImplementation").mockResolvedValue({
       details: { error: "reviewer_failed" },
@@ -382,6 +390,7 @@ describe("auto-review store operations", () => {
     expect(store.getTask(cwd, task.id)?.review_count).toBeUndefined();
     expect(response.details.succeeded).toEqual([]);
     expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
   });
 
   it("blocks a completed task after automatic review iterations are exhausted", async () => {
@@ -395,6 +404,7 @@ describe("auto-review store operations", () => {
     }));
     store.createPlan(cwd, "PRD.md");
     const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
     store.updateTask(cwd, task.id, { review_count: 1 });
     const review = await import("../../crew/handlers/review.ts");
     vi.spyOn(review, "reviewImplementation").mockResolvedValue({
@@ -410,6 +420,7 @@ describe("auto-review store operations", () => {
     });
     expect(response.details.succeeded).toEqual([]);
     expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
   });
 
   it("blocks NEEDS_WORK at the review limit without scheduling another autonomous wave", async () => {
