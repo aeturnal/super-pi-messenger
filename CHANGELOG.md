@@ -22,8 +22,8 @@ This Super Pi Messenger version incorporates upstream [`pi-messenger` v0.15.0](h
 - Crew planner, worker, reviewer, analyst, lobby, and revision agents now fall back to the host session model when no task, request, role, or config model override is set, fixing #20. Thanks to Velinus (`velinussage`) for the report.
 - Crew subprocess launches use `pi.cmd` on Windows and task reset paths now refuse active workers before making tasks startable again, addressing #11. Thanks to Logan Laughlin (`llaughlin`) for the report.
 - Compacted streaming `message_update` artifacts and stopped retaining every parsed event in memory, fixing the transcript amplification in #27. Thanks to Hugo Ruíz (`hugotown`) and `aeturnal` for the measurements, and to `suse-coder` (#13) and Tom (`monotykamary`) (#4) for the earlier reports of the resulting stalls and jank.
-- Crew subprocesses now fail fast on terminal provider usage/quota/auth 4xx JSON events instead of waiting through retry loops, fixing #21. Thanks to Velinus (`velinussage`) for the report.
-- Temporary generic provider 429 rate-limit errors now remain retryable; fail-fast handling remains limited to terminal assistant errors with an allowlisted status and durable credential, billing, or account-quota evidence.
+- Crew subprocesses now fail fast on terminal provider usage/quota/auth 4xx events instead of waiting through retry loops, fixing #21. Supported inputs are terminal assistant `message_update`/`message_end` events with `stopReason: "error"` and `provider_error` events. Both require an allowlisted status (`400`, `401`, `402`, `403`, or `429`) plus durable credential, billing, or account-quota evidence. Thanks to Velinus (`velinussage`) for the report.
+- Temporary generic provider 429 rate-limit errors remain retryable; fail-fast classification does not treat transient throttling alone as durable account evidence.
 
 ### Changed
 - Documented controller-only Team administration, `autoWork: false` plan inspection, revision re-approval, and the automatic-review acceptance gate.

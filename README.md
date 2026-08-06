@@ -51,7 +51,7 @@ npx pi-messenger --crew-uninstall
 - Workers start with `test-driven-development` and `verification-before-completion`; reviewers start with `verification-before-completion`.
 - Other Pi skills remain available.
 - Crew solely owns planning, dispatch, task state, review dispatch, and repository coordination.
-- Crew children cannot start nested orchestration or nested worktrees. Crew children cannot dispatch or administer Team.
+- Crew children cannot start nested orchestration. A narrow guard blocks direct `pi`/`npx pi` command segments and mutating `git worktree add`, `remove`, `move`, or `prune` commands; indirect shell execution remains outside this guard. Crew children cannot dispatch or administer Team.
 - Crew status shows Superpowers integration as `active`, `inactive`, or `fallback`.
 - Stock Superpowers absence is silent; invalid installations warn once and continue with native Crew launch behavior.
 - When the controlling Pi agent determines that stock `subagent-driven-development` applies, Crew is automatically authorized as the sole implementation and review dispatcher; no separate Crew confirmation is required.
