@@ -111,7 +111,7 @@ export function getAvailableLobbyWorkers(cwd: string): LobbyWorkerEntry[] {
   for (const entry of workers.values()) {
     if (normalizeCwd(entry.cwd) !== normalizedCwd || entry.type !== "lobby") continue;
     if (entry.assignedTaskId) continue;
-    if (entry.proc.exitCode !== null) continue;
+    if (entry.proc.exitCode !== null || entry.proc.signalCode != null || entry.proc.killed) continue;
     result.push(entry);
   }
   return result;
