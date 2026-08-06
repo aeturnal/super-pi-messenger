@@ -1,9 +1,9 @@
 # Team Minimum-Safe Integration Design
 
-**Date:** 2026-08-05  
-**Branch:** `integrate/upstream-v0.15.0-review`  
-**Base:** `3315090afd87aa3c83b676006b6e322b433f5f1d`  
-**Reviewed candidate:** `4eef26e78876ff75cb0ea46262a5a21a74448412`  
+**Date:** 2026-08-05
+**Branch:** `integrate/upstream-v0.15.0-review`
+**Base:** `3315090afd87aa3c83b676006b6e322b433f5f1d`
+**Reviewed candidate:** `4eef26e78876ff75cb0ea46262a5a21a74448412`
 **Status:** Approved design; implementation not started
 
 ## Purpose
