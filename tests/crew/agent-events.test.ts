@@ -127,10 +127,10 @@ describe("crew agent event handling", () => {
     ["message_end", "401: Invalid credential provided"],
     ["message_update", "402: Payment required"],
     ["message_end", "402: Payment required"],
-    ["message_update", "429: Too many requests"],
-    ["message_end", "429: Too many requests"],
-    ["message_update", "429: RESOURCE_EXHAUSTED"],
-    ["message_end", "429: Resource exhausted"],
+    ["message_update", "403: Billing disabled for this account"],
+    ["message_end", "403: Billing disabled for this account"],
+    ["message_update", "429: Quota is exhausted for this account"],
+    ["message_end", "429: Quota is exhausted for this account"],
   ])("fails fast on terminal assistant %s errors: %s", async (type, errorMessage) => {
     const proc = createProcess();
     spawnMock.mockReturnValue(proc);
@@ -159,6 +159,41 @@ describe("crew agent event handling", () => {
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
     expect(result.exitCode).toBe(1);
     expect(result.error).toContain(errorMessage);
+  });
+
+  it.each([
+    "429: Too many requests",
+    "429: Rate limit exceeded; retry after 10 seconds",
+    "429: Requests per minute exceeded",
+    "429: Tokens per minute exceeded",
+    "429: RESOURCE_EXHAUSTED",
+  ])("does not fail fast on terminal assistant temporary rate limits: %s", async (errorMessage) => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage,
+      },
+    })}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).not.toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
   });
 
   it.each([
