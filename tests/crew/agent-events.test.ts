@@ -240,6 +240,42 @@ describe("crew agent event handling", () => {
         errorMessage: "400: Malformed JSON request body",
       },
     }],
+    ["a 400 message containing forbidden", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: This request contains a forbidden field",
+      },
+    }],
+    ["a 429 message containing forbidden", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "429: Retry is forbidden until the rate-limit window resets",
+      },
+    }],
+    ["a 400 message containing unauthorized", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: This request contains an unauthorized field",
+      },
+    }],
+    ["a 429 message containing unauthorized", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "429: Unauthorized request burst; retry later",
+      },
+    }],
     ["an unrelated 4xx status", {
       type: "message_end",
       message: {

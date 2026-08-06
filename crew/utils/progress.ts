@@ -153,7 +153,10 @@ export function getTerminalProviderError(event: PiEvent): string | null {
 
   const text = assistantError ? errorMessage ?? "" : collectStrings(event).join(" ");
   const normalized = text.toLowerCase();
-  if (!/(quota (?:is |has been )?exhausted|billing|payment required|invalid (?:api )?(?:key|credentials?)|unauthorized|forbidden|authentication failed|account disabled|extra usage|add more (?:credits|usage))/.test(normalized)) {
+  const durableAccountError = /(quota (?:is |has been )?exhausted|billing|payment required|invalid (?:api )?(?:key|credentials?)|account disabled|extra usage|add more (?:credits|usage))/.test(normalized);
+  const authenticationError = status === 401 && /(unauthorized|authentication failed)/.test(normalized);
+  const authorizationError = status === 403 && /forbidden/.test(normalized);
+  if (!durableAccountError && !authenticationError && !authorizationError) {
     return null;
   }
 

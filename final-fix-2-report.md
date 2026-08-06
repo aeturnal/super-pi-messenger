@@ -23,3 +23,16 @@ The implementation changes only the deterministic integration verifier and its i
 - `npm test` — 44 files, 586 tests passed.
 - `npm exec tsc -- --noEmit` — passed.
 - `git diff --check` — passed.
+
+## Fix Round 2
+
+- Scoped `forbidden` terminal classification to HTTP 403 and `unauthorized`/`authentication failed` classification to HTTP 401.
+- Kept durable account, billing, credential, and exhausted-quota signals unchanged.
+- Added regressions proving 400 and 429 messages containing `forbidden` or `unauthorized` remain retryable. Existing coverage keeps 403 `Forbidden` terminal and generic 429 rate limits retryable.
+
+### TDD and verification
+
+- RED: `npm exec vitest -- run tests/crew/agent-events.test.ts` failed the four new status-mismatch cases because the child received `SIGTERM`.
+- GREEN: `npm exec vitest -- run tests/crew/agent-events.test.ts` — 1 file, 36 tests passed.
+- `npm exec tsc -- --noEmit` — passed.
+- `git diff --check` — passed.
