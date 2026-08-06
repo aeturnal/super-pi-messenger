@@ -13,7 +13,7 @@ const lobbyMock = vi.hoisted(() => ({
     return true;
   }),
   cleanupUnassignedAliveFiles: vi.fn(),
-  isLobbyWorkerCompatible: vi.fn(() => false),
+  isLobbyWorkerCompatible: vi.fn((_candidate: { role?: string }, _required: { role?: string }) => false),
   waitForLobbyWorker: vi.fn((worker: { assignedTaskId: string | null }) => Promise.resolve({
     agent: "crew-worker",
     exitCode: 0,
