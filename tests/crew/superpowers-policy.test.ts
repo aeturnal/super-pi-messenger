@@ -102,13 +102,14 @@ describe("packaged Superpowers controlling-agent policy", () => {
   });
 
   it("suppresses the outer policy for every Crew child marker", () => {
-    for (const env of [
+    const childMarkers: Array<Record<string, string>> = [
       { PI_CREW_ROLE: "planner" },
       { PI_CREW_ROLE: "analyst" },
       { PI_CREW_ROLE: "worker" },
       { PI_CREW_ROLE: "reviewer" },
       { PI_LOBBY_ID: "lobby-1" },
-    ]) {
+    ];
+    for (const env of childMarkers) {
       expect(applyPolicyWithEnv(env)).not.toContain(SUPERPOWERS_OUTER_POLICY_MARKER);
     }
   });
