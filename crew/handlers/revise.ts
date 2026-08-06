@@ -126,6 +126,7 @@ export async function executeReviseTree(
 
   const doneTasks = subtreeAll.filter(t => t.status === "done");
   const revisable = subtreeAll.filter(t => t.status !== "done");
+  const requiresFreshApproval = revisable.some(task => task.approval?.required === true);
 
   if (prompt) {
     store.appendTaskProgress(cwd, taskId, agentName, `Tree revision requested: "${prompt}"`);
@@ -192,7 +193,7 @@ export async function executeReviseTree(
   }
 
   for (const entry of newEntries) {
-    const created = store.createTask(cwd, entry.title!, entry.spec, [], revisionTaskMetadata(cwd, target));
+    const created = store.createTask(cwd, entry.title!, entry.spec, [], revisionTaskMetadata(cwd, target, requiresFreshApproval));
     titleToId.set(entry.title!.toLowerCase(), created.id);
   }
 
@@ -245,11 +246,11 @@ export async function taskReviseTree(cwd: string, params: CrewParams, state: Mes
 // Helpers
 // =============================================================================
 
-function revisionTaskMetadata(cwd: string, source: Task): Pick<Task, "role" | "risk_labels" | "approval"> {
+function revisionTaskMetadata(cwd: string, source: Task, requiresFreshApproval: boolean): Pick<Task, "role" | "risk_labels" | "approval"> {
   const role = teamStore.canonicalRoleForTask(cwd, source.role);
   const riskLabels = teamStore.normalizeRiskLabels(source.risk_labels);
   const classified = teamStore.approvalForTask(cwd, role, riskLabels);
-  const approval = source.approval?.required === true
+  const approval = requiresFreshApproval
     ? { required: true as const, status: "pending" as const }
     : classified;
   return { role, risk_labels: riskLabels, approval };
