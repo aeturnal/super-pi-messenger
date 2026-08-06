@@ -1,10 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.js";
-import type { FeedEvent } from "../../feed.js";
-import type { Task } from "../../crew/types.js";
-import type { CrewConfig, CoordinationLevel } from "../../crew/utils/config.js";
+import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.ts";
+import type { FeedEvent } from "../../feed.ts";
+import type { Task } from "../../crew/types.ts";
+import type { CrewConfig, CoordinationLevel } from "../../crew/utils/config.ts";
 
 const homedirMock = vi.hoisted(() => vi.fn());
 
@@ -78,27 +78,27 @@ function makeTask(id: string, overrides: Partial<Task> = {}): Task {
 
 async function loadWorkModule() {
   vi.resetModules();
-  return import("../../crew/handlers/work.js");
+  return import("../../crew/handlers/work.ts");
 }
 
 async function loadPromptModule() {
   vi.resetModules();
-  return import("../../crew/prompt.js");
+  return import("../../crew/prompt.ts");
 }
 
 async function loadCoordinationModule() {
   vi.resetModules();
-  return import("../../crew/handlers/coordination.js");
+  return import("../../crew/handlers/coordination.ts");
 }
 
 async function loadHandlersModule() {
   vi.resetModules();
-  return import("../../handlers.js");
+  return import("../../handlers.ts");
 }
 
 describe("buildDependencySection", () => {
   let dirs: TempCrewDirs;
-  let buildDependencySection: typeof import("../../crew/handlers/coordination.js").buildDependencySection;
+  let buildDependencySection: typeof import("../../crew/handlers/coordination.ts").buildDependencySection;
 
   beforeEach(async () => {
     dirs = createTempCrewDirs();
@@ -187,7 +187,7 @@ describe("buildDependencySection", () => {
 
 describe("buildCoordinationContext", () => {
   let dirs: TempCrewDirs;
-  let buildCoordinationContext: typeof import("../../crew/handlers/coordination.js").buildCoordinationContext;
+  let buildCoordinationContext: typeof import("../../crew/handlers/coordination.ts").buildCoordinationContext;
 
   beforeEach(async () => {
     dirs = createTempCrewDirs();
@@ -289,6 +289,27 @@ describe("buildCoordinationContext", () => {
     expect(result).not.toMatch(/Ready Tasks[\s\S]*task-3/);
   });
 
+  it("chatty ready tasks separates approval-gated and rejected tasks", () => {
+    writeTask(dirs.tasksDir, { id: "task-1", status: "done" });
+    writeTask(dirs.tasksDir, { id: "task-2", status: "todo", title: "Current", depends_on: ["task-1"] });
+    writeTask(dirs.tasksDir, { id: "task-3", status: "todo", title: "Needs approval", depends_on: ["task-1"], approval: { required: true, status: "pending" } });
+    writeTask(dirs.tasksDir, { id: "task-4", status: "todo", title: "Claimable", depends_on: ["task-1"] });
+    writeTask(dirs.tasksDir, { id: "task-5", status: "todo", title: "Rejected", depends_on: ["task-1"], approval: { required: true, status: "rejected", feedback: "needs tests" } });
+
+    const result = buildCoordinationContext(dirs.cwd, makeTask("task-2", { depends_on: ["task-1"] }), makeConfig("chatty"), []);
+
+    const claimableSection = result.slice(0, result.indexOf("## Ready Tasks Needing Approval"));
+    expect(claimableSection).toContain("task-4: Claimable");
+    expect(claimableSection).not.toContain("task-3: Needs approval");
+    expect(claimableSection).not.toContain("task-5: Rejected");
+    expect(result).toMatch(/Ready Tasks Needing Approval[\s\S]*task-3: Needs approval/);
+    expect(result).toContain("lead approval before anyone can claim them");
+    expect(result).not.toContain('action: "task.approve"');
+    expect(result).not.toContain('action: "task.reject"');
+    expect(result).toMatch(/Rejected Tasks Needing Revision[\s\S]*task-5: Rejected/);
+    expect(result).toContain('pi_messenger({ action: "task.revise", id: "task-5", prompt: "Address approval feedback" })');
+  });
+
   it("filters out join/leave noise from recent activity", () => {
     writeFeedEvents(dirs.cwd, [
       makeEvent("2026-01-01T22:10:00Z", "join", "Worker1"),
@@ -323,7 +344,7 @@ describe("buildCoordinationContext", () => {
 });
 
 describe("buildCoordinationInstructions", () => {
-  let buildCoordinationInstructions: typeof import("../../crew/handlers/coordination.js").buildCoordinationInstructions;
+  let buildCoordinationInstructions: typeof import("../../crew/handlers/coordination.ts").buildCoordinationInstructions;
 
   beforeEach(async () => {
     homedirMock.mockReturnValue("/tmp/pi-test-noop");
@@ -375,6 +396,16 @@ describe("buildCoordinationInstructions", () => {
     expect(result).toContain("task.start");
     expect(result).toContain("### Questions about dependencies");
   });
+
+  it("read-only coordination avoids edit and build wording", () => {
+    const result = buildCoordinationInstructions(makeConfig("chatty"), { readOnly: true });
+    expect(result).toContain("what you are investigating");
+    expect(result).toContain("what you found or recommend");
+    expect(result).not.toContain("will create <files>");
+    expect(result).not.toContain("what you built");
+    expect(result).not.toContain("Before editing");
+    expect(result).not.toContain("### Reservations");
+  });
 });
 
 describe("config coordination", () => {
@@ -386,7 +417,7 @@ describe("config coordination", () => {
   });
 
   it("default config has coordination: chatty with message budgets", async () => {
-    const { loadCrewConfig } = await (async () => { vi.resetModules(); return import("../../crew/utils/config.js"); })();
+    const { loadCrewConfig } = await (async () => { vi.resetModules(); return import("../../crew/utils/config.ts"); })();
     const cfg = loadCrewConfig(dirs.crewDir);
     expect(cfg.coordination).toBe("chatty");
     expect(cfg.messageBudgets).toEqual({ none: 0, minimal: 2, moderate: 5, chatty: 10 });
@@ -394,7 +425,7 @@ describe("config coordination", () => {
 
   it("respects coordination field from project config", async () => {
     writeJson(path.join(dirs.crewDir, "config.json"), { coordination: "minimal" });
-    const { loadCrewConfig } = await (async () => { vi.resetModules(); return import("../../crew/utils/config.js"); })();
+    const { loadCrewConfig } = await (async () => { vi.resetModules(); return import("../../crew/utils/config.ts"); })();
     const cfg = loadCrewConfig(dirs.crewDir);
     expect(cfg.coordination).toBe("minimal");
   });
@@ -402,7 +433,7 @@ describe("config coordination", () => {
 
 describe("buildWorkerPrompt integration", () => {
   let dirs: TempCrewDirs;
-  let buildWorkerPrompt: typeof import("../../crew/prompt.js").buildWorkerPrompt;
+  let buildWorkerPrompt: typeof import("../../crew/prompt.ts").buildWorkerPrompt;
 
   beforeEach(async () => {
     dirs = createTempCrewDirs();
@@ -459,9 +490,9 @@ describe("buildWorkerPrompt integration", () => {
 
 describe("executeSend broadcast filtering", () => {
   let dirs: TempCrewDirs;
-  let executeSend: typeof import("../../handlers.js").executeSend;
-  let storeModule: typeof import("../../store.js");
-  let feedModule: typeof import("../../feed.js");
+  let executeSend: typeof import("../../handlers.ts").executeSend;
+  let storeModule: typeof import("../../store.ts");
+  let feedModule: typeof import("../../feed.ts");
   let messageDirs: { base: string; registry: string; inbox: string };
   let state: { registered: boolean; agentName: string };
 
@@ -470,8 +501,8 @@ describe("executeSend broadcast filtering", () => {
     homedirMock.mockReturnValue(dirs.root);
 
     const handlers = await loadHandlersModule();
-    storeModule = await import("../../store.js");
-    feedModule = await import("../../feed.js");
+    storeModule = await import("../../store.ts");
+    feedModule = await import("../../feed.ts");
     executeSend = handlers.executeSend;
 
     messageDirs = {

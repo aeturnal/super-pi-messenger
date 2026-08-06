@@ -1,11 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MessengerState, Dirs } from "../../lib.js";
-import { executeCrewAction } from "../../crew/index.js";
-import { autonomousState, startAutonomous } from "../../crew/state.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
-import { createMockContext } from "../helpers/mock-context.js";
+import type { MessengerState, Dirs } from "../../lib.ts";
+import { executeCrewAction } from "../../crew/index.ts";
+import { autonomousState, startAutonomous } from "../../crew/state.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
 
 function createTestState(agentName: string): MessengerState {
   return {

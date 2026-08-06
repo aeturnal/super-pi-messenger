@@ -12,30 +12,44 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { generateMemorableName } from "../lib.js";
-import { resolveThinking, modelHasThinkingSuffix, pushModelArgs } from "./agents.js";
-import { discoverCrewAgents } from "./utils/discover.js";
-import { loadCrewConfig, type CrewConfig } from "./utils/config.js";
+import { generateMemorableName } from "../lib.ts";
+import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
+import { normalizeCwd } from "./state.ts";
+import type { AgentResult } from "./types.ts";
+import {
+  resolveThinking,
+  modelHasThinkingSuffix,
+  pushModelArgs,
+  getPiCommand,
+  prepareWorkerGuidance,
+  resolveModel,
+} from "./agents.ts";
+import { discoverCrewAgents } from "./utils/discover.ts";
+import { loadCrewConfig, type CrewConfig } from "./utils/config.ts";
+import * as teamStore from "./team/store.ts";
 import {
   createProgress,
+  getTerminalProviderError,
   parseJsonlLine,
   updateProgress,
-} from "./utils/progress.js";
-import { updateLiveWorker, removeLiveWorker } from "./live-progress.js";
-import * as store from "./store.js";
-import { logFeedEvent } from "../feed.js";
+} from "./utils/progress.ts";
+import { updateLiveWorker, removeLiveWorker } from "./live-progress.ts";
+import * as store from "./store.ts";
+import { logFeedEvent } from "../feed.ts";
 import {
   registerWorker,
   unregisterWorker,
   getLobbyWorkers as registryGetLobbyWorkers,
   getAvailableLobbyWorkers as registryGetAvailableLobbyWorkers,
   getLobbyWorkerCount as registryGetLobbyWorkerCount,
+  hasActiveWorker,
   type LobbyWorkerEntry,
-} from "./registry.js";
+} from "./registry.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const EXTENSION_DIR = path.resolve(__dirname, "..");
+const SUPERPOWERS_GUARD_PATH = path.join(__dirname, "superpowers-guard.ts");
 
 export const LOBBY_TOKEN_BUDGETS: Record<string, number> = {
   none: 10_000,
@@ -46,17 +60,35 @@ export const LOBBY_TOKEN_BUDGETS: Record<string, number> = {
 
 export type LobbyWorker = LobbyWorkerEntry;
 
+export interface LobbyCompatibility {
+  cwd: string;
+  model?: string;
+  role?: string;
+  superpowersActive: boolean;
+}
+
+export function isLobbyWorkerCompatible(
+  worker: LobbyWorker,
+  required: LobbyCompatibility,
+): boolean {
+  return worker.cwd === normalizeCwd(required.cwd)
+    && worker.model === required.model
+    && worker.role === required.role
+    && worker.superpowersActive === required.superpowersActive;
+}
+
 function lobbyTaskId(id: string): string {
   return `__lobby-${id}__`;
 }
 
-export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWorker | null {
+export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionModel?: string, modelOverride?: string): LobbyWorker | null {
   const agents = discoverCrewAgents(cwd);
   const workerConfig = agents.find(a => a.name === "crew-worker");
   if (!workerConfig) return null;
 
   const crewDir = store.getCrewDir(cwd);
   const config = loadCrewConfig(crewDir);
+  const workerGuidance = prepareWorkerGuidance("worker");
   const id = randomUUID().slice(0, 6);
   let name = generateMemorableName();
   for (let i = 0; i < 5; i++) {
@@ -68,7 +100,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
   const prompt = promptOverride ?? buildLobbyPrompt(cwd, config);
 
   const args = ["--mode", "json", "--no-session", "-p"];
-  const model = config.models?.worker ?? workerConfig.model;
+  const model = modelOverride ?? resolveModel(undefined, undefined, undefined, config.models?.worker, sessionModel, workerConfig.model);
   if (model) pushModelArgs(args, model);
 
   const thinking = resolveThinking(
@@ -94,21 +126,38 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
   }
 
   args.push("--extension", EXTENSION_DIR);
+  args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
   let promptTmpDir: string | null = null;
-  if (workerConfig.systemPrompt) {
+  if (workerConfig.systemPrompt || workerGuidance.systemPromptSuffix) {
     promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-lobby-"));
     const promptPath = path.join(promptTmpDir, "crew-worker.md");
-    fs.writeFileSync(promptPath, workerConfig.systemPrompt, { mode: 0o600 });
+    let appendSystemPrompt = workerConfig.systemPrompt ?? "";
+    if (workerGuidance.systemPromptSuffix) {
+      appendSystemPrompt += appendSystemPrompt ? `\n\n${workerGuidance.systemPromptSuffix}` : workerGuidance.systemPromptSuffix;
+    }
+    fs.writeFileSync(promptPath, appendSystemPrompt, { mode: 0o600 });
     args.push("--append-system-prompt", promptPath);
   }
 
   args.push(prompt);
 
   const envOverrides = config.work.env ?? {};
-  const env = { ...process.env, ...envOverrides, PI_AGENT_NAME: name, PI_CREW_WORKER: "1", PI_LOBBY_ID: id };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...envOverrides,
+    PI_AGENT_NAME: name,
+    PI_CREW_WORKER: "1",
+    PI_CREW_ROLE: "worker",
+    PI_LOBBY_ID: id,
+  };
+  if (workerGuidance.active) {
+    Object.assign(env, workerGuidance.env);
+  } else {
+    delete env[SUPERPOWERS_CHILD_FLAG];
+  }
 
-  const proc = spawn("pi", args, {
+  const proc = spawn(getPiCommand(), args, {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
     env,
@@ -118,18 +167,28 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
   try { fs.writeFileSync(aliveFile, "", { mode: 0o600 }); } catch {}
 
   const taskId = lobbyTaskId(id);
+  let resolveCompletion!: (result: AgentResult) => void;
+  const completion = new Promise<AgentResult>((resolve) => {
+    resolveCompletion = resolve;
+  });
   const worker: LobbyWorkerEntry = {
     type: "lobby",
     lobbyId: id,
     name,
-    cwd,
+    cwd: normalizeCwd(cwd),
     proc,
     taskId,
     startedAt: Date.now(),
     assignedTaskId: null,
+    managedByWork: false,
     coordination: config.coordination ?? "chatty",
     promptTmpDir,
     aliveFile,
+    model,
+    role: "worker",
+    superpowersActive: workerGuidance.active,
+    completion,
+    resolveCompletion,
   };
 
   registerWorker(worker);
@@ -137,6 +196,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
   const progress = createProgress("crew-worker");
 
   let jsonlBuffer = "";
+  let terminalProviderError: string | null = null;
   proc.stdout?.on("data", (data) => {
     try {
       jsonlBuffer += data.toString();
@@ -146,6 +206,12 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
         const event = parseJsonlLine(line);
         if (event) {
           updateProgress(progress, event, worker.startedAt);
+          const providerError = worker.assignedTaskId ? getTerminalProviderError(event) : null;
+          if (providerError && !terminalProviderError) {
+            terminalProviderError = providerError;
+            progress.error = providerError;
+            proc.kill("SIGTERM");
+          }
           const displayId = worker.assignedTaskId ?? taskId;
           updateLiveWorker(cwd, displayId, {
             taskId: displayId,
@@ -167,6 +233,19 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
   });
 
   proc.on("close", (exitCode) => {
+    const finalExitCode = terminalProviderError ? 1 : exitCode ?? 1;
+    progress.status = finalExitCode === 0 ? "completed" : "failed";
+    progress.durationMs = Date.now() - worker.startedAt;
+    worker.resolveCompletion({
+      agent: "crew-worker",
+      taskId: worker.assignedTaskId ?? undefined,
+      exitCode: finalExitCode,
+      output: "",
+      truncated: false,
+      progress,
+      error: terminalProviderError ?? undefined,
+    });
+
     const displayId = worker.assignedTaskId ?? taskId;
     removeLiveWorker(cwd, displayId);
     unregisterWorker(cwd, taskId);
@@ -176,7 +255,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
     if (worker.aliveFile) {
       try { fs.unlinkSync(worker.aliveFile); } catch {}
     }
-    if (worker.assignedTaskId) {
+    if (worker.assignedTaskId && !worker.managedByWork) {
       const task = store.getTask(cwd, worker.assignedTaskId);
       if (task && task.status === "in_progress" && task.assigned_to === worker.name) {
         const config = loadCrewConfig(store.getCrewDir(cwd));
@@ -210,6 +289,10 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string): LobbyWor
   return worker;
 }
 
+export function waitForLobbyWorker(worker: LobbyWorker): Promise<AgentResult> {
+  return worker.completion;
+}
+
 export function getLobbyWorkerCount(cwd: string): number {
   return registryGetLobbyWorkerCount(cwd);
 }
@@ -236,9 +319,9 @@ export function assignTaskToLobbyWorker(
     to: worker.name,
     text: `# ⚡ TASK ASSIGNMENT — SWITCH TO WORK MODE
 
-Drop your current activity and start working on this task immediately.
+Drop your current activity and work on this task immediately.
 
-**IMPORTANT:** This task is already claimed and started for you — do NOT call \`task.start\`. Jump straight to reading the task spec, reserving files, implementing, testing, committing, and marking complete with \`task.done\`.
+**IMPORTANT:** This task is already claimed and started for you — do NOT call \`task.start\`. Follow the assignment below, including any Team role or read-only instructions, then mark complete with \`task.done\`.
 
 ${taskPrompt}`,
     timestamp: new Date().toISOString(),
@@ -320,11 +403,18 @@ export function spawnWorkerForTask(
   cwd: string,
   taskId: string,
   taskPrompt: string,
+  sessionModel?: string,
+  requestModel?: string,
 ): LobbyWorker | null {
   const task = store.getTask(cwd, taskId);
   if (!task || task.status !== "todo") return null;
+  if (hasActiveWorker(cwd, taskId)) return null;
 
-  const worker = spawnLobbyWorker(cwd, taskPrompt);
+  const config = loadCrewConfig(store.getCrewDir(cwd));
+  const roleName = teamStore.resolveRoleName(cwd, task.role);
+  const roleModel = roleName ? teamStore.resolveRoles(cwd)[roleName]?.model : undefined;
+  const taskModel = resolveModel(task.model, requestModel, roleModel, config.models?.worker, sessionModel);
+  const worker = spawnLobbyWorker(cwd, taskPrompt, sessionModel, taskModel);
   if (!worker) return null;
 
   removeLiveWorker(cwd, lobbyTaskId(worker.lobbyId));

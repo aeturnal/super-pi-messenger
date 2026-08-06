@@ -1,17 +1,36 @@
 # Changelog
 
-## [Unreleased]
+## [0.15.0] - 2026-08-04
+
+This Super Pi Messenger version incorporates upstream [`pi-messenger` v0.15.0](https://github.com/nicobailon/pi-messenger/releases/tag/v0.15.0), alongside the fork work below. This is local integration metadata only; no publication or release occurred.
 
 ### Added
 - Packaged automatic Crew authorization when the controlling Pi agent determines that official Superpowers v6 `subagent-driven-development` applies, while preserving Crew-only dispatch and child isolation.
+- Added an optional Team layer with reusable profiles, project charter/memory, role-aware tasks, approval gates, worker context, and overlay signals.
+- Added `team.setup` for first-run Team setup with profile activation, starter charter creation, and next-step guidance.
+- Surfaced rejected approval-gated tasks separately with `task.revise` / `task.revise-tree` guidance.
 
 ### Fixed
 - Migrated extension tool schemas from `@sinclair/typebox` to `typebox` 1.x and updated the local test/tsconfig references to the new package entry.
-- Guarded status heartbeat updates against stale pi session contexts after reloads or session replacement while preserving non-stale errors.
-- Excluded the orchestrator-only `pi-messenger-crew` skill from worker prompts to avoid irrelevant skill loading during Crew task execution.
+- Guarded status heartbeat updates against stale pi session contexts after reloads or session replacement while preserving non-stale errors, fixing #26, #25, and #18. Thanks to Kire Howard (`MatrixJockey`), `MartinMayday`, and Hydro (`HydroToxin`) for the reports, and to Riwut Libinuko (`cakriwut`) for #19.
+- Excluded the orchestrator-only `pi-messenger-crew` skill from worker prompts to avoid irrelevant skill loading during Crew task execution. Thanks to Varun Maliwal (`vmaliwal`) for #15.
+- Fixed auto-opened Crew overlays after planning to use the live session cwd.
+- Restored `.js` extension path handling in Crew worker and lobby tool configuration.
+- Made enum schemas load under typebox compatibility shims that do not expose `Type.Unsafe`, fixing #23. Thanks to David Moshal (`davidmoshal`) for #24.
+- Enforced `crew.concurrency.max` in overlay-driven worker spawning paths. Thanks to Martin Hátaš (`MartinHatas`) for #17.
+- Prevented the legacy `npx pi-messenger` installer from creating a duplicate extension copy when the native `pi install npm:pi-messenger` package flow is already configured, fixing #22. Thanks to David Moshal (`davidmoshal`) for the report.
+- Crew planner, worker, reviewer, analyst, lobby, and revision agents now fall back to the host session model when no task, request, role, or config model override is set, fixing #20. Thanks to Velinus (`velinussage`) for the report.
+- Crew subprocess launches use `pi.cmd` on Windows and task reset paths now refuse active workers before making tasks startable again, addressing #11. Thanks to Logan Laughlin (`llaughlin`) for the report.
+- Compacted streaming `message_update` artifacts and stopped retaining every parsed event in memory, fixing the transcript amplification in #27. Thanks to Hugo Ruíz (`hugotown`) and `aeturnal` for the measurements, and to `suse-coder` (#13) and Tom (`monotykamary`) (#4) for the earlier reports of the resulting stalls and jank.
+- Crew subprocesses now fail fast on terminal provider usage/quota/auth 4xx events instead of waiting through retry loops, fixing #21. Supported inputs are terminal assistant `message_update`/`message_end` events with `stopReason: "error"` and `provider_error` events. Both require an allowlisted status (`400`, `401`, `402`, `403`, or `429`) plus durable credential, billing, or account-quota evidence. Thanks to Velinus (`velinussage`) for the report.
+- Temporary generic provider 429 rate-limit errors remain retryable; fail-fast classification does not treat transient throttling alone as durable account evidence.
 
 ### Changed
-- Added `typebox` as a runtime dependency for packaged installs.
+- Documented controller-only Team administration, `autoWork: false` plan inspection, revision re-approval, and the automatic-review acceptance gate.
+- `readFeedEvents` now reads only a bounded tail of `feed.jsonl` in backward 64KB chunks instead of parsing the whole file, making overlay feed reads on large histories dramatically faster (~1,800x on a 100k-event feed). Non-positive limits now return no events.
+- Overlay rendering, auto-spawn/refill checks, and stuck-agent heartbeats now reuse a single Crew task snapshot per frame instead of rescanning the task directory per section, roughly quadrupling render-helper throughput on large task lists.
+- Aligned Team built-in roles and sample profiles with the packaged `pi-subagents` role vocabulary while keeping Crew as the execution engine.
+- Kept `typebox` as a runtime dependency and Pi core packages as development dependencies in the fork package.
 
 ## [0.14.1] - 2026-04-04
 

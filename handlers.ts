@@ -21,13 +21,13 @@ import {
   formatDuration,
   buildSelfRegistration,
   agentHasTask,
-} from "./lib.js";
-import * as store from "./store.js";
-import * as crewStore from "./crew/store.js";
-import { getAutoRegisterPaths, saveAutoRegisterPaths, matchesAutoRegisterPath } from "./config.js";
-import { readFeedEvents, logFeedEvent, pruneFeed, formatFeedLine, isCrewEvent, type FeedEvent } from "./feed.js";
-import { isAutonomousForCwd, isPlanningForCwd } from "./crew/state.js";
-import { loadCrewConfig } from "./crew/utils/config.js";
+} from "./lib.ts";
+import * as store from "./store.ts";
+import * as crewStore from "./crew/store.ts";
+import { getAutoRegisterPaths, saveAutoRegisterPaths, matchesAutoRegisterPath } from "./config.ts";
+import { readFeedEvents, logFeedEvent, pruneFeed, formatFeedLine, isCrewEvent, type FeedEvent } from "./feed.ts";
+import { isAutonomousForCwd, isPlanningForCwd } from "./crew/state.ts";
+import { loadCrewConfig } from "./crew/utils/config.ts";
 
 let messagesSentThisSession = 0;
 
@@ -76,7 +76,7 @@ export function executeJoin(
   }
 
   state.isHuman = ctx.hasUI;
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
 
   if (!store.register(state, dirs, ctx, nameTheme)) {
     return result(
@@ -137,7 +137,7 @@ export async function executeLeave(
     return notRegisteredError();
   }
 
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
 
   if (isPlanningForCwd(cwd)) {
     return result(
@@ -240,7 +240,7 @@ export async function executeLeave(
   );
 }
 
-export function executeStatus(state: MessengerState, dirs: Dirs, cwd: string = process.cwd()) {
+export function executeStatus(state: MessengerState, dirs: Dirs, cwd: string) {
   if (!state.registered) {
     return notRegisteredError();
   }
@@ -286,7 +286,7 @@ export function executeStatus(state: MessengerState, dirs: Dirs, cwd: string = p
   });
 }
 
-export function executeList(state: MessengerState, dirs: Dirs, cwd: string = process.cwd(), config?: { stuckThreshold?: number }) {
+export function executeList(state: MessengerState, dirs: Dirs, cwd: string, config?: { stuckThreshold?: number }) {
   if (!state.registered) {
     return notRegisteredError();
   }
@@ -521,7 +521,7 @@ export function executeReserve(
   store.updateRegistration(state, dirs, ctx);
 
   for (const pattern of patterns) {
-    logFeedEvent(ctx.cwd ?? process.cwd(), state.agentName, "reserve", pattern, reason);
+    logFeedEvent(ctx.cwd, state.agentName, "reserve", pattern, reason);
   }
 
   return result(`Reserved: ${patterns.join(", ")}`, { mode: "reserve", patterns, reason });
@@ -542,7 +542,7 @@ export function executeRelease(
     state.reservations = [];
     store.updateRegistration(state, dirs, ctx);
     for (const pattern of released) {
-      logFeedEvent(ctx.cwd ?? process.cwd(), state.agentName, "release", pattern);
+      logFeedEvent(ctx.cwd, state.agentName, "release", pattern);
     }
     return result(
       released.length > 0 ? `Released all: ${released.join(", ")}` : "No reservations to release.",
@@ -556,7 +556,7 @@ export function executeRelease(
 
   store.updateRegistration(state, dirs, ctx);
   for (const pattern of releasedPatterns) {
-    logFeedEvent(ctx.cwd ?? process.cwd(), state.agentName, "release", pattern);
+    logFeedEvent(ctx.cwd, state.agentName, "release", pattern);
   }
 
   return result(`Released ${releasedPatterns.length} reservation(s).`, { mode: "release", released: releasedPatterns });
@@ -607,10 +607,11 @@ export function executeSetSpec(
   ctx: ExtensionContext,
   specPath: string
 ) {
-  const absPath = resolveSpecPath(specPath, process.cwd());
+  const cwd = ctx.cwd;
+  const absPath = resolveSpecPath(specPath, cwd);
   state.spec = absPath;
   store.updateRegistration(state, dirs, ctx);
-  const display = displaySpecPath(absPath, process.cwd());
+  const display = displaySpecPath(absPath, cwd);
   const warning = existsSync(absPath) ? "" : `\n\nWarning: Spec file not found at ${display}.`;
   return result(`Spec set to ${display}${warning}`, { mode: "spec", spec: display });
 }
@@ -623,7 +624,8 @@ export async function executeClaim(
   specPath?: string,
   reason?: string
 ) {
-  const spec = specPath ? resolveSpecPath(specPath, process.cwd()) : state.spec;
+  const cwd = ctx.cwd;
+  const spec = specPath ? resolveSpecPath(specPath, cwd) : state.spec;
   if (!spec) {
     return result(
       "Error: No spec registered. Use `spec` parameter or join with a spec first.",
@@ -632,7 +634,7 @@ export async function executeClaim(
   }
 
   const warning = specPath && !existsSync(spec)
-    ? `\n\nWarning: Spec file not found at ${displaySpecPath(spec, process.cwd())}.`
+    ? `\n\nWarning: Spec file not found at ${displaySpecPath(spec, cwd)}.`
     : "";
 
   const claimResult = await store.claimTask(
@@ -645,7 +647,7 @@ export async function executeClaim(
     reason
   );
 
-  const display = displaySpecPath(spec, process.cwd());
+  const display = displaySpecPath(spec, cwd);
   if (store.isClaimSuccess(claimResult)) {
     return result(`Claimed ${taskId} in ${display}${warning}`, {
       mode: "claim",
@@ -657,7 +659,7 @@ export async function executeClaim(
   }
 
   if (store.isClaimAlreadyHaveClaim(claimResult)) {
-    const existingDisplay = displaySpecPath(claimResult.existing.spec, process.cwd());
+    const existingDisplay = displaySpecPath(claimResult.existing.spec, cwd);
     return result(
       `Error: You already have a claim on ${claimResult.existing.taskId} in ${existingDisplay}. Complete or unclaim it first.${warning}`,
       {
@@ -678,20 +680,21 @@ export async function executeClaim(
 export async function executeUnclaim(
   state: MessengerState,
   dirs: Dirs,
+  cwd: string,
   taskId: string,
   specPath?: string
 ) {
-  const spec = specPath ? resolveSpecPath(specPath, process.cwd()) : state.spec;
+  const spec = specPath ? resolveSpecPath(specPath, cwd) : state.spec;
   if (!spec) {
     return result("Error: No spec registered.", { mode: "unclaim", error: "no_spec" });
   }
 
   const warning = specPath && !existsSync(spec)
-    ? `\n\nWarning: Spec file not found at ${displaySpecPath(spec, process.cwd())}.`
+    ? `\n\nWarning: Spec file not found at ${displaySpecPath(spec, cwd)}.`
     : "";
 
   const unclaimResult = await store.unclaimTask(dirs, spec, taskId, state.agentName);
-  const display = displaySpecPath(spec, process.cwd());
+  const display = displaySpecPath(spec, cwd);
 
   if (store.isUnclaimSuccess(unclaimResult)) {
     return result(`Released claim on ${taskId}${warning}`, { mode: "unclaim", spec: display, taskId });
@@ -711,21 +714,22 @@ export async function executeUnclaim(
 export async function executeComplete(
   state: MessengerState,
   dirs: Dirs,
+  cwd: string,
   taskId: string,
   notes?: string,
   specPath?: string
 ) {
-  const spec = specPath ? resolveSpecPath(specPath, process.cwd()) : state.spec;
+  const spec = specPath ? resolveSpecPath(specPath, cwd) : state.spec;
   if (!spec) {
     return result("Error: No spec registered.", { mode: "complete", error: "no_spec" });
   }
 
   const warning = specPath && !existsSync(spec)
-    ? `\n\nWarning: Spec file not found at ${displaySpecPath(spec, process.cwd())}.`
+    ? `\n\nWarning: Spec file not found at ${displaySpecPath(spec, cwd)}.`
     : "";
 
   const completeResult = await store.completeTask(dirs, spec, taskId, state.agentName, notes);
-  const display = displaySpecPath(spec, process.cwd());
+  const display = displaySpecPath(spec, cwd);
 
   if (store.isCompleteSuccess(completeResult)) {
     return result(`Completed ${taskId} in ${display}${warning}`, {
@@ -757,12 +761,12 @@ export async function executeComplete(
 export function executeSwarm(
   state: MessengerState,
   dirs: Dirs,
+  cwd: string,
   specPath?: string
 ) {
   const claims = store.getClaims(dirs);
   const completions = store.getCompletions(dirs);
   const agents = store.getActiveAgents(state, dirs);
-  const cwd = process.cwd();
 
   const absByDisplay = new Map<string, string>();
   const addAbs = (abs: string) => {
@@ -1025,9 +1029,9 @@ function formatWhoisOutput(
 }
 
 export function executeAutoRegisterPath(
-  action: "add" | "remove" | "list"
+  action: "add" | "remove" | "list",
+  cwd: string
 ) {
-  const cwd = process.cwd();
   const paths = getAutoRegisterPaths();
 
   if (action === "list") {

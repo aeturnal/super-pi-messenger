@@ -66,7 +66,7 @@ function createEventContext(cwd: string, hasUI: () => boolean) {
 
 async function loadExtension() {
   const pi = createMockPi();
-  const { default: piMessengerExtension } = await import("../index.js");
+  const { default: piMessengerExtension } = await import("../index.ts");
   piMessengerExtension(pi as any);
   return pi;
 }

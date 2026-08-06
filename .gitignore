@@ -2,5 +2,9 @@ node_modules/
 npm-shrinkwrap.json
 *.DS_Store
 .pi/
+.superpowers/
 
 .worktrees/
+
+# Local agent scratch
+progress.md

@@ -20,8 +20,14 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const PACKAGE_DIR = path.dirname(__filename);
-const EXTENSION_DIR = path.join(os.homedir(), ".pi", "agent", "extensions", "pi-messenger");
-const AGENTS_DIR = path.join(os.homedir(), ".pi", "agent", "agents");
+const AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
+const EXTENSION_DIR = path.join(AGENT_DIR, "extensions", "pi-messenger");
+const NATIVE_PACKAGE_DIRS = [
+	{ path: path.join(AGENT_DIR, "npm", "node_modules", "pi-messenger"), source: "npm:pi-messenger" },
+	{ path: path.join(AGENT_DIR, "npm", "node_modules", "super-pi-messenger"), source: "npm:super-pi-messenger" },
+];
+const SETTINGS_PATH = path.join(AGENT_DIR, "settings.json");
+const AGENTS_DIR = path.join(AGENT_DIR, "agents");
 
 const CREW_AGENTS = [
 	"crew-planner.md",
@@ -122,6 +128,38 @@ if (path.resolve(PACKAGE_DIR) === path.resolve(EXTENSION_DIR)) {
 }
 
 const isUpdate = fs.existsSync(EXTENSION_DIR);
+
+function nativePackageSource() {
+	const nativeDirectory = NATIVE_PACKAGE_DIRS.find(({ path }) => fs.existsSync(path));
+	if (nativeDirectory) {
+		return nativeDirectory.source;
+	}
+
+	try {
+		const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
+		const packages = Array.isArray(settings.packages) ? settings.packages : [];
+		return packages.find(pkg =>
+			pkg === "npm:pi-messenger"
+			|| pkg === "npm:super-pi-messenger"
+			|| /^git:github\.com\/aeturnal\/super-pi-messenger(?:@[^@]+)?$/.test(pkg),
+		);
+	} catch {
+		return undefined;
+	}
+}
+
+const nativeSource = nativePackageSource();
+if (nativeSource) {
+	const name = nativeSource === "npm:pi-messenger" ? "pi-messenger" : "Super Pi Messenger";
+	console.log(`${name} is already installed via pi's native package flow.
+
+Keep the native install and remove any legacy copy instead:
+
+  npx pi-messenger --remove
+
+Do not run the legacy npx installer alongside \`pi install ${nativeSource}\`; loading both copies registers the \`pi_messenger\` tool twice.`);
+	process.exit(1);
+}
 
 // Warn if existing install is a git clone from the old installer
 if (isUpdate && fs.existsSync(path.join(EXTENSION_DIR, ".git"))) {

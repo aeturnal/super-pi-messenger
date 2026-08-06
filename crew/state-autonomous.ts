@@ -4,7 +4,7 @@
  * Tracks autonomous mode, wave history, concurrency, and auto-work flag.
  */
 
-import { normalizeCwd } from "./state.js";
+import { normalizeCwd } from "./state.ts";
 
 export interface WaveResult {
   waveNumber: number;

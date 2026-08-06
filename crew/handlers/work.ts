@@ -6,28 +6,100 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Dirs } from "../../lib.js";
-import type { CrewParams, AppendEntryFn } from "../types.js";
-import { result } from "../utils/result.js";
-import { resolveModel, spawnAgents } from "../agents.js";
-import { loadCrewConfig } from "../utils/config.js";
-import { discoverCrewAgents, discoverCrewSkills } from "../utils/discover.js";
-import { buildWorkerPrompt } from "../prompt.js";
-import { reviewImplementation } from "./review.js";
-import * as store from "../store.js";
-import { getCrewDir } from "../store.js";
-import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.js";
-import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles } from "../lobby.js";
-import { logFeedEvent } from "../../feed.js";
+import type { Dirs } from "../../lib.ts";
+import type { CrewParams, AppendEntryFn, AgentResult, ReviewVerdict } from "../types.ts";
+import { result } from "../utils/result.ts";
+import { prepareWorkerGuidance, resolveModel, spawnAgents } from "../agents.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import { discoverCrewAgents, discoverCrewSkills } from "../utils/discover.ts";
+import { buildWorkerPrompt } from "../prompt.ts";
+import * as teamStore from "../team/store.ts";
+import { reviewImplementation } from "./review.ts";
+import * as store from "../store.ts";
+import { getCrewDir } from "../store.ts";
+import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
+import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, waitForLobbyWorker, type LobbyCompatibility, type LobbyWorker } from "../lobby.ts";
+import { hasActiveWorker, killWorkerByTask } from "../registry.ts";
+import { logFeedEvent } from "../../feed.ts";
+import { approvalTaskSummaries } from "../utils/task-format.ts";
+
+function revisionHint(taskId: string): string {
+  return `pi_messenger({ action: "task.revise", id: "${taskId}", prompt: "Address approval feedback" })`;
+}
+
+function rejectedTasksText(tasks: { id: string; title: string; approval?: { feedback?: string } }[]): string {
+  if (tasks.length === 0) return "";
+  return `\n\nRejected tasks need revision:\n${tasks.map(t => `  - ${t.id}: ${t.title}${t.approval?.feedback ? ` — ${t.approval.feedback}` : ""}\n    Revise with: \`${revisionHint(t.id)}\``).join("\n")}`;
+}
+
+export function takeWorkSlots<T>(items: T[], limit: number): T[] {
+  return items.slice(0, Math.max(0, limit));
+}
+
+function reviewUnavailableReason(
+  hasReviewer: boolean,
+  reviewCount: number,
+  maxIterations: number,
+  verdict?: string,
+): string | undefined {
+  if (!hasReviewer) return "Automatic review unavailable: reviewer agent missing";
+  if (reviewCount >= maxIterations) return `Automatic review limit (${maxIterations}) reached`;
+  if (!verdict) return "Automatic review unavailable: reviewer returned no verdict";
+  return undefined;
+}
+
+function reviewReason(cwd: string, taskId: string): string {
+  const summary = store.getTask(cwd, taskId)?.last_review?.summary;
+  return `Reviewer: ${summary ? summary.split("\n")[0].slice(0, 120) : "Major issues found"}`;
+}
+
+export function applyReviewVerdict(
+  cwd: string,
+  taskId: string,
+  verdict: ReviewVerdict,
+): "accepted" | "retry" | "blocked" {
+  switch (verdict) {
+    case "SHIP":
+      return "accepted";
+    case "NEEDS_WORK":
+      store.resetTask(cwd, taskId);
+      return "retry";
+    case "MAJOR_RETHINK":
+      store.blockTask(cwd, taskId, reviewReason(cwd, taskId));
+      return "blocked";
+  }
+}
+
+function recordWorkerFailure(
+  cwd: string,
+  taskId: string,
+  message: string,
+  maxAttempts: number,
+): "retry" | "blocked" {
+  const task = store.getTask(cwd, taskId)!;
+  if (task.attempt_count >= maxAttempts) {
+    store.appendTaskProgress(cwd, taskId, "system", message);
+    store.updateTask(cwd, taskId, {
+      status: "blocked",
+      assigned_to: undefined,
+      blocked_reason: `Max attempts (${maxAttempts}) reached`,
+    });
+    return "blocked";
+  }
+  store.appendTaskProgress(cwd, taskId, "system", `${message}, reset to todo`);
+  store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
+  return "retry";
+}
 
 export async function execute(
   params: CrewParams,
   dirs: Dirs,
   ctx: ExtensionContext,
   appendEntry: AppendEntryFn,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  sessionModel?: string,
 ) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
   const config = loadCrewConfig(getCrewDir(cwd));
   const { autonomous, concurrency: concurrencyOverride } = params;
 
@@ -56,8 +128,14 @@ export async function execute(
   // Get ready tasks — auto-block any that exceeded max attempts
   const allReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
   const readyTasks: typeof allReady = [];
+  const needsApproval: typeof allReady = [];
+  const rejected: typeof allReady = [];
   for (const task of allReady) {
-    if (task.attempt_count >= config.work.maxAttemptsPerTask) {
+    if (teamStore.taskNeedsRevision(task)) {
+      rejected.push(task);
+    } else if (teamStore.taskPendingApproval(task)) {
+      needsApproval.push(task);
+    } else if (task.attempt_count >= config.work.maxAttemptsPerTask) {
       store.updateTask(cwd, task.id, {
         status: "blocked",
         blocked_reason: `Max attempts (${config.work.maxAttemptsPerTask}) reached`,
@@ -81,17 +159,29 @@ export async function execute(
       reason = "🎉 All tasks are done! Plan is complete.";
     } else if (inProgress.length > 0) {
       reason = `${inProgress.length} task(s) in progress: ${inProgress.map(t => t.id).join(", ")}`;
+    } else if (rejected.length > 0) {
+      reason = "No startable tasks; rejected tasks need revision.";
+    } else if (needsApproval.length > 0) {
+      reason = "No startable tasks; ready tasks need lead approval.";
     } else if (blocked.length > 0) {
       reason = `${blocked.length} task(s) blocked: ${blocked.map(t => `${t.id} (${t.blocked_reason})`).join(", ")}`;
     } else {
       reason = "All remaining tasks have unmet dependencies.";
     }
 
-    return result(`No ready tasks.\n\n${reason}`, {
+    const approvalText = needsApproval.length > 0
+      ? `\n\nNeeds approval:\n${needsApproval.map(t => `  - ${t.id}: ${t.title}`).join("\n")}`
+      : "";
+
+    const revisionText = rejectedTasksText(rejected);
+
+    return result(`No ready tasks.\n\n${reason}${approvalText}${revisionText}`, {
       mode: "work",
       prd: plan.prd,
       ready: [],
       reason,
+      needsApproval: approvalTaskSummaries(needsApproval),
+      rejected: approvalTaskSummaries(rejected),
       inProgress: inProgress.map(t => t.id),
       blocked: blocked.map(t => t.id)
     });
@@ -111,17 +201,50 @@ export async function execute(
   }
 
   const skills = discoverCrewSkills(cwd);
+  const activeTaskIds = new Set(store.getTasks(cwd)
+    .filter(task => hasActiveWorker(cwd, task.id))
+    .map(task => task.id));
+  let remainingSlots = signal?.aborted
+    ? 0
+    : Math.max(0, autonomousState.concurrency - activeTaskIds.size);
+  const candidateTasks = readyTasks.filter(task => !activeTaskIds.has(task.id));
 
-  // Assign tasks to lobby workers first (they're already running and warmed up)
+  // Assign tasks to compatible lobby workers first (they're already running and warmed up).
   const prdLabel = store.getPlanLabel(plan);
   const lobbyAssigned = new Set<string>();
+  const lobbyAssignments: LobbyWorker[] = [];
+  const workerAgent = availableAgents.find(a => a.name === "crew-worker");
+  const superpowersActive = prepareWorkerGuidance("worker").active;
+  const lobbyRequirements = new Map<string, LobbyCompatibility>();
+  for (const task of candidateTasks) {
+    const roleName = teamStore.resolveRoleName(cwd, task.role);
+    const roleModel = roleName ? teamStore.resolveRoles(cwd)[roleName]?.model : undefined;
+    lobbyRequirements.set(task.id, {
+      cwd,
+      model: resolveModel(
+        task.model,
+        params.model,
+        roleModel,
+        config.models?.worker,
+        sessionModel,
+        workerAgent?.model,
+      ),
+      role: roleName ?? "worker",
+      superpowersActive,
+    });
+  }
+
   const lobbyWorkers = getAvailableLobbyWorkers(cwd);
   for (const lobbyWorker of lobbyWorkers) {
-    const task = readyTasks.find(t => !lobbyAssigned.has(t.id));
-    if (!task) break;
+    if (lobbyAssigned.size >= remainingSlots) break;
+    const task = candidateTasks.find(t =>
+      !lobbyAssigned.has(t.id)
+      && isLobbyWorkerCompatible(lobbyWorker, lobbyRequirements.get(t.id)!),
+    );
+    if (!task) continue;
 
     const others = readyTasks.filter(t => t.id !== task.id);
-    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills);
+    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
     store.updateTask(cwd, task.id, {
       status: "in_progress",
       started_at: new Date().toISOString(),
@@ -133,22 +256,37 @@ export async function execute(
       store.updateTask(cwd, task.id, { status: "todo", assigned_to: undefined });
       continue;
     }
+    lobbyWorker.managedByWork = true;
+    lobbyAssignments.push(lobbyWorker);
     store.appendTaskProgress(cwd, task.id, "system", `Assigned to lobby worker ${lobbyWorker.name} (attempt ${task.attempt_count + 1})`);
     logFeedEvent(cwd, lobbyWorker.name, "task.start", task.id, task.title);
     lobbyAssigned.add(task.id);
   }
   cleanupUnassignedAliveFiles(cwd);
 
+  remainingSlots -= lobbyAssigned.size;
+
   // Build prompts for remaining tasks — spawnAgents throttles via autonomousState.concurrency
-  const remainingTasks = readyTasks.filter(t => !lobbyAssigned.has(t.id));
-  const workerTasks = remainingTasks.map(task => {
+  const remainingTasks = takeWorkSlots(
+    candidateTasks.filter(t => !lobbyAssigned.has(t.id)),
+    remainingSlots,
+  );
+  const teamRoles = teamStore.resolveRoles(cwd);
+  const freshAttemptCounts = new Map<string, number>();
+  const workerTasks = remainingTasks.map(candidateTask => {
+    const task = store.getTask(cwd, candidateTask.id) ?? candidateTask;
+    freshAttemptCounts.set(task.id, task.attempt_count);
+    const roleName = teamStore.resolveRoleName(cwd, task.role);
+    const roleModel = roleName ? teamRoles[roleName]?.model : undefined;
     const taskModel = resolveModel(
       task.model,
       params.model,
+      roleModel,
       config.models?.worker,
+      sessionModel,
     );
     const others = readyTasks.filter(t => t.id !== task.id);
-    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills);
+    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
     store.appendTaskProgress(cwd, task.id, "system", `Assigned to crew-worker (attempt ${task.attempt_count + 1})`);
 
     return {
@@ -159,14 +297,57 @@ export async function execute(
     };
   });
 
-  const workerResults = await spawnAgents(
-    workerTasks,
-    cwd,
-    {
-      signal,
-      messengerDirs: { registry: dirs.registry, inbox: dirs.inbox },
+  const interruptedLobbyTasks = new Set<string>();
+  const terminateLobbyAssignments = () => {
+    for (const worker of lobbyAssignments) {
+      const taskId = worker.assignedTaskId;
+      if (taskId && worker.managedByWork && killWorkerByTask(cwd, taskId)) {
+        interruptedLobbyTasks.add(taskId);
+      }
     }
-  );
+  };
+  if (signal && lobbyAssignments.length > 0) {
+    if (signal.aborted) terminateLobbyAssignments();
+    else signal.addEventListener("abort", terminateLobbyAssignments, { once: true });
+  }
+
+  let freshResults: AgentResult[] = [];
+  let lobbyResults: AgentResult[] = [];
+  let aggregateFailure: { error: unknown } | undefined;
+  try {
+    const lobbyResultPromises = lobbyAssignments.map(waitForLobbyWorker);
+    try {
+      [freshResults, lobbyResults] = await Promise.all([
+        spawnAgents(
+          workerTasks,
+          cwd,
+          {
+            signal,
+            messengerDirs: { registry: dirs.registry, inbox: dirs.inbox },
+            onProgress: results => {
+              freshResults = [...results];
+            },
+          }
+        ),
+        Promise.all(lobbyResultPromises),
+      ]);
+    } catch (error) {
+      aggregateFailure = { error };
+      terminateLobbyAssignments();
+      const settledLobbyResults = await Promise.allSettled(lobbyResultPromises);
+      lobbyResults = settledLobbyResults.flatMap(settled =>
+        settled.status === "fulfilled" ? [settled.value] : []
+      );
+    }
+  } finally {
+    signal?.removeEventListener("abort", terminateLobbyAssignments);
+  }
+  for (const lobbyResult of lobbyResults) {
+    if (lobbyResult.taskId && interruptedLobbyTasks.has(lobbyResult.taskId)) {
+      lobbyResult.wasGracefullyShutdown = true;
+    }
+  }
+  const workerResults = [...freshResults, ...lobbyResults];
 
   // Process results
   const succeeded: string[] = [];
@@ -180,42 +361,47 @@ export async function execute(
       failed.push(`unknown-result-${i}`);
       continue;
     }
-    const task = store.getTask(cwd, taskId);
+    let task = store.getTask(cwd, taskId);
 
-    if (r.exitCode === 0) {
-      if (task?.status === "done") {
-        succeeded.push(taskId);
-      } else if (task?.status === "blocked") {
-        blocked.push(taskId);
-      } else if (task?.status === "in_progress") {
-        store.appendTaskProgress(cwd, taskId, "system",
-          r.wasGracefullyShutdown ? "Task interrupted (shutdown), reset to todo" : "Worker exited without completing task, reset to todo");
+    if (task?.status === "done") {
+      succeeded.push(taskId);
+    } else if (task?.status === "blocked") {
+      blocked.push(taskId);
+    } else if (r.wasGracefullyShutdown) {
+      if (task?.status === "in_progress") {
+        store.appendTaskProgress(cwd, taskId, "system", "Task interrupted (shutdown), reset to todo");
         store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
-        failed.push(taskId);
-      } else {
-        failed.push(taskId);
       }
+      failed.push(taskId);
     } else {
-      if (r.wasGracefullyShutdown) {
-        if (task?.status === "done") {
-          succeeded.push(taskId);
-        } else if (task?.status === "blocked") {
-          blocked.push(taskId);
-        } else if (task?.status === "in_progress") {
-          store.appendTaskProgress(cwd, taskId, "system", "Task interrupted (shutdown), reset to todo");
-          store.updateTask(cwd, taskId, { status: "todo", assigned_to: undefined });
-          failed.push(taskId);
-        } else {
-          failed.push(taskId);
-        }
-      } else if (autonomous && task?.status === "in_progress") {
-        store.appendTaskProgress(cwd, taskId, "system", `Worker crashed: ${r.error ?? "Unknown error"}`);
-        store.blockTask(cwd, taskId, `Worker failed: ${r.error ?? "Unknown error"}`);
+      const attemptCountBeforeLaunch = freshAttemptCounts.get(taskId);
+      if (task?.status === "todo"
+        && attemptCountBeforeLaunch !== undefined
+        && task.attempt_count === attemptCountBeforeLaunch) {
+        task = store.updateTask(cwd, taskId, {
+          attempt_count: attemptCountBeforeLaunch + 1,
+        });
+      }
+
+      if (!task) {
+        failed.push(taskId);
+        continue;
+      }
+
+      const workerName = task.assigned_to ?? "crew-worker";
+      const failure = recordWorkerFailure(
+        cwd,
+        taskId,
+        r.exitCode === 0
+          ? "Worker exited without completing task"
+          : `Worker failed: ${r.error ?? `exit code ${r.exitCode}`}`,
+        config.work.maxAttemptsPerTask,
+      );
+      if (failure === "blocked") {
+        logFeedEvent(cwd, workerName, "task.block", taskId, "Max attempts reached");
         blocked.push(taskId);
       } else {
-        if (task?.status === "in_progress") {
-          store.appendTaskProgress(cwd, taskId, "system", `Worker failed: ${r.error ?? "Unknown error"}`);
-        }
+        logFeedEvent(cwd, workerName, "task.reset", taskId, "worker exited");
         failed.push(taskId);
       }
     }
@@ -224,46 +410,98 @@ export async function execute(
   // Auto-review succeeded tasks
   if (config.review.enabled && succeeded.length > 0) {
     const hasReviewer = availableAgents.some(a => a.name === "crew-reviewer");
-    if (hasReviewer) {
-      for (const taskId of [...succeeded]) {
-        if (signal?.aborted) break;
-        const task = store.getTask(cwd, taskId);
-        if (!task || !task.base_commit) continue;
-        if ((task.review_count ?? 0) >= config.review.maxIterations) continue;
+    const blockUnreviewed = (taskId: string, reason: string) => {
+      store.blockTask(cwd, taskId, reason);
+      logFeedEvent(cwd, "crew", "task.review", taskId, reason);
+      succeeded.splice(succeeded.indexOf(taskId), 1);
+      blocked.push(taskId);
+    };
+    for (const taskId of [...succeeded]) {
+      if (signal?.aborted) {
+        blockUnreviewed(taskId, "Automatic review unavailable: work cancelled");
+        continue;
+      }
+      const task = store.getTask(cwd, taskId);
+      if (!task) continue;
+      if (!task.base_commit) {
+        const unavailableReason = "Automatic review unavailable: base commit missing";
+        store.blockTask(cwd, taskId, unavailableReason);
+        logFeedEvent(cwd, "crew", "task.review", taskId, unavailableReason);
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
+        continue;
+      }
 
-        const rr = await reviewImplementation(cwd, taskId, config.models?.reviewer);
-        const verdict = rr.details?.verdict as string | undefined;
-        if (!verdict) {
-          store.appendTaskProgress(cwd, taskId, "system",
-            `Auto-review skipped: ${rr.details?.error ?? "unknown"}`);
-          continue;
-        }
+      const reviewCount = task.review_count ?? 0;
+      let unavailableReason = !hasReviewer || reviewCount >= config.review.maxIterations
+        ? reviewUnavailableReason(hasReviewer, reviewCount, config.review.maxIterations)
+        : undefined;
+      if (unavailableReason) {
+        store.blockTask(cwd, taskId, unavailableReason);
+        logFeedEvent(cwd, "crew", "task.review", taskId, unavailableReason);
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
+        continue;
+      }
 
-        const reviewCount = (task.review_count ?? 0) + 1;
-        store.updateTask(cwd, taskId, { review_count: reviewCount });
+      let rr;
+      try {
+        rr = await reviewImplementation(cwd, taskId, config.models?.reviewer ?? sessionModel);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown error";
+        blockUnreviewed(taskId, `Automatic review failed: ${message}`);
+        continue;
+      }
+      const verdict = rr.details?.verdict as ReviewVerdict | undefined;
+      unavailableReason = reviewUnavailableReason(
+        true,
+        reviewCount,
+        config.review.maxIterations,
+        verdict,
+      );
+      if (unavailableReason) {
+        store.blockTask(cwd, taskId, unavailableReason);
+        logFeedEvent(cwd, "crew", "task.review", taskId, unavailableReason);
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
+        continue;
+      }
 
-        if (verdict === "SHIP") {
-          logFeedEvent(cwd, "crew", "task.review", taskId, "SHIP");
-        } else if (verdict === "NEEDS_WORK") {
-          store.resetTask(cwd, taskId);
-          logFeedEvent(cwd, "crew", "task.review", taskId, "NEEDS_WORK — reset for retry");
-          succeeded.splice(succeeded.indexOf(taskId), 1);
-          failed.push(taskId);
-        } else {
-          const lastReview = store.getTask(cwd, taskId)?.last_review;
-          const summary = lastReview?.summary
-            ? lastReview.summary.split("\n")[0].slice(0, 120)
-            : "Major issues found";
-          store.blockTask(cwd, taskId, `Reviewer: ${summary}`);
-          logFeedEvent(cwd, "crew", "task.review", taskId, "MAJOR_RETHINK — blocked");
-          succeeded.splice(succeeded.indexOf(taskId), 1);
-          blocked.push(taskId);
-        }
+      const nextReviewCount = reviewCount + 1;
+      store.updateTask(cwd, taskId, { review_count: nextReviewCount });
+
+      if (verdict === "NEEDS_WORK" && nextReviewCount >= config.review.maxIterations) {
+        const limitReason = reviewUnavailableReason(
+          true,
+          nextReviewCount,
+          config.review.maxIterations,
+          verdict,
+        )!;
+        store.blockTask(cwd, taskId, limitReason);
+        logFeedEvent(cwd, "crew", "task.review", taskId, limitReason);
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
+        continue;
+      }
+
+      const outcome = applyReviewVerdict(cwd, taskId, verdict);
+      if (outcome === "accepted") {
+        logFeedEvent(cwd, "crew", "task.review", taskId, "SHIP");
+      } else if (outcome === "retry") {
+        logFeedEvent(cwd, "crew", "task.review", taskId, "NEEDS_WORK — reset for retry");
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        failed.push(taskId);
+      } else {
+        logFeedEvent(cwd, "crew", "task.review", taskId, "MAJOR_RETHINK — blocked");
+        succeeded.splice(succeeded.indexOf(taskId), 1);
+        blocked.push(taskId);
       }
     }
   }
 
   syncCompletedCount(cwd);
+
+  if (aggregateFailure) throw aggregateFailure.error;
 
   // Save current wave number BEFORE addWaveResult increments it
   const currentWave = autonomous ? autonomousState.waveNumber : 1;
@@ -271,7 +509,7 @@ export async function execute(
   if (autonomous) {
     addWaveResult({
       waveNumber: currentWave,
-      tasksAttempted: remainingTasks.map(t => t.id),
+      tasksAttempted: [...remainingTasks.map(t => t.id), ...lobbyAssigned],
       succeeded,
       failed,
       blocked,
@@ -282,7 +520,7 @@ export async function execute(
       stopAutonomous("manual");
       appendEntry("crew-state", autonomousState);
     } else {
-      const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+      const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
       const allTasks = store.getTasks(cwd);
       const allDone = allTasks.every(t => t.status === "done");
       const allBlockedOrDone = allTasks.every(t => t.status === "done" || t.status === "blocked");
@@ -321,16 +559,21 @@ export async function execute(
     ? `${updatedPlan.completed_count}/${updatedPlan.task_count}`
     : "unknown";
 
+  const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+  const actionableNextReady = nextReady.filter(t => !teamStore.taskNeedsApproval(t));
+  const finalNeedsApproval = nextReady.filter(teamStore.taskPendingApproval);
+  const finalRejected = nextReady.filter(teamStore.taskNeedsRevision);
+
   let statusText = "";
   if (succeeded.length > 0) statusText += `\n✅ Completed: ${succeeded.join(", ")}`;
   if (failed.length > 0) statusText += `\n❌ Failed: ${failed.join(", ")}`;
   if (blocked.length > 0) statusText += `\n🚫 Blocked: ${blocked.join(", ")}`;
-
-  const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
-  const nextText = nextReady.length > 0
-    ? `\n\n**Ready for next wave:** ${nextReady.map(t => t.id).join(", ")}`
+  if (finalNeedsApproval.length > 0) statusText += `\n🛑 Needs approval: ${finalNeedsApproval.map(t => t.id).join(", ")}`;
+  if (finalRejected.length > 0) statusText += `\n↩️ Rejected: ${finalRejected.map(t => t.id).join(", ")}`;
+  const nextText = actionableNextReady.length > 0
+    ? `\n\n**Ready for next wave:** ${actionableNextReady.map(t => t.id).join(", ")}`
     : "";
-  const continueText = autonomous && !signal?.aborted && nextReady.length > 0
+  const continueText = autonomous && !signal?.aborted && actionableNextReady.length > 0
     ? "Autonomous mode: Continuing to next wave..."
     : signal?.aborted && autonomous
       ? "Autonomous mode stopped (cancelled)."
@@ -345,7 +588,7 @@ export async function execute(
 **PRD:** ${store.getPlanLabel(plan)}
 **Tasks attempted:** ${remainingTasks.length}${lobbyAssigned.size > 0 ? ` (+${lobbyAssigned.size} lobby)` : ""}
 **Progress:** ${progress}
-${statusText}${lobbyText}${nextText}
+${statusText}${lobbyText}${rejectedTasksText(finalRejected)}${nextText}
 
 ${continueText}`;
 
@@ -357,7 +600,9 @@ ${continueText}`;
     succeeded,
     failed,
     blocked,
-    nextReady: nextReady.map(t => t.id),
+    needsApproval: approvalTaskSummaries(finalNeedsApproval),
+    rejected: approvalTaskSummaries(finalRejected),
+    nextReady: actionableNextReady.map(t => t.id),
     autonomous: !!autonomous
   });
 }

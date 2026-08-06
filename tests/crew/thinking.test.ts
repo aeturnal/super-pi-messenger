@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveThinking, modelHasThinkingSuffix } from "../../crew/agents.js";
+import { resolveThinking, modelHasThinkingSuffix } from "../../crew/agents.ts";
 
 describe("resolveThinking", () => {
   it("config thinking wins over agent thinking", () => {

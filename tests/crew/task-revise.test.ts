@@ -1,28 +1,34 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import { createProgress } from "../../crew/utils/progress.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
 
-vi.mock("../../crew/agents.js", () => ({
+vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
 }));
 
 describe("executeRevise", () => {
-  let executeRevise: typeof import("../../crew/handlers/task.js").executeRevise;
+  let executeRevise: typeof import("../../crew/handlers/task.ts").executeRevise;
   let spawnAgents: ReturnType<typeof vi.fn>;
-  let store: typeof import("../../crew/store.js");
-  let state: typeof import("../../crew/state.js");
-  let liveProgress: typeof import("../../crew/live-progress.js");
+  let store: typeof import("../../crew/store.ts");
+  let state: typeof import("../../crew/state.ts");
+  let liveProgress: typeof import("../../crew/live-progress.ts");
+  let registry: typeof import("../../crew/registry.ts");
+  let taskHandler: typeof import("../../crew/handlers/task.ts");
   let tmpDir: string;
 
   beforeEach(async () => {
     vi.resetModules();
-    const mod = await import("../../crew/handlers/revise.js");
+    const mod = await import("../../crew/handlers/revise.ts");
     executeRevise = mod.executeRevise;
-    store = await import("../../crew/store.js");
-    state = await import("../../crew/state.js");
-    liveProgress = await import("../../crew/live-progress.js");
-    const agents = await import("../../crew/agents.js");
+    store = await import("../../crew/store.ts");
+    state = await import("../../crew/state.ts");
+    liveProgress = await import("../../crew/live-progress.ts");
+    registry = await import("../../crew/registry.ts");
+    taskHandler = await import("../../crew/handlers/task.ts");
+    const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
     const dirs = createTempCrewDirs();
@@ -44,6 +50,31 @@ describe("executeRevise", () => {
     expect(r.message).toContain("not found");
   });
 
+  it("rejects revision without changing a task that has an active worker", async () => {
+    const task = store.createTask(tmpDir, "test task", "old spec");
+    store.startTask(tmpDir, task.id, "WorkerA");
+    const before = store.getTask(tmpDir, task.id);
+    registry.registerWorker({
+      type: "worker",
+      cwd: tmpDir,
+      taskId: task.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+
+    try {
+      expect(await taskHandler.execute(
+        "revise",
+        { id: task.id, prompt: "change it" },
+        { agentName: "agent" } as any,
+        createMockContext(tmpDir),
+      )).toMatchObject({ details: { error: "active_worker" } });
+      expect(store.getTask(tmpDir, task.id)).toEqual(before);
+    } finally {
+      registry.unregisterWorker(tmpDir, task.id);
+    }
+  });
+
   it("rejects in_progress task", async () => {
     const task = store.createTask(tmpDir, "test task");
     store.startTask(tmpDir, task.id, "agent");
@@ -58,7 +89,7 @@ describe("executeRevise", () => {
       taskId: "__reviser__",
       agent: "crew-planner",
       name: "Reviser",
-      progress: { toolCallCount: 0, tokens: 0, currentTool: undefined, currentToolArgs: undefined, recentTools: [] },
+      progress: createProgress("crew-planner"),
       startedAt: Date.now(),
     });
 
@@ -90,13 +121,46 @@ describe("executeRevise", () => {
     expect(r.message).toContain("autonomous");
   });
 
+  it("rejects revision without changing a task when its worker becomes active while planning", async () => {
+    const task = store.createTask(tmpDir, "old title", "old spec content");
+    const before = store.getTask(tmpDir, task.id);
+    const specBefore = store.getTaskSpec(tmpDir, task.id);
+    let resolvePlanner!: (value: any) => void;
+    spawnAgents.mockImplementation(() => new Promise<any>(resolve => {
+      resolvePlanner = resolve;
+    }));
+
+    const revision = executeRevise(tmpDir, task.id, undefined, "agent");
+    registry.registerWorker({
+      type: "worker",
+      cwd: tmpDir,
+      taskId: task.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+    resolvePlanner([{
+      exitCode: 0,
+      output: '```revised-task\n{"title": "new title", "spec": "new spec"}\n```',
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    try {
+      await expect(revision).resolves.toMatchObject({ success: false, error: "active_worker" });
+      expect(store.getTask(tmpDir, task.id)).toEqual(before);
+      expect(store.getTaskSpec(tmpDir, task.id)).toBe(specBefore);
+    } finally {
+      registry.unregisterWorker(tmpDir, task.id);
+    }
+  });
+
   it("revises task with prompt and updates spec", async () => {
     const task = store.createTask(tmpDir, "old title", "old spec content");
     spawnAgents.mockResolvedValue([{
       exitCode: 0,
       output: '```revised-task\n{"title": "new title", "spec": "# New Spec\\nRevised content"}\n```',
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeRevise(tmpDir, task.id, "make it better", "agent");
@@ -115,7 +179,7 @@ describe("executeRevise", () => {
       exitCode: 0,
       output: '```revised-task\n{"spec": "# Better Spec\\nImproved"}\n```',
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeRevise(tmpDir, task.id, undefined, "agent");
@@ -133,7 +197,7 @@ describe("executeRevise", () => {
       exitCode: 1,
       output: "",
       error: "planner crashed",
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeRevise(tmpDir, task.id, "fix it", "agent");
@@ -150,7 +214,7 @@ describe("executeRevise", () => {
       exitCode: 0,
       output: "some random output without the expected block",
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeRevise(tmpDir, task.id, undefined, "agent");
@@ -164,7 +228,7 @@ describe("executeRevise", () => {
       exitCode: 0,
       output: '```revised-task\n{"spec": "new spec"}\n```',
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     await executeRevise(tmpDir, task.id, "split auth", "agent");

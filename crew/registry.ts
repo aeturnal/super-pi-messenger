@@ -6,7 +6,9 @@
  */
 
 import type { ChildProcess } from "node:child_process";
-import type { CoordinationLevel } from "./utils/config.js";
+import type { AgentResult } from "./types.ts";
+import type { CoordinationLevel } from "./utils/config.ts";
+import { normalizeCwd } from "./state.ts";
 
 interface BaseWorkerEntry {
   proc: ChildProcess;
@@ -23,10 +25,16 @@ export interface LobbyWorkerEntry extends BaseWorkerEntry {
   type: "lobby";
   lobbyId: string;
   assignedTaskId: string | null;
+  managedByWork: boolean;
   coordination: CoordinationLevel;
   startedAt: number;
   promptTmpDir: string | null;
   aliveFile: string | null;
+  model?: string;
+  role?: string;
+  superpowersActive: boolean;
+  completion: Promise<AgentResult>;
+  resolveCompletion: (result: AgentResult) => void;
 }
 
 export type WorkerEntry = RegularWorker | LobbyWorkerEntry;
@@ -34,7 +42,7 @@ export type WorkerEntry = RegularWorker | LobbyWorkerEntry;
 const workers = new Map<string, WorkerEntry>();
 
 function makeKey(cwd: string, taskId: string): string {
-  return `${cwd}::${taskId}`;
+  return `${normalizeCwd(cwd)}::${taskId}`;
 }
 
 export function registerWorker(entry: WorkerEntry): void {
@@ -46,10 +54,11 @@ export function unregisterWorker(cwd: string, taskId: string): void {
 }
 
 export function findWorkerByTask(cwd: string, taskId: string): WorkerEntry | null {
-  const direct = workers.get(makeKey(cwd, taskId));
+  const normalizedCwd = normalizeCwd(cwd);
+  const direct = workers.get(makeKey(normalizedCwd, taskId));
   if (direct) return direct;
   for (const entry of workers.values()) {
-    if (entry.cwd !== cwd) continue;
+    if (normalizeCwd(entry.cwd) !== normalizedCwd) continue;
     if (entry.type === "lobby" && entry.assignedTaskId === taskId) return entry;
   }
   return null;
@@ -58,7 +67,7 @@ export function findWorkerByTask(cwd: string, taskId: string): WorkerEntry | nul
 export function hasActiveWorker(cwd: string, taskId: string): boolean {
   const entry = findWorkerByTask(cwd, taskId);
   if (!entry) return false;
-  return entry.proc.exitCode === null && !entry.proc.killed;
+  return entry.proc.exitCode === null && entry.proc.signalCode == null;
 }
 
 export function killWorkerByTask(cwd: string, taskId: string): boolean {
@@ -77,8 +86,9 @@ export function killWorkerByTask(cwd: string, taskId: string): boolean {
 }
 
 export function killAll(cwd?: string): void {
+  const normalizedCwd = cwd ? normalizeCwd(cwd) : undefined;
   for (const [key, entry] of workers.entries()) {
-    if (cwd && entry.cwd !== cwd) continue;
+    if (normalizedCwd && normalizeCwd(entry.cwd) !== normalizedCwd) continue;
     if (entry.proc.exitCode === null && !entry.proc.killed) {
       entry.proc.kill("SIGTERM");
     }
@@ -87,17 +97,19 @@ export function killAll(cwd?: string): void {
 }
 
 export function getLobbyWorkers(cwd: string): LobbyWorkerEntry[] {
+  const normalizedCwd = normalizeCwd(cwd);
   const result: LobbyWorkerEntry[] = [];
   for (const entry of workers.values()) {
-    if (entry.cwd === cwd && entry.type === "lobby") result.push(entry);
+    if (normalizeCwd(entry.cwd) === normalizedCwd && entry.type === "lobby") result.push(entry);
   }
   return result;
 }
 
 export function getAvailableLobbyWorkers(cwd: string): LobbyWorkerEntry[] {
+  const normalizedCwd = normalizeCwd(cwd);
   const result: LobbyWorkerEntry[] = [];
   for (const entry of workers.values()) {
-    if (entry.cwd !== cwd || entry.type !== "lobby") continue;
+    if (normalizeCwd(entry.cwd) !== normalizedCwd || entry.type !== "lobby") continue;
     if (entry.assignedTaskId) continue;
     if (entry.proc.exitCode !== null) continue;
     result.push(entry);
@@ -106,9 +118,10 @@ export function getAvailableLobbyWorkers(cwd: string): LobbyWorkerEntry[] {
 }
 
 export function getLobbyWorkerCount(cwd: string): number {
+  const normalizedCwd = normalizeCwd(cwd);
   let count = 0;
   for (const entry of workers.values()) {
-    if (entry.cwd === cwd && entry.type === "lobby" && !entry.assignedTaskId && entry.proc.exitCode === null) count++;
+    if (normalizeCwd(entry.cwd) === normalizedCwd && entry.type === "lobby" && !entry.assignedTaskId && entry.proc.exitCode === null) count++;
   }
   return count;
 }

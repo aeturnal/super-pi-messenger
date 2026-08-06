@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import * as store from "../../crew/store.js";
-import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.js";
+import * as store from "../../crew/store.ts";
+import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.ts";
 
 describe("crew/store", () => {
   let dirs: TempCrewDirs;
@@ -96,6 +96,78 @@ describe("crew/store", () => {
         "task-9",
         "task-10",
       ]);
+    });
+
+    it("loads pre-Team task JSON without role/risk/approval fields", () => {
+      store.createPlan(cwd, "docs/PRD.md");
+      fs.writeFileSync(path.join(dirs.tasksDir, "task-1.json"), JSON.stringify({
+        id: "task-1",
+        title: "Legacy task",
+        status: "todo",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+
+      const task = store.getTask(cwd, "task-1");
+      expect(task?.depends_on).toEqual([]);
+      expect(task?.attempt_count).toBe(0);
+      expect(task?.role).toBeUndefined();
+      expect(task?.risk_labels).toBeUndefined();
+      expect(task?.approval).toBeUndefined();
+    });
+
+    it("createTask persists Team fields when provided", () => {
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Team task", "Desc", [], {
+        role: "worker",
+        risk_labels: ["auth"],
+        approval: { required: true, status: "pending" },
+      });
+
+      const loaded = store.getTask(cwd, task.id);
+      expect(loaded?.role).toBe("worker");
+      expect(loaded?.risk_labels).toEqual(["auth"]);
+      expect(loaded?.approval).toEqual({ required: true, status: "pending" });
+    });
+
+    it("normalizes persisted approval fields explicitly", () => {
+      store.createPlan(cwd, "docs/PRD.md");
+      fs.writeFileSync(path.join(dirs.tasksDir, "task-1.json"), JSON.stringify({
+        id: "task-1",
+        title: "Approval task",
+        status: "todo",
+        depends_on: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        approval: {
+          required: true,
+          status: "not_required",
+          plan: 42,
+          feedback: "needs tests",
+          decided_by: false,
+          decided_at: "2026-01-01T00:00:00Z",
+        },
+      }));
+      fs.writeFileSync(path.join(dirs.tasksDir, "task-2.json"), JSON.stringify({
+        id: "task-2",
+        title: "Not required approval task",
+        status: "todo",
+        depends_on: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        approval: { required: false, status: "pending" },
+      }));
+
+      expect(store.getTask(cwd, "task-1")?.approval).toEqual({
+        required: true,
+        status: "pending",
+        feedback: "needs tests",
+        decided_at: "2026-01-01T00:00:00Z",
+      });
+      expect(store.getTask(cwd, "task-2")?.approval).toEqual({
+        required: false,
+        status: "not_required",
+      });
     });
 
     it("getTaskSpec / setTaskSpec round-trip", () => {
@@ -293,6 +365,24 @@ describe("crew/store", () => {
 
       const ready = store.getReadyTasks(cwd).map(t => t.id);
       expect(ready).toContain(t2.id);
+    });
+
+    it("removes a dependent from ready tasks when its completed dependency is reset or blocked", () => {
+      store.createPlan(cwd, "docs/PRD.md");
+      const dependency = store.createTask(cwd, "Foundation", "Desc one");
+      const dependent = store.createTask(cwd, "Feature", "Desc two", [dependency.id]);
+
+      store.startTask(cwd, dependency.id, "WorkerA");
+      store.completeTask(cwd, dependency.id, "Done");
+      expect(store.getReadyTasks(cwd).map(task => task.id)).toContain(dependent.id);
+
+      store.resetTask(cwd, dependency.id);
+      expect(store.getReadyTasks(cwd).map(task => task.id)).not.toContain(dependent.id);
+
+      store.startTask(cwd, dependency.id, "WorkerA");
+      store.completeTask(cwd, dependency.id, "Done again");
+      store.blockTask(cwd, dependency.id, "Automatic review unavailable");
+      expect(store.getReadyTasks(cwd).map(task => task.id)).not.toContain(dependent.id);
     });
 
     it("never returns in_progress, done, or blocked tasks", () => {

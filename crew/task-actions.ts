@@ -1,8 +1,8 @@
-import { logFeedEvent } from "../feed.js";
-import * as store from "./store.js";
-import { loadCrewConfig } from "./utils/config.js";
-import { killWorkerByTask } from "./registry.js";
-import type { Task } from "./types.js";
+import { logFeedEvent } from "../feed.ts";
+import * as store from "./store.ts";
+import { loadCrewConfig } from "./utils/config.ts";
+import { killWorkerByTask } from "./registry.ts";
+import type { Task } from "./types.ts";
 
 export type TaskAction = "start" | "block" | "unblock" | "reset" | "cascade-reset" | "delete" | "stop";
 
@@ -83,6 +83,9 @@ export function executeTaskAction(
     }
 
     case "reset": {
+      if (options?.isWorkerActive?.(taskId)) {
+        return { success: false, error: "active_worker", message: `Cannot reset ${taskId} while its worker is active` };
+      }
       const resetTasks = store.resetTask(cwd, taskId, false);
       if (resetTasks.length === 0) return { success: false, error: "reset_failed", message: `Failed to reset ${taskId}` };
       logFeedEvent(cwd, agentName, "task.reset", taskId, task.title);
@@ -90,6 +93,11 @@ export function executeTaskAction(
     }
 
     case "cascade-reset": {
+      const subtree = [task, ...store.getTransitiveDependents(cwd, taskId)];
+      const activeTask = subtree.find(t => options?.isWorkerActive?.(t.id));
+      if (activeTask) {
+        return { success: false, error: "active_worker", message: `Cannot reset ${activeTask.id} while its worker is active` };
+      }
       const resetTasks = store.resetTask(cwd, taskId, true);
       if (resetTasks.length === 0) return { success: false, error: "reset_failed", message: `Failed to reset ${taskId}` };
       logFeedEvent(cwd, agentName, "task.reset", taskId, `cascade (${resetTasks.length} tasks)`);
@@ -97,7 +105,7 @@ export function executeTaskAction(
     }
 
     case "delete": {
-      if (task.status === "in_progress" && options?.isWorkerActive?.(taskId)) {
+      if (options?.isWorkerActive?.(taskId)) {
         return { success: false, error: "active_worker", message: `Cannot delete ${taskId} while its worker is active` };
       }
       if (!store.deleteTask(cwd, taskId)) return { success: false, error: "delete_failed", message: `Failed to delete ${taskId}` };

@@ -1,9 +1,26 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
-import * as store from "../../crew/store.js";
-import { executeTaskAction } from "../../crew/task-actions.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { MessengerState } from "../../lib.ts";
+import * as taskHandler from "../../crew/handlers/task.ts";
+import * as store from "../../crew/store.ts";
+import { executeTaskAction } from "../../crew/task-actions.ts";
+import { hasActiveWorker, registerWorker, unregisterWorker } from "../../crew/registry.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+
+function createState(agentName: string): MessengerState {
+  return { agentName } as MessengerState;
+}
+
+async function callAs(cwd: string, agentName: string, op: "progress" | "done", id: string) {
+  return taskHandler.execute(
+    op,
+    op === "progress" ? { id, message: "Still working" } : { id, summary: "Finished" },
+    createState(agentName),
+    createMockContext(cwd),
+  );
+}
 
 function writeCrewDependenciesConfig(cwd: string, dependencies: "advisory" | "strict"): void {
   const configPath = path.join(cwd, ".pi", "messenger", "crew", "config.json");
@@ -104,19 +121,138 @@ describe("crew/task-actions", () => {
     expect(store.getTask(cwd, task.id)?.status).toBe("todo");
   });
 
-  it("prevents deleting active in-progress worker tasks", () => {
+  it("rejects split without changing a task that has an active worker", async () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Task", "Desc");
+    store.startTask(cwd, task.id, "WorkerA");
+    const before = store.getTask(cwd, task.id);
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+
+    try {
+      expect(await taskHandler.execute(
+        "split",
+        { id: task.id, subtasks: [{ title: "First" }, { title: "Second" }] },
+        createState("Controller"),
+        createMockContext(cwd),
+      )).toMatchObject({ details: { error: "active_worker" } });
+      expect(store.getTask(cwd, task.id)).toEqual(before);
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
+  });
+
+  it("rejects reset without changing a task that has an active worker", async () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Task", "Desc");
+    store.startTask(cwd, task.id, "WorkerA");
+    const before = store.getTask(cwd, task.id);
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+
+    try {
+      expect(await taskHandler.execute(
+        "reset",
+        { id: task.id },
+        createState("Controller"),
+        createMockContext(cwd),
+      )).toMatchObject({ details: { error: "active_worker" } });
+      expect(store.getTask(cwd, task.id)).toEqual(before);
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
+  });
+
+  it("prevents deleting a todo task with a live registered worker", () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Task", "Desc");
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "AgentA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+
+    try {
+      const result = executeTaskAction(cwd, "delete", task.id, "AgentA", undefined, {
+        isWorkerActive: workerTaskId => hasActiveWorker(cwd, workerTaskId),
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("active_worker");
+      expect(store.getTask(cwd, task.id)).not.toBeNull();
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
+  });
+
+  it("allows deleting a todo task with a dead registered worker", () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const task = store.createTask(cwd, "Task", "Desc");
+    registerWorker({
+      type: "worker",
+      cwd,
+      taskId: task.id,
+      name: "AgentA",
+      proc: { exitCode: 1, killed: false } as any,
+    });
+
+    try {
+      const result = executeTaskAction(cwd, "delete", task.id, "AgentA", undefined, {
+        isWorkerActive: workerTaskId => hasActiveWorker(cwd, workerTaskId),
+      });
+
+      expect(result.success).toBe(true);
+      expect(store.getTask(cwd, task.id)).toBeNull();
+    } finally {
+      unregisterWorker(cwd, task.id);
+    }
+  });
+
+  it("prevents resetting active worker tasks", () => {
     const { cwd } = createTempCrewDirs();
     store.createPlan(cwd, "docs/PRD.md");
     const task = store.createTask(cwd, "Task", "Desc");
     store.startTask(cwd, task.id, "AgentA");
 
-    const result = executeTaskAction(cwd, "delete", task.id, "AgentA", undefined, {
+    const result = executeTaskAction(cwd, "reset", task.id, "AgentA", undefined, {
       isWorkerActive: () => true,
     });
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("active_worker");
-    expect(store.getTask(cwd, task.id)).not.toBeNull();
+    expect(store.getTask(cwd, task.id)?.status).toBe("in_progress");
+  });
+
+  it("prevents cascade-reset when a dependent has an active worker", () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "docs/PRD.md");
+    const parent = store.createTask(cwd, "Parent", "Desc");
+    const child = store.createTask(cwd, "Child", "Desc", [parent.id]);
+    store.startTask(cwd, child.id, "AgentA");
+
+    const result = executeTaskAction(cwd, "cascade-reset", parent.id, "AgentA", undefined, {
+      isWorkerActive: taskId => taskId === child.id,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("active_worker");
+    expect(store.getTask(cwd, child.id)?.status).toBe("in_progress");
   });
 
   it("deletes non-active tasks", () => {
@@ -177,5 +313,52 @@ describe("crew/task-actions", () => {
     const updated = store.getTask(cwd, task.id);
     expect(updated?.status).toBe("todo");
     expect(updated?.assigned_to).toBeUndefined();
+  });
+
+  describe("assigned task ownership", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("allows only the assigned child to complete an in-progress task", async () => {
+      const { cwd } = createTempCrewDirs();
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Task", "Desc");
+      store.startTask(cwd, task.id, "WorkerA");
+      vi.stubEnv("PI_CREW_WORKER", "1");
+
+      expect(await callAs(cwd, "WorkerB", "done", task.id)).toMatchObject({
+        details: { error: "not_owner" },
+      });
+      expect(store.getTask(cwd, task.id)?.status).toBe("in_progress");
+
+      expect(await callAs(cwd, "WorkerA", "done", task.id)).toMatchObject({
+        details: { task: { status: "done" } },
+      });
+    });
+
+    it("allows only the assigned child to log task progress", async () => {
+      const { cwd } = createTempCrewDirs();
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Task", "Desc");
+      store.startTask(cwd, task.id, "WorkerA");
+      vi.stubEnv("PI_CREW_WORKER", "1");
+
+      expect(await callAs(cwd, "WorkerB", "progress", task.id)).toMatchObject({
+        details: { error: "not_owner" },
+      });
+      expect(store.getTaskProgress(cwd, task.id)).toBeNull();
+    });
+
+    it("allows the controller to recover an assigned task", async () => {
+      const { cwd } = createTempCrewDirs();
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Task", "Desc");
+      store.startTask(cwd, task.id, "WorkerA");
+
+      expect(await callAs(cwd, "Controller", "done", task.id)).toMatchObject({
+        details: { task: { status: "done" } },
+      });
+    });
   });
 });

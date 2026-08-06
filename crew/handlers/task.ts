@@ -1,20 +1,37 @@
 /**
  * Crew - Task Handlers
  * 
- * Operations: create, split, show, list, start, done, block, unblock, ready, reset, progress
+ * Operations: create, split, show, list, start, done, block, unblock, ready, reset, progress, approve, reject
  * Simplified: tasks belong to the plan, not an epic
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { MessengerState } from "../../lib.js";
-import type { CrewParams, Task, TaskEvidence } from "../types.js";
-import { result } from "../utils/result.js";
-import { loadCrewConfig } from "../utils/config.js";
-import * as store from "../store.js";
-import { logFeedEvent } from "../../feed.js";
-import { executeTaskAction } from "../task-actions.js";
-import { taskRevise, taskReviseTree } from "./revise.js";
-export { executeRevise, executeReviseTree, type ReviseResult } from "./revise.js";
+import type { MessengerState } from "../../lib.ts";
+import type { CrewParams, Task, TaskEvidence } from "../types.ts";
+import { result } from "../utils/result.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import * as store from "../store.ts";
+import * as teamStore from "../team/store.ts";
+import { logFeedEvent } from "../../feed.ts";
+import { executeTaskAction } from "../task-actions.ts";
+import { taskRevise, taskReviseTree } from "./revise.ts";
+import { approvalTaskSummaries, taskMetadataMarkers } from "../utils/task-format.ts";
+import { isCrewChildProcess } from "../utils/child-process.ts";
+import { hasActiveWorker } from "../registry.ts";
+export { executeRevise, executeReviseTree, type ReviseResult } from "./revise.ts";
+
+function revisionHint(task: Task): string {
+  return `pi_messenger({ action: "task.revise", id: "${task.id}", prompt: "Address approval feedback" })`;
+}
+
+function canMutateAssignedTask(task: Task, agentName: string, isChild: boolean): boolean {
+  return !isChild || task.assigned_to === agentName;
+}
+
+function rejectedTasksText(tasks: Task[]): string {
+  if (tasks.length === 0) return "";
+  return `\n\nRejected tasks need revision:\n${tasks.map(t => `  - ${t.id}: ${t.title}${t.approval?.feedback ? ` — ${t.approval.feedback}` : ""}\n    Revise with: \`${revisionHint(t)}\`\n    Or revise dependents too: \`pi_messenger({ action: "task.revise-tree", id: "${t.id}", prompt: "Address approval feedback" })\``).join("\n")}`;
+}
 
 export async function execute(
   op: string,
@@ -22,7 +39,7 @@ export async function execute(
   state: MessengerState,
   ctx: ExtensionContext
 ) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
 
   switch (op) {
     case "create":
@@ -47,6 +64,10 @@ export async function execute(
       return taskReset(cwd, params, state);
     case "progress":
       return taskProgress(cwd, params, state);
+    case "approve":
+      return taskApproval(cwd, params, state, "approved");
+    case "reject":
+      return taskApproval(cwd, params, state, "rejected");
     case "revise":
       return taskRevise(cwd, params, state);
     case "revise-tree":
@@ -59,6 +80,13 @@ export async function execute(
 // =============================================================================
 // task.create
 // =============================================================================
+
+function taskActionHint(task: Task): string {
+  if (teamStore.taskNeedsRevision(task)) return `Revise first: \`${revisionHint(task)}\``;
+  return teamStore.taskNeedsApproval(task)
+    ? `Approve first: \`pi_messenger({ action: "task.approve", id: "${task.id}" })\``
+    : `Start with: \`pi_messenger({ action: "task.start", id: "${task.id}" })\``;
+}
 
 function taskCreate(cwd: string, params: CrewParams) {
   if (!params.title) {
@@ -83,18 +111,30 @@ function taskCreate(cwd: string, params: CrewParams) {
     }
   }
 
-  const task = store.createTask(cwd, params.title, params.content, params.dependsOn);
+  const role = teamStore.canonicalRoleForTask(cwd, params.role);
+  if (params.role?.trim() && teamStore.getActiveTeam(cwd) && !role) {
+    return result(`Error: unknown Team role: ${params.role.trim()}`, { mode: "task.create", error: "invalid_role", role: params.role.trim() });
+  }
+
+  const riskLabels = teamStore.normalizeRiskLabels(params.riskLabels);
+  const approval = params.approval ?? teamStore.approvalForTask(cwd, role, riskLabels);
+  const task = store.createTask(cwd, params.title, params.content, params.dependsOn, {
+    ...(role ? { role } : {}),
+    ...(riskLabels && riskLabels.length > 0 ? { risk_labels: riskLabels } : {}),
+    ...(approval ? { approval } : {}),
+  });
 
   const depsText = task.depends_on.length > 0 
     ? `\n**Depends on:** ${task.depends_on.join(", ")}`
     : "";
+  const teamText = `${task.role ? `\n**Role:** ${task.role}` : ""}${task.risk_labels?.length ? `\n**Risk labels:** ${task.risk_labels.join(", ")}` : ""}${task.approval?.required ? `\n**Approval:** ${task.approval.status}` : ""}`;
 
   const text = `✅ Created task **${task.id}**
 
 **Title:** ${task.title}
-**Status:** ${task.status}${depsText}
+**Status:** ${task.status}${depsText}${teamText}
 
-Start with: \`pi_messenger({ action: "task.start", id: "${task.id}" })\``;
+${taskActionHint(task)}`;
 
   return result(text, {
     mode: "task.create",
@@ -103,6 +143,9 @@ Start with: \`pi_messenger({ action: "task.start", id: "${task.id}" })\``;
       title: task.title,
       status: task.status,
       depends_on: task.depends_on,
+      role: task.role,
+      risk_labels: task.risk_labels,
+      approval: task.approval,
     }
   });
 }
@@ -116,6 +159,14 @@ function taskSplit(cwd: string, params: CrewParams, state: MessengerState) {
   const task = store.getTask(cwd, id);
   if (!task) {
     return result(`Error: Task ${id} not found`, { mode: "task.split", error: "not_found", id });
+  }
+
+  if (hasActiveWorker(cwd, task.id)) {
+    return result(`Cannot split ${task.id} while its worker is active.`, {
+      mode: "task.split",
+      error: "active_worker",
+      id: task.id,
+    });
   }
 
   if (task.status === "done") {
@@ -192,7 +243,14 @@ The parent becomes a milestone that auto-completes when all subtasks are done.`;
 
   const created: Task[] = [];
   for (const sub of subtasks) {
-    const newTask = store.createTask(cwd, sub.title, sub.content, [...task.depends_on]);
+    const approval: Task["approval"] = task.approval?.required
+      ? { required: true, status: task.approval.status === "approved" ? "approved" : "pending" }
+      : teamStore.approvalForTask(cwd, task.role, task.risk_labels);
+    const newTask = store.createTask(cwd, sub.title, sub.content, [...task.depends_on], {
+      ...(task.role ? { role: task.role } : {}),
+      ...(task.risk_labels?.length ? { risk_labels: task.risk_labels } : {}),
+      ...(approval ? { approval } : {}),
+    });
     created.push(newTask);
   }
 
@@ -221,6 +279,9 @@ The parent becomes a milestone that auto-completes when all subtasks are done.`;
     summary: undefined,
     evidence: undefined,
     blocked_reason: undefined,
+    role: undefined,
+    risk_labels: undefined,
+    approval: undefined,
   });
 
   store.setTaskSpec(cwd, id, `# ${task.title}\n\nMilestone: completes when ${subtaskIds.join(", ")} are done.\n`);
@@ -299,7 +360,7 @@ function taskShow(cwd: string, params: CrewParams) {
   const text = `# Task ${task.id}: ${task.title}
 
 ${statusIcon} **Status:** ${task.status}${statusDetails}
-**Attempts:** ${task.attempt_count}${depsText}${progressSection}${specPreview}`;
+**Attempts:** ${task.attempt_count}${taskMetadataMarkers(task)}${depsText}${progressSection}${specPreview}`;
 
   return result(text, {
     mode: "task.show",
@@ -315,6 +376,14 @@ function taskProgress(cwd: string, params: CrewParams, state: MessengerState) {
 
   const task = store.getTask(cwd, id);
   if (!task) return result(`Error: Task ${id} not found`, { mode: "task.progress", error: "not_found", id });
+
+  if (!canMutateAssignedTask(task, state.agentName || "unknown", isCrewChildProcess())) {
+    return result(`Error: ${task.id} is assigned to ${task.assigned_to ?? "another worker"}.`, {
+      mode: "task.progress",
+      error: "not_owner",
+      id: task.id,
+    });
+  }
 
   store.appendTaskProgress(cwd, id, state.agentName || "unknown", message);
   return result(`Progress logged for ${id}`, { mode: "task.progress", id });
@@ -347,7 +416,7 @@ function taskList(cwd: string) {
     const icon = { todo: "⬜", in_progress: "🔄", done: "✅", blocked: "🚫" }[task.status];
     const deps = task.depends_on.length > 0 ? ` → deps: ${task.depends_on.join(", ")}` : "";
     const assignee = task.assigned_to ? ` [${task.assigned_to}]` : "";
-    lines.push(`${icon} **${task.id}**: ${task.title}${assignee}${deps}`);
+    lines.push(`${icon} **${task.id}**: ${task.title}${taskMetadataMarkers(task)}${assignee}${deps}`);
   }
 
   const done = tasks.filter(t => t.status === "done").length;
@@ -361,6 +430,9 @@ function taskList(cwd: string) {
       title: t.title,
       status: t.status,
       depends_on: t.depends_on,
+      role: t.role,
+      risk_labels: t.risk_labels,
+      approval: t.approval,
     })),
   });
 }
@@ -373,6 +445,19 @@ function taskStart(cwd: string, params: CrewParams, state: MessengerState) {
   const id = params.id;
   if (!id) {
     return result("Error: id required for task.start", { mode: "task.start", error: "missing_id" });
+  }
+
+  const task = store.getTask(cwd, id);
+  if (task && teamStore.taskNeedsApproval(task)) {
+    const message = teamStore.taskNeedsRevision(task)
+      ? `Error: Task ${id} was rejected and needs revision before it can be started.`
+      : `Error: Task ${id} needs lead approval before it can be started.`;
+    return result(message, {
+      mode: "task.start",
+      error: teamStore.taskNeedsRevision(task) ? "needs_revision" : "needs_approval",
+      id,
+      approval: task.approval,
+    });
   }
 
   const agentName = state.agentName || "unknown";
@@ -436,6 +521,14 @@ function taskDone(cwd: string, params: CrewParams, state: MessengerState) {
     });
   }
 
+  if (!canMutateAssignedTask(task, state.agentName || "unknown", isCrewChildProcess())) {
+    return result(`Error: ${task.id} is assigned to ${task.assigned_to ?? "another worker"}.`, {
+      mode: "task.done",
+      error: "not_owner",
+      id: task.id,
+    });
+  }
+
   const summary = params.summary ?? "Task completed";
   const evidence: TaskEvidence | undefined = params.evidence;
 
@@ -456,9 +549,16 @@ function taskDone(cwd: string, params: CrewParams, state: MessengerState) {
   } else {
     const config = loadCrewConfig(store.getCrewDir(cwd));
     const ready = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
-    if (ready.length > 0) {
-      nextSteps = `\n\n**Ready tasks:** ${ready.map(t => t.id).join(", ")}`;
+    const actionable = ready.filter(t => !teamStore.taskNeedsApproval(t));
+    const rejected = ready.filter(teamStore.taskNeedsRevision);
+    const needsApproval = ready.filter(t => teamStore.taskPendingApproval(t));
+    if (actionable.length > 0) {
+      nextSteps = `\n\n**Ready tasks:** ${actionable.map(t => t.id).join(", ")}`;
     }
+    if (needsApproval.length > 0) {
+      nextSteps += `\n\n**Needs approval:** ${needsApproval.map(t => t.id).join(", ")}`;
+    }
+    nextSteps += rejectedTasksText(rejected);
   }
 
   const text = `✅ Completed task **${id}**
@@ -542,9 +642,7 @@ function taskUnblock(cwd: string, params: CrewParams, state: MessengerState) {
   }
 
   const unblocked = actionResult.task;
-  const text = `⬜ Unblocked task **${id}**
-
-Task is now ready to start: \`pi_messenger({ action: "task.start", id: "${id}" })\``;
+  const text = `⬜ Unblocked task **${id}**\n\n${taskActionHint(unblocked)}`;
 
   return result(text, {
     mode: "task.unblock",
@@ -569,7 +667,15 @@ function taskReady(cwd: string) {
   }
 
   const config = loadCrewConfig(store.getCrewDir(cwd));
-  const ready = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+  const allReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+  const ready: typeof allReady = [];
+  const needsApproval: typeof allReady = [];
+  const rejected: typeof allReady = [];
+  for (const task of allReady) {
+    if (teamStore.taskNeedsRevision(task)) rejected.push(task);
+    else if (teamStore.taskPendingApproval(task)) needsApproval.push(task);
+    else ready.push(task);
+  }
 
   if (ready.length === 0) {
     const tasks = store.getTasks(cwd);
@@ -582,15 +688,25 @@ function taskReady(cwd: string) {
       reason = "All tasks are done!";
     } else if (inProgress.length > 0) {
       reason = `${inProgress.length} task(s) in progress: ${inProgress.map(t => t.id).join(", ")}`;
+    } else if (rejected.length > 0) {
+      reason = "No startable tasks; rejected tasks need revision.";
+    } else if (needsApproval.length > 0) {
+      reason = "No startable tasks; ready tasks need lead approval.";
     } else if (blocked.length > 0) {
       reason = `${blocked.length} task(s) blocked: ${blocked.map(t => t.id).join(", ")}`;
     } else {
       reason = "All remaining tasks have unmet dependencies.";
     }
 
-    return result(`No ready tasks.\n\n${reason}`, {
+    const approvalText = needsApproval.length > 0
+      ? `\n\nNeeds approval:\n${needsApproval.map(t => `  - ${t.id}: ${t.title}`).join("\n")}`
+      : "";
+    const revisionText = rejectedTasksText(rejected);
+    return result(`No ready tasks.\n\n${reason}${approvalText}${revisionText}`, {
       mode: "task.ready",
       ready: [],
+      needsApproval: approvalTaskSummaries(needsApproval),
+      rejected: approvalTaskSummaries(rejected),
       reason,
     });
   }
@@ -602,12 +718,80 @@ function taskReady(cwd: string) {
   lines.push(`\nStart one: \`pi_messenger({ action: "task.start", id: "${ready[0].id}" })\``);
   lines.push(`Or run all: \`pi_messenger({ action: "work" })\``);
 
+  if (needsApproval.length > 0) {
+    lines.push(`\nNeeds approval:\n${needsApproval.map(t => `  - ${t.id}: ${t.title}`).join("\n")}`);
+  }
+  const revisionText = rejectedTasksText(rejected);
+  if (revisionText) lines.push(revisionText);
+
   return result(lines.join("\n"), {
     mode: "task.ready",
     ready: ready.map(t => ({
       id: t.id,
       title: t.title,
     })),
+    needsApproval: approvalTaskSummaries(needsApproval),
+    rejected: approvalTaskSummaries(rejected),
+  });
+}
+
+// =============================================================================
+// task.approve / task.reject
+// =============================================================================
+
+function taskApproval(cwd: string, params: CrewParams, state: MessengerState, status: "approved" | "rejected") {
+  const id = params.id;
+  const action = status === "approved" ? "approve" : "reject";
+  const mode = `task.${action}`;
+
+  if (isCrewChildProcess()) {
+    return result(`Error: ${mode} is controller-only. Crew child processes cannot decide approval gates.`, {
+      mode,
+      error: "controller_only",
+      ...(id ? { id } : {}),
+    });
+  }
+
+  const actor = state.agentName || "unknown";
+
+  if (!id) {
+    return result(`Error: id required for ${mode}`, { mode, error: "missing_id" });
+  }
+
+  const task = store.getTask(cwd, id);
+
+  if (!task) {
+    return result(`Error: Task ${id} not found`, { mode, error: "not_found", id });
+  }
+  if (!task.approval?.required) {
+    return result(`Task ${id} does not require approval.`, { mode, error: "approval_not_required", id });
+  }
+  if (task.status === "in_progress" || task.status === "done") {
+    return result(`Error: Task ${id} is ${task.status}; approval can only change before work starts.`, {
+      mode,
+      error: "invalid_status",
+      id,
+      status: task.status,
+    });
+  }
+
+  const approval = {
+    ...task.approval,
+    status,
+    feedback: params.reason,
+    decided_by: actor,
+    decided_at: new Date().toISOString(),
+  };
+  const updated = store.updateTask(cwd, id, { approval });
+  logFeedEvent(cwd, actor, status === "approved" ? "task.approve" : "task.reject", id, params.reason);
+
+  const nextStep = status === "rejected"
+    ? `\n\nNext: revise with \`${revisionHint(task)}\`, or use \`pi_messenger({ action: "task.revise-tree", id: "${id}", prompt: "Address approval feedback" })\` if dependents need updates too.`
+    : "";
+
+  return result(`${status === "approved" ? "Approved" : "Rejected"} task **${id}**.${nextStep}`, {
+    mode,
+    task: updated ? { id: updated.id, title: updated.title, approval: updated.approval } : undefined,
   });
 }
 
@@ -623,7 +807,9 @@ function taskReset(cwd: string, params: CrewParams, state: MessengerState) {
 
   const cascade = params.cascade ?? false;
   const action = cascade ? "cascade-reset" : "reset";
-  const actionResult = executeTaskAction(cwd, action, id, state.agentName || "unknown");
+  const actionResult = executeTaskAction(cwd, action, id, state.agentName || "unknown", undefined, {
+    isWorkerActive: workerTaskId => hasActiveWorker(cwd, workerTaskId),
+  });
   if (!actionResult.success) {
     return result(`Error: ${actionResult.message}`, {
       mode: "task.reset",
@@ -637,7 +823,10 @@ function taskReset(cwd: string, params: CrewParams, state: MessengerState) {
     ? `🔄 Reset ${resetTasks.length} tasks:\n${resetTasks.map(t => `  - ${t.id}`).join("\n")}`
     : `🔄 Reset task **${id}**`;
 
-  return result(text + `\n\nStart with: \`pi_messenger({ action: "task.start", id: "${id}" })\``, {
+  const resetTask = store.getTask(cwd, id);
+  const hint = resetTask ? taskActionHint(resetTask) : `Start with: \`pi_messenger({ action: "task.start", id: "${id}" })\``;
+
+  return result(`${text}\n\n${hint}`, {
     mode: "task.reset",
     reset: resetTasks.map(t => t.id),
     cascade,

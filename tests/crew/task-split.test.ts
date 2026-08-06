@@ -1,14 +1,28 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { MessengerState } from "../../lib.js";
-import * as store from "../../crew/store.js";
-import * as taskHandler from "../../crew/handlers/task.js";
-import { createMockContext } from "../helpers/mock-context.js";
-import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.js";
+import type { MessengerState } from "../../lib.ts";
+import * as store from "../../crew/store.ts";
+import * as taskHandler from "../../crew/handlers/task.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
+import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.ts";
 
 function createState(agentName: string = "TestAgent"): MessengerState {
   return { agentName } as MessengerState;
+}
+
+type SubtaskDetail = { id: string };
+
+function isSubtaskDetails(value: unknown): value is SubtaskDetail[] {
+  return Array.isArray(value) && value.every((task) => (
+    typeof task === "object" && task !== null && "id" in task && typeof task.id === "string"
+  ));
+}
+
+function getSubtaskIds(value: unknown): string[] {
+  expect(value).toSatisfy((details: unknown) => isSubtaskDetails(details));
+  if (!isSubtaskDetails(value)) throw new Error("Expected subtask details with string IDs");
+  return value.map((task) => task.id);
 }
 
 describe("crew/task.split", () => {
@@ -69,7 +83,7 @@ describe("crew/task.split", () => {
 
     expect(response.details.mode).toBe("task.split");
     expect(response.details.phase).toBe("execute");
-    const subtaskIds = response.details.subtasks.map((t: { id: string }) => t.id);
+    const subtaskIds = getSubtaskIds(response.details.subtasks);
     expect(subtaskIds).toHaveLength(2);
 
     const reloadedParent = store.getTask(cwd, parent.id);

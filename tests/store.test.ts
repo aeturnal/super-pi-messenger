@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentRegistration, Dirs, MessengerState } from "../lib.js";
-import { getActiveAgents, invalidateAgentsCache, register } from "../store.js";
+import type { AgentRegistration, Dirs, MessengerState } from "../lib.ts";
+import { getActiveAgents, invalidateAgentsCache, register } from "../store.ts";
 
 const roots = new Set<string>();
 const initialCwd = process.cwd();

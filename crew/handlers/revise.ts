@@ -1,18 +1,21 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MessengerState } from "../../lib.js";
-import type { CrewParams, Task } from "../types.js";
-import { result } from "../utils/result.js";
-import * as store from "../store.js";
-import { logFeedEvent } from "../../feed.js";
-import { spawnAgents } from "../agents.js";
-import { getLiveWorkers } from "../live-progress.js";
-import { isAutonomousForCwd, isPlanningForCwd } from "../state.js";
-import { loadCrewConfig } from "../utils/config.js";
+import type { MessengerState } from "../../lib.ts";
+import type { CrewParams, Task } from "../types.ts";
+import { result } from "../utils/result.ts";
+import * as store from "../store.ts";
+import { logFeedEvent } from "../../feed.ts";
+import { spawnAgents } from "../agents.ts";
+import { getLiveWorkers } from "../live-progress.ts";
+import { isAutonomousForCwd, isPlanningForCwd } from "../state.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import { hasActiveWorker } from "../registry.ts";
+import * as teamStore from "../team/store.ts";
 
 export interface ReviseResult {
   success: boolean;
   message: string;
+  error?: string;
 }
 
 // =============================================================================
@@ -24,9 +27,13 @@ export async function executeRevise(
   taskId: string,
   prompt: string | undefined,
   agentName: string,
+  sessionModel?: string,
 ): Promise<ReviseResult> {
   const task = store.getTask(cwd, taskId);
   if (!task) return { success: false, message: `Task ${taskId} not found` };
+  if (hasActiveWorker(cwd, task.id)) {
+    return { success: false, error: "active_worker", message: `Cannot revise ${task.id} while its worker is active.` };
+  }
   if (task.status === "in_progress") return { success: false, message: `Task ${taskId} is in_progress` };
   if (getLiveWorkers(cwd).has("__reviser__")) return { success: false, message: "A revision is already running" };
   if (isPlanningForCwd(cwd)) return { success: false, message: "Cannot revise during planning" };
@@ -50,7 +57,7 @@ export async function executeRevise(
       agent: "crew-planner",
       task: revisePrompt,
       taskId: "__reviser__",
-      modelOverride: config.models?.planner,
+      modelOverride: config.models?.planner ?? sessionModel,
     }], cwd);
 
     if (agentResult.exitCode !== 0) {
@@ -71,6 +78,9 @@ export async function executeRevise(
     logFeedEvent(cwd, agentName, "task.revise", taskId, msg);
     return { success: false, message: msg };
   }
+  if (hasActiveWorker(cwd, task.id)) {
+    return { success: false, error: "active_worker", message: `Cannot revise ${task.id} while its worker is active.` };
+  }
 
   if (parsed.title) store.updateTask(cwd, taskId, { title: parsed.title });
   store.setTaskSpec(cwd, taskId, parsed.spec);
@@ -84,9 +94,9 @@ export async function taskRevise(cwd: string, params: CrewParams, state: Messeng
   const { id, prompt } = params;
   if (!id) return result("Error: id required for task.revise", { mode: "task.revise", error: "missing_id" });
 
-  const r = await executeRevise(cwd, id, prompt ?? undefined, state.agentName || "unknown");
+  const r = await executeRevise(cwd, id, prompt ?? undefined, state.agentName || "unknown", state.model || undefined);
   if (!r.success) {
-    return result(`Error: ${r.message}`, { mode: "task.revise", error: "revision_failed", id });
+    return result(`Error: ${r.message}`, { mode: "task.revise", error: r.error ?? "revision_failed", id });
   }
   return result(r.message, { mode: "task.revise", id });
 }
@@ -100,6 +110,7 @@ export async function executeReviseTree(
   taskId: string,
   prompt: string | undefined,
   agentName: string,
+  sessionModel?: string,
 ): Promise<ReviseResult> {
   const target = store.getTask(cwd, taskId);
   if (!target) return { success: false, message: `Task ${taskId} not found` };
@@ -111,14 +122,14 @@ export async function executeReviseTree(
   const subtreeAll = [target, ...dependents];
   const subtreeIds = new Set(subtreeAll.map(t => t.id));
 
-  const liveWorkers = getLiveWorkers(cwd);
-  const liveTasks = subtreeAll.filter(t => liveWorkers.has(t.id));
-  if (liveTasks.length > 0) {
-    return { success: false, message: `Cannot revise: ${liveTasks.map(t => t.id).join(", ")} have live workers` };
+  const activeTask = subtreeAll.find(task => hasActiveWorker(cwd, task.id));
+  if (activeTask) {
+    return { success: false, error: "active_worker", message: `Cannot revise-tree ${activeTask.id} while its worker is active.` };
   }
 
   const doneTasks = subtreeAll.filter(t => t.status === "done");
   const revisable = subtreeAll.filter(t => t.status !== "done");
+  const requiresFreshApproval = subtreeAll.some(task => task.approval?.required === true);
 
   if (prompt) {
     store.appendTaskProgress(cwd, taskId, agentName, `Tree revision requested: "${prompt}"`);
@@ -134,7 +145,7 @@ export async function executeReviseTree(
       agent: "crew-planner",
       task: revisePrompt,
       taskId: "__reviser__",
-      modelOverride: config.models?.planner,
+      modelOverride: config.models?.planner ?? sessionModel,
     }], cwd);
 
     if (agentResult.exitCode !== 0) {
@@ -174,6 +185,11 @@ export async function executeReviseTree(
     return { success: false, message: msg };
   }
 
+  const activeTaskAfterPlanning = subtreeAll.find(task => hasActiveWorker(cwd, task.id));
+  if (activeTaskAfterPlanning) {
+    return { success: false, error: "active_worker", message: `Cannot revise-tree ${activeTaskAfterPlanning.id} while its worker is active.` };
+  }
+
   for (const entry of existingEntries) {
     if (entry.title) store.updateTask(cwd, entry.id!, { title: entry.title });
     store.setTaskSpec(cwd, entry.id!, entry.spec);
@@ -185,7 +201,7 @@ export async function executeReviseTree(
   }
 
   for (const entry of newEntries) {
-    const created = store.createTask(cwd, entry.title!, entry.spec, []);
+    const created = store.createTask(cwd, entry.title!, entry.spec, [], revisionTaskMetadata(cwd, target, requiresFreshApproval));
     titleToId.set(entry.title!.toLowerCase(), created.id);
   }
 
@@ -227,9 +243,9 @@ export async function taskReviseTree(cwd: string, params: CrewParams, state: Mes
   const { id, prompt } = params;
   if (!id) return result("Error: id required for task.revise-tree", { mode: "task.revise-tree", error: "missing_id" });
 
-  const r = await executeReviseTree(cwd, id, prompt ?? undefined, state.agentName || "unknown");
+  const r = await executeReviseTree(cwd, id, prompt ?? undefined, state.agentName || "unknown", state.model || undefined);
   if (!r.success) {
-    return result(`Error: ${r.message}`, { mode: "task.revise-tree", error: "revision_failed", id });
+    return result(`Error: ${r.message}`, { mode: "task.revise-tree", error: r.error ?? "revision_failed", id });
   }
   return result(r.message, { mode: "task.revise-tree", id });
 }
@@ -237,6 +253,16 @@ export async function taskReviseTree(cwd: string, params: CrewParams, state: Mes
 // =============================================================================
 // Helpers
 // =============================================================================
+
+function revisionTaskMetadata(cwd: string, source: Task, requiresFreshApproval: boolean): Pick<Task, "role" | "risk_labels" | "approval"> {
+  const role = teamStore.canonicalRoleForTask(cwd, source.role);
+  const riskLabels = teamStore.normalizeRiskLabels(source.risk_labels);
+  const classified = teamStore.approvalForTask(cwd, role, riskLabels);
+  const approval = requiresFreshApproval
+    ? { required: true as const, status: "pending" as const }
+    : classified;
+  return { role, risk_labels: riskLabels, approval };
+}
 
 function readPrd(cwd: string): string {
   const plan = store.getPlan(cwd);

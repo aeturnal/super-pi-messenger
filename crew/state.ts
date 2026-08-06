@@ -16,5 +16,5 @@ export function normalizeCwd(cwd: string): string {
   }
 }
 
-export * from "./state-autonomous.js";
-export * from "./state-planning.js";
+export * from "./state-autonomous.ts";
+export * from "./state-planning.ts";

@@ -60,6 +60,18 @@ pi_messenger({ action: "plan.cancel" })
 
 Re-planning rejects if any tasks are `in_progress` — stop or complete them first. The steering prompt is injected into `planning-progress.md`'s Notes section where the planner reads it on every pass.
 
+### Optional: Activate Team Context
+```typescript
+pi_messenger({ action: "team.setup", name: "migration-squad" })
+pi_messenger({ action: "team.setup", name: "review-squad" })
+pi_messenger({ action: "team.setup", name: "research-squad", message: "Research first, then plan the implementation." })
+pi_messenger({ action: "team.memory.note", type: "decision", message: "Use cursor pagination for task history" })
+pi_messenger({ action: "team.roles" })
+pi_messenger({ action: "team.status" })
+```
+
+Team is optional. Use `team.setup` for first-run setup: it activates a profile, saves editable JSON if needed, creates a starter charter when missing, and returns next steps. Crew remains the execution engine. Team role names follow the packaged `pi-subagents` vocabulary where possible (`context-builder`, `delegate`, `oracle`, `planner`, `researcher`, `reviewer`, `scout`, `worker`). `pi-messenger` may read subagent markdown metadata from disk when present, but it does not require or invoke subagents. Active Team profiles let the planner tag tasks with `role` and `riskLabels`, then inject role, charter, and memory context into worker prompts. High-risk tasks wait for `task.approve`; `task.reject` records feedback and rejected tasks surface `task.revise` / `task.revise-tree` next steps.
+
 ### 3. Work on Tasks
 ```typescript
 // Single wave (runs ready tasks once)
@@ -88,6 +100,8 @@ pi_messenger({ action: "task.reset", id: "task-1", cascade: true })  // Reset de
 
 // Create tasks manually
 pi_messenger({ action: "task.create", title: "Implement auth", content: "Detailed spec...", dependsOn: ["task-1"] })
+pi_messenger({ action: "task.create", title: "Change auth API", role: "worker", riskLabels: ["auth", "api-contract"] })
+pi_messenger({ action: "task.approve", id: "task-2" })
 
 // Split a task into subtasks (two-phase: inspect then execute)
 pi_messenger({ action: "task.split", id: "task-3" })  // Inspect: shows spec, deps, dependents
@@ -206,6 +220,20 @@ Crew stores data in `.pi/messenger/crew/`:
 └── artifacts/               # Debug artifacts (agent input/output)
 ```
 
+Team stores active project state in `.pi/messenger/team/`:
+```
+.pi/messenger/team/
+├── team.json        # Active team/profile
+├── charter.md       # Project team charter
+├── memory.jsonl     # Structured memory source of truth
+├── decisions.md     # Human-readable memory rollups
+├── interfaces.md
+├── risks.md
+└── handoffs.md
+```
+
+Reusable profiles are JSON files under `~/.pi/agent/messenger/team-profiles/`.
+
 The activity feed lives at `.pi/messenger/feed.jsonl` (project-scoped, shared across all agents in the project).
 
 Each crew agent ships with a default model:
@@ -300,11 +328,13 @@ At `moderate` and `chatty`, workers also receive recent activity context and con
 
 ### Model Override Priority
 
-Worker model is resolved with 4-level priority (highest wins):
+Worker model is resolved with this priority (highest wins):
 1. Per-task `model` field on the task object
 2. Per-wave `model` param on the work call
-3. Config-level `crew.models.worker`
-4. Agent `.md` frontmatter `model` field
+3. Team role model when present
+4. Config-level `crew.models.worker`
+5. Host session model
+6. Agent `.md` frontmatter `model` field
 
 ### Graceful Shutdown
 

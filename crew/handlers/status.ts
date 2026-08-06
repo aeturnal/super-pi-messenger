@@ -5,21 +5,58 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { result } from "../utils/result.js";
-import { discoverCrewAgents } from "../utils/discover.js";
-import { uninstallAgents } from "../utils/install.js";
-import { loadCrewConfig } from "../utils/config.js";
-import { formatDuration } from "../../lib.js";
-import { getSuperpowersStatusDetails, renderSuperpowersStatus } from "../superpowers.js";
-import * as store from "../store.js";
-import { autonomousState, getPlanningUpdateAgeMs, isAutonomousForCwd, isPlanningForCwd, isPlanningStalled, planningState, PLANNING_STALE_TIMEOUT_MS } from "../state.js";
+import { result } from "../utils/result.ts";
+import { discoverCrewAgents } from "../utils/discover.ts";
+import { uninstallAgents } from "../utils/install.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import { formatDuration } from "../../lib.ts";
+import { getSuperpowersStatusDetails, renderSuperpowersStatus } from "../superpowers.ts";
+import { approvalTaskSummaries } from "../utils/task-format.ts";
+import * as store from "../store.ts";
+import * as teamStore from "../team/store.ts";
+import { autonomousState, getPlanningUpdateAgeMs, isAutonomousForCwd, isPlanningForCwd, isPlanningStalled, planningState, PLANNING_STALE_TIMEOUT_MS } from "../state.ts";
+
+function getTeamStatusDetails(cwd: string) {
+  const active = teamStore.getActiveTeam(cwd);
+  const profile = teamStore.loadActiveProfile(cwd);
+  return {
+    active: active ? { name: active.name, profile: active.profile } : null,
+    profile: profile?.name ?? active?.profile ?? null,
+    charterPresent: !!teamStore.readCharter(cwd),
+    activeRoles: Object.keys(profile?.roles ?? {}).sort(),
+    memoryCounts: teamStore.memoryCounts(cwd),
+    needsLead: teamStore.needsLeadTasks(cwd).map(task => ({
+      id: task.id,
+      title: task.title,
+      approval: task.approval,
+    })),
+    rejected: teamStore.rejectedTasks(cwd).map(task => ({
+      id: task.id,
+      title: task.title,
+      approval: task.approval,
+    })),
+  };
+}
+
+function renderTeamStatus(details: ReturnType<typeof getTeamStatusDetails>): string {
+  if (!details.active) return "Team: inactive";
+  return [
+    `Team: ${details.active.name}`,
+    `Profile: ${details.profile ?? "(none)"}`,
+    `Active roles: ${details.activeRoles.length > 0 ? details.activeRoles.join(", ") : "none"}`,
+    `Needs lead: ${details.needsLead.length}`,
+    `Rejected: ${details.rejected.length}`,
+  ].join("\n");
+}
 
 /**
  * Execute status action - shows plan progress.
  */
 export async function execute(ctx: ExtensionContext) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
   const plan = store.getPlan(cwd);
+  const teamDetails = getTeamStatusDetails(cwd);
+  const teamText = renderTeamStatus(teamDetails);
   const superpowersText = renderSuperpowersStatus();
   const superpowersDetails = getSuperpowersStatusDetails();
 
@@ -33,10 +70,14 @@ Create a plan:
   pi_messenger({ action: "plan", prd: "docs/PRD.md" })                    # Explicit PRD path
   pi_messenger({ action: "plan", prompt: "Scan the codebase for bugs" })   # Inline prompt
 
+## Team
+${teamText}
+
 ## Superpowers
 ${superpowersText}`, {
       mode: "status",
       hasPlan: false,
+      team: teamDetails,
       superpowers: superpowersDetails
     });
   }
@@ -46,9 +87,17 @@ ${superpowersText}`, {
   const done = tasks.filter(t => t.status === "done");
   const inProgress = tasks.filter(t => t.status === "in_progress");
   const blocked = tasks.filter(t => t.status === "blocked");
-  const ready = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
-  const waiting = tasks.filter(t => 
-    t.status === "todo" && !ready.some(r => r.id === t.id)
+  const available = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+  const ready: typeof available = [];
+  const needsApproval: typeof available = [];
+  const rejected: typeof available = [];
+  for (const task of available) {
+    if (teamStore.taskNeedsRevision(task)) rejected.push(task);
+    else if (teamStore.taskPendingApproval(task)) needsApproval.push(task);
+    else ready.push(task);
+  }
+  const waiting = tasks.filter(t =>
+    t.status === "todo" && !available.some(r => r.id === t.id)
   );
 
   const pct = tasks.length > 0 ? Math.round((done.length / tasks.length) * 100) : 0;
@@ -133,6 +182,23 @@ ${superpowersText}`, {
     }
   }
 
+  if (needsApproval.length > 0) {
+    text += `\nNeeds approval:\n`;
+    for (const t of needsApproval) {
+      text += `  - ${t.id}: ${t.title}\n`;
+      text += `    Approve with: \`pi_messenger({ action: "task.approve", id: "${t.id}" })\`\n`;
+    }
+  }
+
+  if (rejected.length > 0) {
+    text += `\nRejected tasks need revision:\n`;
+    for (const t of rejected) {
+      const feedback = t.approval?.feedback ? ` — ${t.approval.feedback}` : "";
+      text += `  - ${t.id}: ${t.title}${feedback}\n`;
+      text += `    Revise with: \`pi_messenger({ action: "task.revise", id: "${t.id}", prompt: "Address approval feedback" })\`\n`;
+    }
+  }
+
   if (blocked.length > 0) {
     text += `\n🚫 **Blocked**\n`;
     for (const t of blocked) {
@@ -165,23 +231,31 @@ ${superpowersText}`, {
     text += `\n🎉 All tasks complete!`;
   } else if (ready.length > 0) {
     text += `\nRun \`pi_messenger({ action: "work" })\` to execute ${ready.map(t => t.id).join(", ")}`;
+  } else if (rejected.length > 0) {
+    text += `\nRevise rejected tasks using the guidance above.`;
+  } else if (needsApproval.length > 0) {
+    text += `\nApprove pending tasks using the guidance above.`;
   } else if (blocked.length > 0) {
     text += `\nUnblock tasks with \`pi_messenger({ action: "task.unblock", id: "..." })\``;
   } else if (inProgress.length > 0) {
     text += `\nWaiting for in-progress tasks to complete.`;
   }
 
+  text += `\n\n## Team\n${teamText}`;
   text += `\n\n## Superpowers\n${superpowersText}`;
 
   return result(text, {
     mode: "status",
     hasPlan: true,
+    team: teamDetails,
     prd: plan.prd,
     progress: { done: done.length, total: tasks.length, pct },
     tasks: {
       done: done.map(t => t.id),
       inProgress: inProgress.map(t => t.id),
       ready: ready.map(t => t.id),
+      needsApproval: approvalTaskSummaries(needsApproval),
+      rejected: approvalTaskSummaries(rejected),
       waiting: waiting.map(t => t.id),
       blocked: blocked.map(t => t.id)
     },
@@ -207,7 +281,7 @@ export async function executeCrew(
   op: string,
   ctx: ExtensionContext
 ) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
 
   switch (op) {
     case "status": {

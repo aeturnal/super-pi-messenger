@@ -6,48 +6,55 @@
  */
 
 import { join } from "node:path";
-import * as store from "./store.js";
-import { loadCrewConfig } from "./utils/config.js";
-import { discoverCrewSkills } from "./utils/discover.js";
-import { buildWorkerPrompt } from "./prompt.js";
-import { logFeedEvent } from "../feed.js";
+import * as store from "./store.ts";
+import { loadCrewConfig } from "./utils/config.ts";
+import { discoverCrewSkills } from "./utils/discover.ts";
+import { buildWorkerPrompt } from "./prompt.ts";
+import * as teamStore from "./team/store.ts";
+import { logFeedEvent } from "../feed.ts";
 import {
   spawnWorkerForTask,
   getAvailableLobbyWorkers,
   assignTaskToLobbyWorker,
-} from "./lobby.js";
+} from "./lobby.ts";
 
 export interface SpawnResult {
   assigned: number;
   firstWorkerName: string | null;
+  mutated: boolean;
 }
 
 export function spawnWorkersForReadyTasks(
   cwd: string,
   maxWorkers: number,
+  sessionModel?: string,
+  requestModel?: string,
 ): SpawnResult {
   const plan = store.getPlan(cwd);
-  if (!plan) return { assigned: 0, firstWorkerName: null };
+  if (!plan) return { assigned: 0, firstWorkerName: null, mutated: false };
 
   const crewDir = store.getCrewDir(cwd);
   const config = loadCrewConfig(crewDir);
+  const workerCap = Math.min(maxWorkers, config.concurrency.max);
   const prdLabel = store.getPlanLabel(plan);
   const inboxDir = join(cwd, ".pi", "messenger", "inbox");
   const skills = discoverCrewSkills(cwd);
 
   let assigned = 0;
   let firstWorkerName: string | null = null;
+  let mutated = false;
 
   const lobby = getAvailableLobbyWorkers(cwd);
   for (const lw of lobby) {
-    if (assigned >= maxWorkers) break;
-    const fresh = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+    if (assigned >= workerCap) break;
+    const fresh = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
     if (fresh.length === 0) break;
 
     const task = fresh[0];
     const others = fresh.filter(t => t.id !== task.id);
-    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills);
+    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
 
+    mutated = true;
     store.updateTask(cwd, task.id, {
       status: "in_progress",
       started_at: new Date().toISOString(),
@@ -67,26 +74,29 @@ export function spawnWorkersForReadyTasks(
     assigned++;
   }
 
-  while (assigned < maxWorkers) {
-    const fresh = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+  while (assigned < workerCap) {
+    const fresh = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
     if (fresh.length === 0) break;
 
     const task = fresh[0];
     const others = fresh.filter(t => t.id !== task.id);
-    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills);
-    const worker = spawnWorkerForTask(cwd, task.id, prompt);
+    const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
+    const worker = spawnWorkerForTask(cwd, task.id, prompt, sessionModel, requestModel);
     if (!worker) break;
 
     if (!firstWorkerName) firstWorkerName = worker.name;
     assigned++;
+    mutated = true;
   }
 
-  return { assigned, firstWorkerName };
+  return { assigned, firstWorkerName, mutated };
 }
 
 export function spawnSingleWorker(
   cwd: string,
   taskId: string,
+  sessionModel?: string,
+  requestModel?: string,
 ): { name: string } | null {
   const plan = store.getPlan(cwd);
   if (!plan) return null;
@@ -98,9 +108,10 @@ export function spawnSingleWorker(
   const config = loadCrewConfig(crewDir);
   const prdLabel = store.getPlanLabel(plan);
   const skills = discoverCrewSkills(cwd);
-  const readyTasks = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
+  if (teamStore.taskNeedsApproval(task)) return null;
+  const readyTasks = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
   const others = readyTasks.filter(t => t.id !== task.id);
-  const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills);
-  const worker = spawnWorkerForTask(cwd, taskId, prompt);
+  const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
+  const worker = spawnWorkerForTask(cwd, taskId, prompt, sessionModel, requestModel);
   return worker ? { name: worker.name } : null;
 }

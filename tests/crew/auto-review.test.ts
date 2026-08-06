@@ -1,10 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
-import * as store from "../../crew/store.js";
-import { readFeedEvents, isCrewEvent } from "../../feed.js";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
-import type { ReviewFeedback, Task } from "../../crew/types.js";
+import { EventEmitter } from "node:events";
+import { describe, expect, it, vi } from "vitest";
+import * as store from "../../crew/store.ts";
+import { readFeedEvents, isCrewEvent } from "../../feed.ts";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import type { AppendEntryFn, ReviewFeedback, Task } from "../../crew/types.ts";
 
 function completedTask(cwd: string, title: string, deps: string[] = []): Task {
   const task = store.createTask(cwd, title, `Spec for ${title}`, deps);
@@ -19,6 +20,39 @@ function completedTask(cwd: string, title: string, deps: string[] = []): Task {
   return store.getTask(cwd, task.id)!;
 }
 
+function writeWorkerAgent(cwd: string): void {
+  const filePath = path.join(cwd, ".pi", "messenger", "crew", "agents", "crew-worker.md");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `---
+name: crew-worker
+description: Test worker
+crewRole: worker
+---
+You are a worker.
+`);
+}
+
+function writeReviewerAgent(cwd: string): void {
+  const filePath = path.join(cwd, ".pi", "messenger", "crew", "agents", "crew-reviewer.md");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `---
+name: crew-reviewer
+description: Test reviewer
+crewRole: reviewer
+---
+You are a reviewer.
+`);
+}
+
+function createDirs(cwd: string) {
+  const base = path.join(cwd, ".pi", "messenger");
+  const registry = path.join(base, "registry");
+  const inbox = path.join(base, "inbox");
+  fs.mkdirSync(registry, { recursive: true });
+  fs.mkdirSync(inbox, { recursive: true });
+  return { base, registry, inbox };
+}
+
 function storeReviewFeedback(cwd: string, taskId: string, verdict: ReviewFeedback["verdict"]): void {
   store.updateTask(cwd, taskId, {
     last_review: {
@@ -31,7 +65,162 @@ function storeReviewFeedback(cwd: string, taskId: string, verdict: ReviewFeedbac
   });
 }
 
+interface RunCompletedTaskOptions {
+  hasReviewer?: boolean;
+  baseCommit?: string | null;
+  autonomous?: boolean;
+  appendEntry?: AppendEntryFn;
+}
+
+async function runCompletedTask(
+  cwd: string,
+  taskId: string,
+  options: RunCompletedTaskOptions = {},
+) {
+  const agents = await import("../../crew/agents.ts");
+  const discover = await import("../../crew/utils/discover.ts");
+  vi.spyOn(discover, "discoverCrewAgents").mockReturnValue([
+    { name: "crew-worker" },
+    ...(options.hasReviewer ? [{ name: "crew-reviewer" }] : []),
+  ] as never);
+  const workHandler = await import("../../crew/handlers/work.ts");
+  vi.spyOn(agents, "spawnAgents").mockImplementation(async () => {
+    store.startTask(cwd, taskId, "crew-worker");
+    const baseCommit = options.baseCommit === undefined ? "abc123" : options.baseCommit;
+    if (baseCommit) store.updateTask(cwd, taskId, { base_commit: baseCommit });
+    store.completeTask(cwd, taskId, "Done");
+    return [{
+      agent: "crew-worker",
+      exitCode: 0,
+      output: "",
+      truncated: false,
+      progress: {
+        agent: "crew-worker",
+        status: "completed" as const,
+        recentTools: [],
+        toolCallCount: 0,
+        tokens: 0,
+        durationMs: 0,
+      },
+      taskId,
+    }];
+  });
+
+  return workHandler.execute(
+    { action: "work", concurrency: 1, autonomous: options.autonomous },
+    createDirs(cwd),
+    (await import("../helpers/mock-context.ts")).createMockContext(cwd),
+    options.appendEntry ?? (() => {}),
+  );
+}
+
 describe("auto-review store operations", () => {
+  it("applies each automatic review verdict through the exported helper", async () => {
+    const { cwd } = createTempCrewDirs();
+    store.createPlan(cwd, "PRD.md");
+    const ship = completedTask(cwd, "Ship task");
+    const retry = completedTask(cwd, "Retry task");
+    const blocked = completedTask(cwd, "Blocked task");
+    storeReviewFeedback(cwd, blocked.id, "MAJOR_RETHINK");
+
+    const { applyReviewVerdict } = await import("../../crew/handlers/work.ts");
+
+    expect(typeof applyReviewVerdict).toBe("function");
+    expect(applyReviewVerdict(cwd, ship.id, "SHIP")).toBe("accepted");
+    expect(store.getTask(cwd, ship.id)?.status).toBe("done");
+    expect(applyReviewVerdict(cwd, retry.id, "NEEDS_WORK")).toBe("retry");
+    expect(store.getTask(cwd, retry.id)?.status).toBe("todo");
+    expect(applyReviewVerdict(cwd, blocked.id, "MAJOR_RETHINK")).toBe("blocked");
+    expect(store.getTask(cwd, blocked.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Reviewer: Review says MAJOR_RETHINK",
+    });
+  });
+
+  it("keeps a fresh completed task done after a SHIP review", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const review = await import("../../crew/handlers/review.ts");
+    const reviewSpy = vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(cwd, task.id, "SHIP");
+      return { details: { verdict: "SHIP" } } as never;
+    });
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(reviewSpy).toHaveBeenCalledTimes(1);
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "done",
+      review_count: 1,
+      last_review: { verdict: "SHIP" },
+    });
+    expect(response.details.succeeded).toEqual([task.id]);
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([]);
+  });
+
+  it("resets a fresh completed task after a NEEDS_WORK review", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(cwd, task.id, "NEEDS_WORK");
+      return { details: { verdict: "NEEDS_WORK" } } as never;
+    });
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "todo",
+      review_count: 1,
+      last_review: { verdict: "NEEDS_WORK", issues: ["Issue one"] },
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.failed).toEqual([task.id]);
+    expect(response.details.blocked).toEqual([]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
+  });
+
+  it("blocks a fresh completed task with reviewer context after a MAJOR_RETHINK review", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(cwd, task.id, "MAJOR_RETHINK");
+      return { details: { verdict: "MAJOR_RETHINK" } } as never;
+    });
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Reviewer: Review says MAJOR_RETHINK",
+      review_count: 1,
+      last_review: { verdict: "MAJOR_RETHINK" },
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
+  });
+
   it("SHIP: task stays done, review_count incremented", () => {
     const { cwd } = createTempCrewDirs();
     store.createPlan(cwd, "PRD.md");
@@ -157,6 +346,223 @@ describe("auto-review store operations", () => {
     expect(ready.map(t => t.id)).not.toContain(main.id);
   });
 
+  it("blocks a completed task when no automatic reviewer is available", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
+
+    const response = await runCompletedTask(cwd, task.id);
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review unavailable: reviewer agent missing",
+    });
+    expect(store.getTask(cwd, task.id)?.review_count).toBeUndefined();
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
+  });
+
+  it("blocks every unreviewed success when cancellation reaches the review loop", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    const runtimeStore = await import("../../crew/store.ts");
+    const agents = await import("../../crew/agents.ts");
+    const discover = await import("../../crew/utils/discover.ts");
+    const review = await import("../../crew/handlers/review.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+    const { createMockContext } = await import("../helpers/mock-context.ts");
+    runtimeStore.createPlan(cwd, "PRD.md");
+    const first = runtimeStore.createTask(cwd, "First success", "Review required");
+    const second = runtimeStore.createTask(cwd, "Second success", "Review required");
+    const dependent = runtimeStore.createTask(cwd, "Dependent", "Wait for both reviews", [first.id, second.id]);
+    vi.spyOn(discover, "discoverCrewAgents").mockReturnValue([
+      { name: "crew-worker" },
+      { name: "crew-reviewer" },
+    ] as never);
+    const reviewSpy = vi.spyOn(review, "reviewImplementation");
+    const controller = new AbortController();
+    vi.spyOn(agents, "spawnAgents").mockImplementation(async (tasks) => {
+      for (const workerTask of tasks) {
+        runtimeStore.startTask(cwd, workerTask.taskId!, "crew-worker");
+        runtimeStore.updateTask(cwd, workerTask.taskId!, { base_commit: "abc123" });
+        runtimeStore.completeTask(cwd, workerTask.taskId!, "Done");
+      }
+      controller.abort();
+      return tasks.map(workerTask => ({
+        agent: "crew-worker",
+        exitCode: 0,
+        output: "",
+        truncated: false,
+        progress: {
+          agent: "crew-worker",
+          status: "completed" as const,
+          recentTools: [],
+          toolCallCount: 0,
+          tokens: 0,
+          durationMs: 0,
+        },
+        taskId: workerTask.taskId,
+      }));
+    });
+
+    const response = await workHandler.execute(
+      { action: "work", concurrency: 2 },
+      createDirs(cwd),
+      createMockContext(cwd),
+      () => {},
+      controller.signal,
+    );
+
+    expect(reviewSpy).not.toHaveBeenCalled();
+    for (const task of [first, second]) {
+      expect(runtimeStore.getTask(cwd, task.id)).toMatchObject({
+        status: "blocked",
+        blocked_reason: "Automatic review unavailable: work cancelled",
+      });
+    }
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([first.id, second.id]);
+    expect(runtimeStore.getPlan(cwd)?.completed_count).toBe(0);
+    expect(runtimeStore.getReadyTasks(cwd).map(task => task.id)).not.toContain(dependent.id);
+  });
+
+  it("blocks a completed task when automatic review throws", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockRejectedValue(new Error("reviewer crashed"));
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review failed: reviewer crashed",
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getPlan(cwd)?.completed_count).toBe(0);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
+  });
+
+  it("blocks a completed task when the automatic reviewer returns no verdict", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockResolvedValue({
+      details: { error: "reviewer_failed" },
+    } as never);
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review unavailable: reviewer returned no verdict",
+    });
+    expect(store.getTask(cwd, task.id)?.review_count).toBeUndefined();
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
+  });
+
+  it("blocks a completed task after automatic review iterations are exhausted", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    fs.writeFileSync(path.join(cwd, ".pi", "messenger", "crew", "config.json"), JSON.stringify({
+      review: { maxIterations: 1 },
+    }));
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const dependent = store.createTask(cwd, "Use API", "Wait for review", [task.id]);
+    store.updateTask(cwd, task.id, { review_count: 1 });
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockResolvedValue({
+      details: { verdict: "SHIP" },
+    } as never);
+
+    const response = await runCompletedTask(cwd, task.id, { hasReviewer: true });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review limit (1) reached",
+      review_count: 1,
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(store.getReadyTasks(cwd).map(readyTask => readyTask.id)).not.toContain(dependent.id);
+  });
+
+  it("blocks NEEDS_WORK at the review limit without scheduling another autonomous wave", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    fs.writeFileSync(path.join(cwd, ".pi", "messenger", "crew", "config.json"), JSON.stringify({
+      review: { maxIterations: 1 },
+    }));
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "Build API", "Review required");
+    const review = await import("../../crew/handlers/review.ts");
+    vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(cwd, task.id, "NEEDS_WORK");
+      return { details: { verdict: "NEEDS_WORK" } } as never;
+    });
+    const state = await import("../../crew/state.ts");
+    const appendEntry = vi.fn<AppendEntryFn>();
+
+    const response = await runCompletedTask(cwd, task.id, {
+      hasReviewer: true,
+      autonomous: true,
+      appendEntry,
+    });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review limit (1) reached",
+      review_count: 1,
+      last_review: {
+        verdict: "NEEDS_WORK",
+        summary: "Review says NEEDS_WORK",
+        issues: ["Issue one"],
+      },
+    });
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.failed).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(state.autonomousState.waveHistory.at(-1)).toMatchObject({
+      succeeded: [],
+      failed: [],
+      blocked: [task.id],
+    });
+    expect(appendEntry).toHaveBeenCalledWith("crew_wave_blocked", expect.objectContaining({
+      blockedTasks: [task.id],
+    }));
+    expect(appendEntry).not.toHaveBeenCalledWith("crew_wave_continue", expect.anything());
+  });
+
   it("task.review feed event is recognized as crew event", () => {
     const { cwd } = createTempCrewDirs();
     const feedPath = path.join(cwd, ".pi", "messenger", "feed.jsonl");
@@ -177,13 +583,287 @@ describe("auto-review store operations", () => {
     expect(isCrewEvent("task.review")).toBe(true);
   });
 
-  it("no base_commit: review should be skipped", () => {
-    const { cwd } = createTempCrewDirs();
-    store.createPlan(cwd, "PRD.md");
-    const task = store.createTask(cwd, "No git task", "Desc");
-    store.updateTask(cwd, task.id, { status: "done", completed_at: new Date().toISOString() });
+  it("processes an autonomous lobby completion through review before continuing", async () => {
+    vi.resetModules();
 
-    const loaded = store.getTask(cwd, task.id)!;
-    expect(loaded.base_commit).toBeUndefined();
+    let lobbyProc: (EventEmitter & {
+      pid: number;
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      killed: boolean;
+      exitCode: number | null;
+      kill: () => boolean;
+    }) | undefined;
+    vi.doMock("node:child_process", () => ({
+      spawn: vi.fn(() => {
+        const proc = new EventEmitter() as NonNullable<typeof lobbyProc>;
+        proc.pid = 4242;
+        proc.stdout = new EventEmitter();
+        proc.stderr = new EventEmitter();
+        proc.killed = false;
+        proc.exitCode = null;
+        proc.kill = () => false;
+        lobbyProc = proc;
+        return proc;
+      }),
+    }));
+
+    const dirs = createTempCrewDirs();
+    const { createMockContext } = await import("../helpers/mock-context.ts");
+    const runtimeStore = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const review = await import("../../crew/handlers/review.ts");
+    const state = await import("../../crew/state.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    writeReviewerAgent(dirs.cwd);
+    runtimeStore.createPlan(dirs.cwd, "PRD.md");
+    const task = runtimeStore.createTask(dirs.cwd, "Lobby task", "Complete through review");
+    const dependent = runtimeStore.createTask(dirs.cwd, "Dependent task", "Wait for reviewed lobby task", [task.id]);
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+    const reviewSpy = vi.spyOn(review, "reviewImplementation").mockResolvedValue({
+      details: { verdict: "SHIP" },
+    } as never);
+
+    const appendEntry = vi.fn();
+    const execution = workHandler.execute(
+      { action: "work", autonomous: true, concurrency: 1 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      appendEntry,
+    );
+
+    await new Promise(resolve => setImmediate(resolve));
+    runtimeStore.updateTask(dirs.cwd, task.id, {
+      status: "done",
+      base_commit: "abc123",
+    });
+    lobbyProc!.exitCode = 0;
+    lobbyProc!.emit("close", 0);
+
+    const response = await execution;
+
+    expect(reviewSpy).toHaveBeenCalledWith(dirs.cwd, task.id, undefined);
+    expect(state.autonomousState.waveHistory.at(-1)?.tasksAttempted).toEqual([task.id]);
+    expect(appendEntry).toHaveBeenCalledWith("crew_wave_continue", expect.objectContaining({
+      readyTasks: expect.arrayContaining([dependent.id]),
+    }));
+    expect(response.details.succeeded).toEqual([task.id]);
+
+    vi.doUnmock("node:child_process");
+  });
+
+  it("reviews a completed lobby result before rethrowing a fresh-spawn aggregate error", async () => {
+    vi.resetModules();
+
+    let lobbyProc: (EventEmitter & {
+      pid: number;
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      killed: boolean;
+      exitCode: number | null;
+      kill: () => boolean;
+    }) | undefined;
+    vi.doMock("node:child_process", () => ({
+      spawn: vi.fn(() => {
+        const proc = new EventEmitter() as NonNullable<typeof lobbyProc>;
+        proc.pid = 4242;
+        proc.stdout = new EventEmitter();
+        proc.stderr = new EventEmitter();
+        proc.killed = false;
+        proc.exitCode = null;
+        proc.kill = () => false;
+        lobbyProc = proc;
+        return proc;
+      }),
+    }));
+
+    const dirs = createTempCrewDirs();
+    const { createMockContext } = await import("../helpers/mock-context.ts");
+    const runtimeStore = await import("../../crew/store.ts");
+    const lobby = await import("../../crew/lobby.ts");
+    const agents = await import("../../crew/agents.ts");
+    const review = await import("../../crew/handlers/review.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    writeReviewerAgent(dirs.cwd);
+    runtimeStore.createPlan(dirs.cwd, "PRD.md");
+    const lobbyTask = runtimeStore.createTask(dirs.cwd, "Lobby task", "Complete before aggregate failure");
+    runtimeStore.createTask(dirs.cwd, "Fresh task", "Trigger aggregate failure");
+    lobby.spawnLobbyWorker(dirs.cwd)!;
+    const originalError = new Error("fresh spawn failed");
+    let rejectFresh!: (error: unknown) => void;
+    vi.spyOn(agents, "spawnAgents").mockImplementation(() => new Promise((_, reject) => {
+      rejectFresh = reject;
+    }));
+    const reviewSpy = vi.spyOn(review, "reviewImplementation").mockImplementation(async () => {
+      storeReviewFeedback(dirs.cwd, lobbyTask.id, "SHIP");
+      return { details: { verdict: "SHIP" } } as never;
+    });
+
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 2 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+    const observedError = execution.catch(error => error);
+
+    await new Promise(resolve => setImmediate(resolve));
+    runtimeStore.updateTask(dirs.cwd, lobbyTask.id, {
+      status: "done",
+      base_commit: "abc123",
+      completed_at: new Date().toISOString(),
+      summary: "Done",
+    });
+    lobbyProc!.exitCode = 0;
+    lobbyProc!.emit("close", 0);
+    await new Promise(resolve => setImmediate(resolve));
+    rejectFresh(originalError);
+
+    expect(await observedError).toBe(originalError);
+    expect(reviewSpy).toHaveBeenCalledWith(dirs.cwd, lobbyTask.id, undefined);
+    expect(runtimeStore.getTask(dirs.cwd, lobbyTask.id)).toMatchObject({
+      status: "done",
+      review_count: 1,
+      last_review: { verdict: "SHIP" },
+    });
+    expect(runtimeStore.getPlan(dirs.cwd)?.completed_count).toBe(1);
+
+    vi.doUnmock("node:child_process");
+  });
+
+  it("settles and reviews every durable fresh completion before rethrowing a sibling launch error", async () => {
+    vi.resetModules();
+
+    type MockProcess = EventEmitter & {
+      pid: number;
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      killed: boolean;
+      exitCode: number | null;
+      kill: () => boolean;
+    };
+    const processes: MockProcess[] = [];
+    const originalError = new Error("fresh launch failed");
+    const spawnMock = vi.fn(() => {
+      if (processes.length === 2) throw originalError;
+      const proc = new EventEmitter() as MockProcess;
+      proc.pid = 5000 + processes.length;
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.killed = false;
+      proc.exitCode = null;
+      proc.kill = () => false;
+      processes.push(proc);
+      return proc;
+    });
+    vi.doMock("node:child_process", () => ({ spawn: spawnMock }));
+
+    const dirs = createTempCrewDirs();
+    const { createMockContext } = await import("../helpers/mock-context.ts");
+    const runtimeStore = await import("../../crew/store.ts");
+    const review = await import("../../crew/handlers/review.ts");
+    const workHandler = await import("../../crew/handlers/work.ts");
+
+    writeWorkerAgent(dirs.cwd);
+    writeReviewerAgent(dirs.cwd);
+    runtimeStore.createPlan(dirs.cwd, "PRD.md");
+    const shipped = runtimeStore.createTask(dirs.cwd, "Reviewed completion", "Complete before sibling failure");
+    const blocked = runtimeStore.createTask(dirs.cwd, "Fail-closed completion", "Complete before sibling failure");
+    runtimeStore.createTask(dirs.cwd, "Launch failure", "Reject during launch");
+    const reviewSpy = vi.spyOn(review, "reviewImplementation").mockImplementation(async (_cwd, taskId) => {
+      if (taskId === blocked.id) throw new Error("reviewer crashed");
+      runtimeStore.updateTask(dirs.cwd, taskId, {
+        last_review: {
+          verdict: "SHIP",
+          summary: "Review says SHIP",
+          issues: [],
+          suggestions: [],
+          reviewed_at: new Date().toISOString(),
+        },
+      });
+      return { details: { verdict: "SHIP" } } as never;
+    });
+
+    let propagated = false;
+    const execution = workHandler.execute(
+      { action: "work", concurrency: 3 },
+      createDirs(dirs.cwd),
+      createMockContext(dirs.cwd),
+      () => {},
+    );
+    const observedError = execution.catch(error => {
+      propagated = true;
+      return error;
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    expect(spawnMock).toHaveBeenCalledTimes(3);
+    expect(propagated).toBe(false);
+
+    runtimeStore.startTask(dirs.cwd, shipped.id, "FirstWorker");
+    runtimeStore.updateTask(dirs.cwd, shipped.id, { base_commit: "abc123" });
+    runtimeStore.completeTask(dirs.cwd, shipped.id, "Done before exit");
+    processes[0].exitCode = 0;
+    processes[0].emit("close", 0);
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(propagated).toBe(false);
+    expect(reviewSpy).not.toHaveBeenCalled();
+
+    runtimeStore.startTask(dirs.cwd, blocked.id, "SecondWorker");
+    runtimeStore.updateTask(dirs.cwd, blocked.id, { base_commit: "def456" });
+    runtimeStore.completeTask(dirs.cwd, blocked.id, "Done before nonzero exit");
+    processes[1].exitCode = 17;
+    processes[1].emit("close", 17);
+
+    expect(await observedError).toBe(originalError);
+    expect(reviewSpy).toHaveBeenCalledTimes(2);
+    expect(reviewSpy).toHaveBeenNthCalledWith(1, dirs.cwd, shipped.id, undefined);
+    expect(reviewSpy).toHaveBeenNthCalledWith(2, dirs.cwd, blocked.id, undefined);
+    expect(runtimeStore.getTask(dirs.cwd, shipped.id)).toMatchObject({
+      status: "done",
+      review_count: 1,
+      last_review: { verdict: "SHIP" },
+    });
+    expect(runtimeStore.getTask(dirs.cwd, blocked.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review failed: reviewer crashed",
+    });
+    expect(runtimeStore.getPlan(dirs.cwd)?.completed_count).toBe(1);
+
+    vi.doUnmock("node:child_process");
+  });
+
+  it("blocks a completed task without a base commit and reports the unavailable review", async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    const { cwd } = createTempCrewDirs();
+    writeWorkerAgent(cwd);
+    writeReviewerAgent(cwd);
+    store.createPlan(cwd, "PRD.md");
+    const task = store.createTask(cwd, "No git task", "Review requires a base commit");
+
+    const response = await runCompletedTask(cwd, task.id, {
+      hasReviewer: true,
+      baseCommit: null,
+    });
+
+    expect(store.getTask(cwd, task.id)).toMatchObject({
+      status: "blocked",
+      blocked_reason: "Automatic review unavailable: base commit missing",
+    });
+    expect(store.getTask(cwd, task.id)?.review_count).toBeUndefined();
+    expect(response.details.succeeded).toEqual([]);
+    expect(response.details.blocked).toEqual([task.id]);
+    expect(readFeedEvents(cwd, 10)).toContainEqual(expect.objectContaining({
+      agent: "crew",
+      type: "task.review",
+      target: task.id,
+      preview: "Automatic review unavailable: base commit missing",
+    }));
   });
 });

@@ -5,7 +5,7 @@ import {
   onLiveWorkersChanged,
   removeLiveWorker,
   updateLiveWorker,
-} from "../../crew/live-progress.js";
+} from "../../crew/live-progress.ts";
 
 const CWD = "/tmp/project-a";
 

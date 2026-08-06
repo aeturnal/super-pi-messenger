@@ -12,9 +12,10 @@ import {
   agentHasTask,
   type Dirs,
   type MessengerState,
-} from "./lib.js";
-import * as store from "./store.js";
-import * as crewStore from "./crew/store.js";
+} from "./lib.ts";
+import * as store from "./store.ts";
+import * as crewStore from "./crew/store.ts";
+import * as teamStore from "./crew/team/store.ts";
 import {
   autonomousState,
   getPlanningUpdateAgeMs,
@@ -23,16 +24,16 @@ import {
   isPlanningStalled,
   planningState,
   PLANNING_STALE_TIMEOUT_MS,
-} from "./crew/state.js";
-import type { Task } from "./crew/types.js";
-import { getLiveWorkers, type LiveWorkerInfo } from "./crew/live-progress.js";
-import type { ToolEntry } from "./crew/utils/progress.js";
-import { formatFeedLine as sharedFormatFeedLine, sanitizeFeedEvent, type FeedEvent } from "./feed.js";
-import { discoverCrewAgents } from "./crew/utils/discover.js";
-import { loadConfig } from "./config.js";
-import { loadCrewConfig } from "./crew/utils/config.js";
-import { getLobbyWorkerCount } from "./crew/lobby.js";
-import type { CrewViewState } from "./overlay-actions.js";
+} from "./crew/state.ts";
+import type { Task } from "./crew/types.ts";
+import { getLiveWorkers, type LiveWorkerInfo } from "./crew/live-progress.ts";
+import type { ToolEntry } from "./crew/utils/progress.ts";
+import { formatFeedLine as sharedFormatFeedLine, sanitizeFeedEvent, type FeedEvent } from "./feed.ts";
+import { discoverCrewAgents } from "./crew/utils/discover.ts";
+import { loadConfig } from "./config.ts";
+import { loadCrewConfig } from "./crew/utils/config.ts";
+import { getLobbyWorkerCount } from "./crew/lobby.ts";
+import type { CrewViewState } from "./overlay-actions.ts";
 
 const STATUS_ICONS: Record<string, string> = { done: "✓", in_progress: "●", todo: "○", blocked: "✗" };
 
@@ -92,7 +93,7 @@ function idleLabel(timestamp: string | undefined): string {
   return `idle ${formatDuration(ageMs)}`;
 }
 
-export function renderStatusBar(theme: Theme, cwd: string, width: number): string {
+export function renderStatusBar(theme: Theme, cwd: string, width: number, tasks?: Task[]): string {
   const plan = crewStore.getPlan(cwd);
   const autonomousActive = isAutonomousForCwd(cwd);
   const crewDir = crewStore.getCrewDir(cwd);
@@ -110,10 +111,17 @@ export function renderStatusBar(theme: Theme, cwd: string, width: number): strin
 
   if (!plan) {
     const liveCount = getLiveWorkers(cwd).size;
-    return truncateToWidth(`No active plan │ ⚙ ${liveCount}/${autonomousState.concurrency} workers`, width);
+    const team = teamStore.getActiveTeam(cwd);
+    const profileText = team?.profile && team.profile !== team.name ? `/${team.profile}` : "";
+    const teamText = team ? ` │ Team: ${team.name}${profileText}` : "";
+    return truncateToWidth(`No active plan │ ⚙ ${liveCount}/${autonomousState.concurrency} workers${teamText}`, width);
   }
 
-  const ready = crewStore.getReadyTasks(cwd, { advisory: crewConfig.dependencies === "advisory" });
+  const taskSnapshot = tasks ?? crewStore.getTasks(cwd);
+  const ready = crewStore.getReadyTasksFrom(taskSnapshot, { advisory: crewConfig.dependencies === "advisory" });
+  const team = teamStore.getActiveTeam(cwd);
+  const needsLead = taskSnapshot.filter(teamStore.taskPendingApproval).length;
+  const rejected = taskSnapshot.filter(teamStore.taskNeedsRevision).length;
   const progress = `${plan.completed_count}/${plan.task_count}`;
   const planLabel = crewStore.getPlanLabel(plan, 40);
   let base = `📋 ${planLabel}: ${progress}`;
@@ -125,6 +133,10 @@ export function renderStatusBar(theme: Theme, cwd: string, width: number): strin
   base += ` │ ⚙ ${liveCount}/${autonomousState.concurrency} workers`;
   const coordLevel = crewConfig.coordination;
   base += ` │ ${crewConfig.dependencies} │ ${coordLevel}`;
+  if (team) {
+    const profileText = team.profile && team.profile !== team.name ? `/${team.profile}` : "";
+    base += ` │ Team: ${team.name}${profileText}${needsLead > 0 ? ` │ Needs lead: ${needsLead}` : ""}${rejected > 0 ? ` │ Rejected: ${rejected}` : ""}`;
+  }
 
   if (!autonomousActive) {
     return truncateToWidth(base, width);
@@ -161,20 +173,21 @@ export function renderWorkersSection(theme: Theme, cwd: string, width: number, m
   return lines;
 }
 
-export function renderTaskList(theme: Theme, cwd: string, width: number, height: number, viewState: CrewViewState): string[] {
-  const tasks = crewStore.getTasks(cwd);
+export function renderTaskList(theme: Theme, cwd: string, width: number, height: number, viewState: CrewViewState, tasks?: Task[]): string[] {
+  const taskSnapshot = tasks ?? crewStore.getTasks(cwd);
   const lines: string[] = [];
 
-  if (tasks.length === 0) {
+  if (taskSnapshot.length === 0) {
     lines.push(theme.fg("dim", "(no tasks yet)"));
     while (lines.length < height) lines.push("");
     return lines.slice(0, height);
   }
 
-  viewState.selectedTaskIndex = Math.max(0, Math.min(viewState.selectedTaskIndex, tasks.length - 1));
+  viewState.selectedTaskIndex = Math.max(0, Math.min(viewState.selectedTaskIndex, taskSnapshot.length - 1));
+  const liveWorkers = getLiveWorkers(cwd);
 
-  for (let i = 0; i < tasks.length; i++) {
-    lines.push(renderTaskLine(theme, tasks[i], i === viewState.selectedTaskIndex, width, getLiveWorkers(cwd).get(tasks[i].id)));
+  for (let i = 0; i < taskSnapshot.length; i++) {
+    lines.push(renderTaskLine(theme, taskSnapshot[i], i === viewState.selectedTaskIndex, width, liveWorkers.get(taskSnapshot[i].id)));
   }
 
   if (lines.length <= height) {
@@ -193,11 +206,11 @@ export function renderTaskList(theme: Theme, cwd: string, width: number, height:
   return lines.slice(viewState.scrollOffset, viewState.scrollOffset + height);
 }
 
-export function renderTaskSummary(theme: Theme, cwd: string, width: number, height: number): string[] {
-  const tasks = crewStore.getTasks(cwd);
+export function renderTaskSummary(theme: Theme, cwd: string, width: number, height: number, tasks?: Task[]): string[] {
+  const taskSnapshot = tasks ?? crewStore.getTasks(cwd);
   const counts: Record<string, number> = { done: 0, in_progress: 0, blocked: 0, todo: 0 };
   const activeNames: string[] = [];
-  for (const t of tasks) {
+  for (const t of taskSnapshot) {
     counts[t.status] = (counts[t.status] || 0) + 1;
     if (t.status === "in_progress" && t.assigned_to) activeNames.push(t.assigned_to);
   }
@@ -206,7 +219,7 @@ export function renderTaskSummary(theme: Theme, cwd: string, width: number, heig
   if (counts.in_progress > 0) parts.push(theme.fg("warning", `${counts.in_progress} active`));
   if (counts.blocked > 0) parts.push(theme.fg("error", `${counts.blocked} blocked`));
   if (counts.todo > 0) parts.push(theme.fg("dim", `${counts.todo} todo`));
-  const line1 = truncateToWidth(`Tasks: ${parts.join("  ")}  (${tasks.length} total)`, width);
+  const line1 = truncateToWidth(`Tasks: ${parts.join("  ")}  (${taskSnapshot.length} total)`, width);
   const line2 = activeNames.length > 0
     ? truncateToWidth(theme.fg("dim", `  Active: ${activeNames.join(", ")}`), width)
     : "";
@@ -299,6 +312,7 @@ export function renderAgentsRow(
   state: MessengerState,
   dirs: Dirs,
   stuckThresholdMs: number,
+  taskSnapshots: Map<string, Task[]> = new Map(),
 ): string {
   const allClaims = store.getClaims(dirs);
   const rowParts: string[] = [];
@@ -310,9 +324,14 @@ export function renderAgentsRow(
 
   for (const agent of store.getActiveAgents(state, dirs)) {
     if (seen.has(agent.name)) continue;
+    let tasks = taskSnapshots.get(agent.cwd);
+    if (!tasks) {
+      tasks = crewStore.getTasks(agent.cwd);
+      taskSnapshots.set(agent.cwd, tasks);
+    }
     const computed = computeStatus(
       agent.activity?.lastActivityAt ?? agent.startedAt,
-      agentHasTask(agent.name, allClaims, crewStore.getTasks(agent.cwd)),
+      agentHasTask(agent.name, allClaims, tasks),
       (agent.reservations?.length ?? 0) > 0,
       stuckThresholdMs,
     );
@@ -642,8 +661,13 @@ function renderTaskLine(theme: Theme, task: Task, isSelected: boolean, width: nu
     suffix = ` [${reason}${task.blocked_reason.length > 28 ? "…" : ""}]`;
   }
 
+  const labels: string[] = [];
+  if (task.role) labels.push(`[${task.role}]`);
+  if (task.approval?.required) labels.push(`[${task.approval.status}]`);
+  const labelText = labels.length > 0 ? `${labels.join(" ")} ` : "";
+
   if (task.milestone) suffix += `${suffix ? " " : ""}· milestone`;
-  return truncateToWidth(`${select}${coloredIcon} ${task.id}  ${task.title}${theme.fg("dim", suffix)}`, width);
+  return truncateToWidth(`${select}${coloredIcon} ${task.id}  ${labelText}${task.title}${theme.fg("dim", suffix)}`, width);
 }
 
 export function navigateTask(viewState: CrewViewState, direction: 1 | -1, taskCount: number): void {

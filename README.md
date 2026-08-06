@@ -51,7 +51,7 @@ npx pi-messenger --crew-uninstall
 - Workers start with `test-driven-development` and `verification-before-completion`; reviewers start with `verification-before-completion`.
 - Other Pi skills remain available.
 - Crew solely owns planning, dispatch, task state, review dispatch, and repository coordination.
-- Crew children cannot start nested orchestration or nested worktrees.
+- Crew children cannot start nested orchestration. A narrow guard blocks direct `pi`/`npx pi` command segments and mutating `git worktree add`, `remove`, `move`, or `prune` commands; indirect shell execution remains outside this guard. Crew children cannot dispatch or administer Team.
 - Crew status shows Superpowers integration as `active`, `inactive`, or `fallback`.
 - Stock Superpowers absence is silent; invalid installations warn once and continue with native Crew launch behavior.
 - When the controlling Pi agent determines that stock `subagent-driven-development` applies, Crew is automatically authorized as the sole implementation and review dispatcher; no separate Crew confirmation is required.
@@ -116,7 +116,7 @@ Crew logs are per project, under that project's working directory: `.pi/messenge
 ### Workflow
 
 1. **Plan** — Planner explores the codebase and PRD, drafts tasks with dependencies. A reviewer checks the plan; the planner refines until SHIP or `maxPasses` is reached. History is stored in `planning-progress.md`.
-2. **Work** — Workers implement ready tasks (all dependencies met) in parallel waves. A single `work` call runs one wave. `autonomous: true` runs waves back-to-back until everything is done or blocked. Each completed task gets an automatic reviewer pass — SHIP keeps it done, NEEDS_WORK resets it for retry with feedback, MAJOR_RETHINK blocks it. Controlled by `review.enabled` and `review.maxIterations`.
+2. **Work** — Workers implement ready tasks (all dependencies met) in parallel waves. A single `work` call runs one wave. `autonomous: true` runs waves back-to-back until everything is done or blocked. Each completed task gets an automatic reviewer pass — SHIP keeps it done, NEEDS_WORK resets it for retry with feedback, MAJOR_RETHINK blocks it. Controlled by `review.enabled` and `review.maxIterations`. When automatic review is enabled, automatic implementation is accepted only after a `SHIP` review.
 3. **Review** — Manual review of a specific task or the plan: `pi_messenger({ action: "review", target: "task-1" })`. Returns SHIP, NEEDS_WORK, or MAJOR_RETHINK with detailed feedback.
 
 No special PRD format required — the planner auto-discovers `PRD.md`, `SPEC.md`, `DESIGN.md`, etc. in your project root and `docs/`. Or skip the file entirely:
@@ -127,6 +127,8 @@ pi_messenger({ action: "plan", prompt: "Scan the codebase for bugs" })
 // Plan + auto-start autonomous work when planning completes
 pi_messenger({ action: "plan" })  // auto-starts workers (default)
 ```
+
+Pass `autoWork: false` to leave a completed plan idle for inspection before starting work.
 
 ### Wave Execution
 
@@ -172,6 +174,59 @@ Error responses use `{ error: { code, message, details? } }` shape.
 
 Any skills you already have in `~/.pi/agent/skills/` are automatically available to crew workers — no setup needed.
 
+### Team Layer
+
+Team is an optional layer around Crew. Crew still plans and executes tasks; Team adds project-local roles, a charter, durable memory, reusable JSON profiles, and high-risk approval gates. Active Team state lives in `.pi/messenger/team/`. Reusable profiles live in `~/.pi/agent/messenger/team-profiles/`.
+
+Most users should talk to their agent in plain language:
+
+```text
+Use the review squad for this cleanup.
+Use a migration team and pause before risky database changes.
+Research this first, then plan the implementation.
+Approve the auth API task.
+Reject the migration task; it needs rollback tests.
+```
+
+The agent maps those requests to Team actions. If a task needs approval, the agent should ask in plain language and continue after you approve. The tool calls are mainly for agents and power users:
+
+```typescript
+pi_messenger({ action: "team.setup", name: "migration-squad" })
+pi_messenger({ action: "team.memory.note", type: "decision", message: "Auth API changes require reviewer sign-off." })
+pi_messenger({ action: "team.roles" })
+pi_messenger({ action: "team.status" })
+```
+
+`team.setup` activates the profile, saves an editable JSON copy if needed, creates a starter charter when the project does not have one, and returns the next planning/status commands.
+
+When Team is active, planner task JSON may include `role` and `riskLabels`. Tasks persist those as `role`, `risk_labels`, and `approval`; existing tasks without those fields still work. Workers receive bounded Team role, charter, memory, and approval context. `work` skips tasks that require approval but are not approved and returns pending approvals under `needsApproval`; rejected tasks are surfaced separately with `task.revise` / `task.revise-tree` guidance. A revised task still requires Team approval before work can start.
+
+Team's built-in role names follow the packaged `pi-subagents` vocabulary where possible: `context-builder`, `delegate`, `oracle`, `planner`, `researcher`, `reviewer`, `scout`, and `worker`. Roles resolve from those built-in defaults, the active profile, and optional filesystem metadata from `pi-subagents` markdown files when present. `pi-messenger` only reads those files; it does not require or call the subagent extension, and Crew still uses its own Crew agents for execution.
+
+Built-in sample profiles are available immediately and are saved as editable JSON the first time you activate them:
+
+```typescript
+pi_messenger({ action: "team.setup", name: "migration-squad" }) // migrations with approval gates
+pi_messenger({ action: "team.setup", name: "review-squad" })    // scout/reviewer/worker cleanup flow
+pi_messenger({ action: "team.setup", name: "research-squad" })  // research-first planning flow
+```
+
+A saved profile looks like this:
+
+```json
+{
+  "name": "migration-squad",
+  "description": "Scout, implement, and review high-risk migrations with lead approval gates",
+  "roles": {
+    "scout": { "description": "Map affected schemas, APIs, and rollback paths before implementation" },
+    "worker": { "description": "Implement the approved migration in small, reversible steps" },
+    "reviewer": { "description": "Review migration safety, compatibility, rollback, and tests" }
+  },
+  "approval": { "mode": "risk-labels", "labels": ["database", "migration", "destructive", "api-contract"] },
+  "memory": { "inject": ["decision", "interface", "risk", "handoff"], "maxCharsPerType": 4000 }
+}
+```
+
 ### Crew Configuration
 
 Crew spawns multiple LLM sessions in parallel — it can burn tokens fast. Start with a cheap worker model and scale up once you've seen the workflow. Add this to `~/.pi/agent/pi-messenger.json`:
@@ -180,7 +235,7 @@ Crew spawns multiple LLM sessions in parallel — it can burn tokens fast. Start
 { "crew": { "models": { "worker": "claude-haiku-4-5" } } }
 ```
 
-The planner and reviewer keep their frontmatter defaults; only workers (the bulk of the spend) get the cheap model. Override per-role as needed:
+By default, Crew agents inherit the current host session model unless a task, request, role, config, or agent frontmatter model says otherwise. Crew reads the current host context for each action; it falls back to saved session state only when that context has no model. Override per-role as needed:
 
 ```json
 {
@@ -234,10 +289,10 @@ Full config reference (all fields optional — only set what you want to change)
 | `dependencies` | Dependency scheduling mode: `advisory` or `strict` | `"advisory"` |
 | `coordination` | Worker coordination level: `none`, `minimal`, `moderate`, `chatty` | `"chatty"` |
 | `messageBudgets` | Max outgoing messages per worker per level (sends rejected after limit) | `{ none: 0, minimal: 2, moderate: 5, chatty: 10 }` |
-| `models.planner` | Model for planner agent | `anthropic/claude-opus-4-6` |
-| `models.worker` | Model for workers (overridden by per-task or per-wave `model` param) | `anthropic/claude-haiku-4-5` |
-| `models.reviewer` | Model for reviewer agent | `anthropic/claude-opus-4-6` |
-| `models.analyst` | Model for analyst (plan-sync) agent | `anthropic/claude-haiku-4-5` |
+| `models.planner` | Model for planner agent | host session model, then agent frontmatter |
+| `models.worker` | Model for workers (overridden by per-task or per-wave `model` param) | host session model, then agent frontmatter |
+| `models.reviewer` | Model for reviewer agent | host session model, then agent frontmatter |
+| `models.analyst` | Model for analyst (plan-sync) agent | host session model, then agent frontmatter |
 | `thinking.planner` | Thinking level for planner agent | (from frontmatter) |
 | `thinking.worker` | Thinking level for worker agents | (from frontmatter) |
 | `thinking.reviewer` | Thinking level for reviewer agents | (from frontmatter) |
@@ -249,10 +304,12 @@ Full config reference (all fields optional — only set what you want to change)
 | `work.maxWaves` | Max autonomous waves | `50` |
 | `work.shutdownGracePeriodMs` | Grace period before SIGTERM on abort | `30000` |
 | `work.env` | Environment variables passed to spawned workers | `{}` |
+| `artifacts.enabled` | Write compact Crew debug artifacts | `true` |
+| `artifacts.cleanupDays` | Retention setting for Crew artifacts | `7` |
 
 ### Default Agent Models
 
-Each crew agent ships with a default model in its frontmatter. Override any of these via `crew.models.<role>` in config:
+Each crew agent ships with a fallback model in its frontmatter. Override any role via `crew.models.<role>` in config:
 
 | Agent | Role | Default Model |
 |-------|------|---------------|
@@ -293,6 +350,8 @@ Agent definitions live in `crew/agents/` within the extension. To customize one 
 | `task.list` | List all tasks |
 | `task.show` | Show task details (`id` required) |
 | `task.start` | Start a task (`id` required) |
+| `task.approve` | Approve an approval-gated task (`id` required) |
+| `task.reject` | Reject an approval-gated task (`id` required, `reason` optional) |
 | `task.done` | Complete a task (`id` required, `summary` optional) |
 | `task.block` | Block a task (`id` + `reason` required) |
 | `task.unblock` | Unblock a task (`id` required) |
@@ -303,6 +362,24 @@ Agent definitions live in `crew/agents/` within the extension. To customize one 
 | `crew.agents` | List available crew agents |
 | `crew.install` | Show discovered crew agents and their sources |
 | `crew.uninstall` | Remove stale shared-directory crew agent copies |
+
+### Team
+
+| Action | Description |
+|--------|-------------|
+| `team.setup` | Activate a profile, create a starter charter if missing, and show next steps (`name` optional, defaults to `migration-squad`) |
+| `team.profile.list` | List built-in samples and saved reusable JSON team profiles |
+| `team.profile.use` | Activate a profile (`name` required; saves a sample/default profile if missing) |
+| `team.profile.save` | Save the active profile under `name` |
+| `team.charter.show` | Show the project team charter |
+| `team.charter.create` | Create or replace the charter (`name` + `message` required) |
+| `team.charter.update` | Append a charter update (`message` required) |
+| `team.memory.note` | Append team memory (`type`: `decision`, `interface`, `risk`, or `handoff`; `message` required) |
+| `team.memory.list` | List team memory (`type` and `limit` optional) |
+| `team.roles` | Resolve Team roles from packaged-vocabulary defaults, profile config, and optional subagent metadata |
+| `team.status` | Summarize team/profile/charter, roles, memory counts, and needs-lead tasks |
+
+Approval-gated tasks use the Crew task commands `task.approve` and `task.reject`. Rejected tasks stay blocked from work and are surfaced with `task.revise` / `task.revise-tree` next steps.
 
 ### Swarm (Spec-Based)
 

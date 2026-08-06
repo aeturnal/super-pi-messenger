@@ -7,22 +7,23 @@
 
 import { execSync } from "node:child_process";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { CrewParams } from "../types.js";
-import { result } from "../utils/result.js";
-import { spawnAgents } from "../agents.js";
-import { discoverCrewAgents } from "../utils/discover.js";
-import { loadCrewConfig } from "../utils/config.js";
-import { parseVerdict, type ParsedReview } from "../utils/verdict.js";
-import * as store from "../store.js";
+import type { CrewParams } from "../types.ts";
+import { result } from "../utils/result.ts";
+import { spawnAgents } from "../agents.ts";
+import { discoverCrewAgents } from "../utils/discover.ts";
+import { loadCrewConfig } from "../utils/config.ts";
+import { parseVerdict, type ParsedReview } from "../utils/verdict.ts";
+import * as store from "../store.ts";
 
 export async function execute(
   params: CrewParams,
-  ctx: ExtensionContext
+  ctx: ExtensionContext,
+  sessionModel?: string,
 ) {
-  const cwd = ctx.cwd ?? process.cwd();
+  const cwd = ctx.cwd;
   const { target, type } = params;
   const config = loadCrewConfig(store.getCrewDir(cwd));
-  const reviewerModel = config.models?.reviewer;
+  const reviewerModel = config.models?.reviewer ?? sessionModel;
 
   if (!target) {
     return result("Error: target (task ID) required for review action.\n\nUsage: pi_messenger({ action: \"review\", target: \"task-1\" })", {
@@ -38,6 +39,14 @@ export async function execute(
     return result("Error: crew-reviewer agent not found. Required for code review.", {
       mode: "review",
       error: "no_reviewer"
+    });
+  }
+
+  if (type && type !== "impl" && type !== "plan") {
+    return result("Error: review type must be 'impl' or 'plan'.", {
+      mode: "review",
+      error: "invalid_type",
+      type,
     });
   }
 

@@ -1,28 +1,34 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createTempCrewDirs } from "../helpers/temp-dirs.js";
+import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
+import { createProgress } from "../../crew/utils/progress.ts";
+import { createMockContext } from "../helpers/mock-context.ts";
 
-vi.mock("../../crew/agents.js", () => ({
+vi.mock("../../crew/agents.ts", () => ({
   spawnAgents: vi.fn(),
 }));
 
 describe("executeReviseTree", () => {
-  let executeReviseTree: typeof import("../../crew/handlers/revise.js").executeReviseTree;
+  let executeReviseTree: typeof import("../../crew/handlers/revise.ts").executeReviseTree;
   let spawnAgents: ReturnType<typeof vi.fn>;
-  let store: typeof import("../../crew/store.js");
-  let state: typeof import("../../crew/state.js");
-  let liveProgress: typeof import("../../crew/live-progress.js");
+  let store: typeof import("../../crew/store.ts");
+  let state: typeof import("../../crew/state.ts");
+  let liveProgress: typeof import("../../crew/live-progress.ts");
+  let registry: typeof import("../../crew/registry.ts");
+  let taskHandler: typeof import("../../crew/handlers/task.ts");
   let tmpDir: string;
 
   beforeEach(async () => {
     vi.resetModules();
-    const mod = await import("../../crew/handlers/revise.js");
+    const mod = await import("../../crew/handlers/revise.ts");
     executeReviseTree = mod.executeReviseTree;
-    store = await import("../../crew/store.js");
-    state = await import("../../crew/state.js");
-    liveProgress = await import("../../crew/live-progress.js");
-    const agents = await import("../../crew/agents.js");
+    store = await import("../../crew/store.ts");
+    state = await import("../../crew/state.ts");
+    liveProgress = await import("../../crew/live-progress.ts");
+    registry = await import("../../crew/registry.ts");
+    taskHandler = await import("../../crew/handlers/task.ts");
+    const agents = await import("../../crew/agents.ts");
     spawnAgents = agents.spawnAgents as ReturnType<typeof vi.fn>;
 
     const dirs = createTempCrewDirs();
@@ -42,7 +48,7 @@ describe("executeReviseTree", () => {
     const t1 = store.createTask(tmpDir, "Root task");
     liveProgress.updateLiveWorker(tmpDir, "__reviser__", {
       taskId: "__reviser__", agent: "p", name: "R",
-      progress: { toolCallCount: 0, tokens: 0, currentTool: undefined, currentToolArgs: undefined, recentTools: [] },
+      progress: createProgress("p"),
       startedAt: Date.now(),
     });
     const r = await executeReviseTree(tmpDir, t1.id, undefined, "agent");
@@ -69,19 +75,74 @@ describe("executeReviseTree", () => {
     expect(r.message).toContain("autonomous");
   });
 
-  it("rejects when subtree has live workers", async () => {
-    const t1 = store.createTask(tmpDir, "Root");
-    const t2 = store.createTask(tmpDir, "Child", undefined, [t1.id]);
-    store.startTask(tmpDir, t2.id, "worker");
-    liveProgress.updateLiveWorker(tmpDir, t2.id, {
-      taskId: t2.id, agent: "p", name: "W",
-      progress: { toolCallCount: 0, tokens: 0, currentTool: undefined, currentToolArgs: undefined, recentTools: [] },
-      startedAt: Date.now(),
+  it("rejects tree revision without changing the subtree when a descendant has an active worker", async () => {
+    const t1 = store.createTask(tmpDir, "Root", "root spec");
+    const t2 = store.createTask(tmpDir, "Child", "child spec", [t1.id]);
+    store.startTask(tmpDir, t2.id, "WorkerA");
+    const rootBefore = store.getTask(tmpDir, t1.id);
+    const before = store.getTask(tmpDir, t2.id);
+    registry.registerWorker({
+      type: "worker",
+      cwd: tmpDir,
+      taskId: t2.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
     });
-    const r = await executeReviseTree(tmpDir, t1.id, undefined, "agent");
-    expect(r.success).toBe(false);
-    expect(r.message).toContain("live workers");
-    liveProgress.removeLiveWorker(tmpDir, t2.id);
+
+    try {
+      expect(await taskHandler.execute(
+        "revise-tree",
+        { id: t1.id, prompt: "change it" },
+        { agentName: "agent" } as any,
+        createMockContext(tmpDir),
+      )).toMatchObject({ details: { error: "active_worker" } });
+      expect(store.getTask(tmpDir, t1.id)).toEqual(rootBefore);
+      expect(store.getTask(tmpDir, t2.id)).toEqual(before);
+    } finally {
+      registry.unregisterWorker(tmpDir, t2.id);
+    }
+  });
+
+  it("rejects tree revision without changing existing tasks or creating replacements when a worker becomes active while planning", async () => {
+    const root = store.createTask(tmpDir, "Root", "root spec");
+    const child = store.createTask(tmpDir, "Child", "child spec", [root.id]);
+    const tasksBefore = store.getTasks(tmpDir);
+    const rootSpecBefore = store.getTaskSpec(tmpDir, root.id);
+    const childSpecBefore = store.getTaskSpec(tmpDir, child.id);
+    let resolvePlanner!: (value: any) => void;
+    spawnAgents.mockImplementation(() => new Promise<any>(resolve => {
+      resolvePlanner = resolve;
+    }));
+
+    const revision = executeReviseTree(tmpDir, root.id, undefined, "agent");
+    registry.registerWorker({
+      type: "worker",
+      cwd: tmpDir,
+      taskId: child.id,
+      name: "WorkerA",
+      proc: { exitCode: null, killed: false } as any,
+    });
+    resolvePlanner([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"id": "${child.id}", "title": "Updated child", "spec": "updated child spec", "dependsOn": []},
+  {"title": "Replacement", "spec": "replacement spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    try {
+      await expect(revision).resolves.toMatchObject({ success: false, error: "active_worker" });
+      expect(store.getTasks(tmpDir)).toEqual(tasksBefore);
+      expect(store.getTaskSpec(tmpDir, root.id)).toBe(rootSpecBefore);
+      expect(store.getTaskSpec(tmpDir, child.id)).toBe(childSpecBefore);
+      expect(store.getTasks(tmpDir).find(task => task.title === "Replacement")).toBeUndefined();
+    } finally {
+      registry.unregisterWorker(tmpDir, child.id);
+    }
   });
 
   it("revises subtree: updates specs and resets non-done tasks", async () => {
@@ -100,7 +161,7 @@ describe("executeReviseTree", () => {
 ]
 \`\`\``,
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeReviseTree(tmpDir, t1.id, "improve", "agent");
@@ -113,6 +174,173 @@ describe("executeReviseTree", () => {
 
     expect(store.getTask(tmpDir, t3.id)?.title).toBe("Updated GC");
     expect(store.getTask(tmpDir, t3.id)?.status).toBe("todo");
+  });
+
+  it.each(["rejected", "pending", "approved"] as const)("creates a fresh pending gate from a %s gated source", async (status) => {
+    const source = store.createTask(tmpDir, "Migration", "spec", [], {
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status },
+    });
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement", "spec": "replacement spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    const r = await executeReviseTree(tmpDir, source.id, undefined, "agent");
+    expect(r.success).toBe(true);
+
+    const created = store.getTasks(tmpDir).find(task => task.title === "Replacement");
+    expect(created).toMatchObject({
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "pending" },
+    });
+  });
+
+  it.each(["rejected", "pending", "approved"] as const)("requires fresh pending approval for every replacement when an ungated root has a %s gated descendant", async (status) => {
+    const root = store.createTask(tmpDir, "Root", "root spec", [], {
+      role: "scout",
+      risk_labels: ["research"],
+    });
+    store.createTask(tmpDir, "Gated child", "child spec", [root.id], {
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status },
+    });
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement one", "spec": "replacement one spec", "dependsOn": []},
+  {"title": "Replacement two", "spec": "replacement two spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    const revised = await executeReviseTree(tmpDir, root.id, undefined, "agent");
+    expect(revised.success).toBe(true);
+
+    const replacements = store.getTasks(tmpDir).filter(task => task.title.startsWith("Replacement"));
+    expect(replacements).toHaveLength(2);
+    for (const replacement of replacements) {
+      expect(replacement).toMatchObject({
+        role: "scout",
+        risk_labels: ["research"],
+        approval: { required: true, status: "pending" },
+      });
+      const start = await taskHandler.execute("start", { id: replacement.id }, { agentName: "Worker" } as any, createMockContext(tmpDir));
+      expect(start.details.error).toBe("needs_approval");
+    }
+  });
+
+  it("requires fresh pending approval for replacements when an ungated root has a completed approved gated descendant", async () => {
+    const root = store.createTask(tmpDir, "Root", "root spec", [], {
+      role: "scout",
+      risk_labels: ["research"],
+    });
+    const completedGated = store.createTask(tmpDir, "Gated child", "child spec", [root.id], {
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "approved" },
+    });
+    store.startTask(tmpDir, completedGated.id, "WorkerA");
+    store.completeTask(tmpDir, completedGated.id, "Done");
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement one", "spec": "replacement one spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    const revised = await executeReviseTree(tmpDir, root.id, undefined, "agent");
+    expect(revised.success).toBe(true);
+
+    const replacement = store.getTasks(tmpDir).find(task => task.title === "Replacement one");
+    expect(replacement).toMatchObject({
+      role: "scout",
+      risk_labels: ["research"],
+      approval: { required: true, status: "pending" },
+    });
+
+    const start = await taskHandler.execute("start", { id: replacement!.id }, { agentName: "Worker" } as any, createMockContext(tmpDir));
+    expect(start.details.error).toBe("needs_approval");
+  });
+
+  it("requires fresh pending approval for replacements when revising a completed gated root", async () => {
+    const completedRoot = store.createTask(tmpDir, "Root", "root spec", [], {
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "approved" },
+    });
+    store.startTask(tmpDir, completedRoot.id, "WorkerA");
+    store.completeTask(tmpDir, completedRoot.id, "Done");
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement one", "spec": "replacement one spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    const revised = await executeReviseTree(tmpDir, completedRoot.id, undefined, "agent");
+    expect(revised.success).toBe(true);
+
+    const replacement = store.getTasks(tmpDir).find(task => task.title === "Replacement one");
+    expect(replacement).toMatchObject({
+      role: "worker",
+      risk_labels: ["migration"],
+      approval: { required: true, status: "pending" },
+    });
+
+    const start = await taskHandler.execute("start", { id: replacement!.id }, { agentName: "Worker" } as any, createMockContext(tmpDir));
+    expect(start.details.error).toBe("needs_approval");
+  });
+  it("keeps the root role and risk classification when no subtree task is gated", async () => {
+    const root = store.createTask(tmpDir, "Root", "root spec", [], {
+      role: "scout",
+      risk_labels: ["research"],
+    });
+    store.createTask(tmpDir, "Child", "child spec", [root.id]);
+
+    spawnAgents.mockResolvedValue([{
+      exitCode: 0,
+      output: `\`\`\`tasks-json
+[
+  {"title": "Replacement", "spec": "replacement spec", "dependsOn": []}
+]
+\`\`\``,
+      error: null,
+      progress: createProgress("crew-planner"),
+    }]);
+
+    const revised = await executeReviseTree(tmpDir, root.id, undefined, "agent");
+    expect(revised.success).toBe(true);
+
+    expect(store.getTasks(tmpDir).find(task => task.title === "Replacement")).toMatchObject({
+      role: "scout",
+      risk_labels: ["research"],
+      approval: undefined,
+    });
   });
 
   it("creates new tasks from entries without id", async () => {
@@ -128,7 +356,7 @@ describe("executeReviseTree", () => {
 ]
 \`\`\``,
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeReviseTree(tmpDir, t1.id, undefined, "agent");
@@ -153,7 +381,7 @@ describe("executeReviseTree", () => {
 ]
 \`\`\``,
       error: null,
-      progress: { toolCallCount: 0, tokens: 0 },
+      progress: createProgress("crew-planner"),
     }]);
 
     const r = await executeReviseTree(tmpDir, t1.id, undefined, "agent");
@@ -163,12 +391,12 @@ describe("executeReviseTree", () => {
 });
 
 describe("getTransitiveDependents", () => {
-  let store: typeof import("../../crew/store.js");
+  let store: typeof import("../../crew/store.ts");
   let tmpDir: string;
 
   beforeEach(async () => {
     vi.resetModules();
-    store = await import("../../crew/store.js");
+    store = await import("../../crew/store.ts");
     const dirs = createTempCrewDirs();
     tmpDir = dirs.cwd;
     store.createPlan(tmpDir, "PRD.md");

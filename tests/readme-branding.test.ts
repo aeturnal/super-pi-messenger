@@ -11,12 +11,14 @@ const packageJson = JSON.parse(
 };
 
 describe("Super Pi Messenger public identity", () => {
-  it("states the product, lineage, prerelease status, and independence", () => {
+  it("states the product, lineage, prerelease status, and qualified independence", () => {
     expect(readme).toContain("# Super Pi Messenger");
     expect(readme).toContain("independently maintained prerelease fork");
     expect(readme).toContain("nicobailon/pi-messenger");
     expect(readme).toContain("separately installed stock Obra Superpowers");
-    expect(readme).toContain("not affiliated with or endorsed by Obra");
+    expect(readme).toContain(
+      "Super Pi Messenger is not affiliated with or endorsed by Obra.",
+    );
   });
 
   it("installs the development product from its GitHub fork, not upstream npm", () => {
@@ -35,6 +37,22 @@ describe("Super Pi Messenger public identity", () => {
     expect(packageJson.bin).toEqual({ "pi-messenger": "install.mjs" });
     expect(packageJson.repository.url).toBe(
       "git+https://github.com/aeturnal/super-pi-messenger.git",
+    );
+  });
+
+  it("documents Team authority, inspection, approval, and review gates", () => {
+    expect(readme).toContain(
+      "A narrow guard blocks direct `pi`/`npx pi` command segments and mutating `git worktree add`, `remove`, `move`, or `prune` commands; indirect shell execution remains outside this guard.",
+    );
+    expect(readme).toContain("Crew children cannot dispatch or administer Team.");
+    expect(readme).toContain(
+      "Pass `autoWork: false` to leave a completed plan idle for inspection before starting work.",
+    );
+    expect(readme).toContain(
+      "A revised task still requires Team approval before work can start.",
+    );
+    expect(readme).toContain(
+      "When automatic review is enabled, automatic implementation is accepted only after a `SHIP` review.",
     );
   });
 });

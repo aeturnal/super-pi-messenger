@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { MaxOutputConfig } from "./truncate.js";
+import type { MaxOutputConfig } from "./truncate.ts";
 
 export type CoordinationLevel = "none" | "minimal" | "moderate" | "chatty";
 

@@ -1,0 +1,383 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { EventEmitter } from "node:events";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createTempCrewDirs, type TempCrewDirs } from "../helpers/temp-dirs.ts";
+
+const spawnMock = vi.hoisted(() => vi.fn());
+
+vi.mock("node:child_process", () => ({
+  spawn: spawnMock,
+}));
+
+type MockProcess = EventEmitter & {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  exitCode: number | null;
+  killed: boolean;
+  kill: ReturnType<typeof vi.fn>;
+};
+
+function createProcess(): MockProcess {
+  const proc = new EventEmitter() as MockProcess;
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.exitCode = null;
+  proc.killed = false;
+  proc.kill = vi.fn(() => {
+    proc.killed = true;
+    proc.exitCode = 143;
+    queueMicrotask(() => {
+      proc.emit("exit", proc.exitCode);
+      proc.emit("close", proc.exitCode);
+    });
+    return true;
+  });
+  return proc;
+}
+
+function writeWorkerAgent(cwd: string): void {
+  const filePath = path.join(cwd, ".pi", "messenger", "crew", "agents", "crew-worker.md");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `---
+name: crew-worker
+description: Test worker
+crewRole: worker
+---
+You are a test worker.
+`);
+}
+
+describe("crew agent event handling", () => {
+  let dirs: TempCrewDirs;
+
+  beforeEach(() => {
+    dirs = createTempCrewDirs();
+    writeWorkerAgent(dirs.cwd);
+    spawnMock.mockReset();
+  });
+
+  it("compacts streaming message_update artifacts while preserving final output", async () => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    const repeated = "SNAPSHOT_CONTENT".repeat(100);
+    proc.stdout.emit("data", `${JSON.stringify({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "ok", partial: { role: "assistant", content: [{ type: "text", text: repeated }] } },
+      message: { role: "assistant", content: [{ type: "text", text: repeated }] },
+    })}\n${JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "FINAL" }] },
+    })}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(result.output).toBe("FINAL");
+    const artifact = fs.readdirSync(path.join(dirs.crewDir, "artifacts")).find(file => file.endsWith(".jsonl"));
+    expect(artifact).toBeTruthy();
+    const jsonl = fs.readFileSync(path.join(dirs.crewDir, "artifacts", artifact!), "utf-8");
+    expect(jsonl).not.toContain("SNAPSHOT_CONTENT");
+    expect(jsonl).toContain("text_delta");
+  });
+
+  it.each(["message_update", "message_end"])("fails fast on terminal assistant %s quota errors", async (type) => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify({
+      type,
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: quota exhausted. Add more credits to continue.",
+      },
+    })}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("Provider error 400");
+  });
+
+  it.each([
+    ["message_update", "401: Invalid API key"],
+    ["message_end", "401: Invalid API key"],
+    ["message_update", "401: Invalid credential provided"],
+    ["message_end", "401: Invalid credential provided"],
+    ["message_update", "401: Unauthorized"],
+    ["message_end", "401: Unauthorized"],
+    ["message_update", "401: Authentication failed"],
+    ["message_end", "401: Authentication failed"],
+    ["message_update", "402: Payment required"],
+    ["message_end", "402: Payment required"],
+    ["message_update", "403: Billing disabled for this account"],
+    ["message_end", "403: Billing disabled for this account"],
+    ["message_update", "403: Forbidden"],
+    ["message_end", "403: Forbidden"],
+    ["message_update", "429: Quota has been exhausted for this account"],
+    ["message_end", "429: Quota has been exhausted for this account"],
+    ["message_update", "429: Quota is exhausted for this account"],
+    ["message_end", "429: Quota is exhausted for this account"],
+    ["message_update", "429: Billing disabled for this account"],
+    ["message_end", "429: Billing disabled for this account"],
+  ])("fails fast on terminal assistant %s errors: %s", async (type, errorMessage) => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify({
+      type,
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage,
+      },
+    })}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain(errorMessage);
+  });
+
+  it.each([
+    "429: Too many requests",
+    "429: Rate limit exceeded; retry after 10 seconds",
+    "429: Requests per minute exceeded",
+    "429: Tokens per minute exceeded",
+    "429: RESOURCE_EXHAUSTED",
+    "429: Billing service temporarily unavailable; retry after 10 seconds",
+  ])("does not fail fast on terminal assistant temporary rate limits: %s", async (errorMessage) => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage,
+      },
+    })}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).not.toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
+  });
+
+  it.each([
+    ["ordinary assistant content", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Example response: 401: Invalid API key" }],
+        stopReason: "stop",
+      },
+    }],
+    ["tool output", {
+      type: "message_end",
+      message: {
+        role: "toolResult",
+        content: [{ type: "text", text: "401: Invalid API key" }],
+        stopReason: "error",
+        errorMessage: "401: Invalid API key",
+      },
+    }],
+    ["a non-error stop reason", {
+      type: "message_update",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "stop",
+        errorMessage: "429: Too many requests",
+      },
+    }],
+    ["unrelated allowlisted 4xx text", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: Malformed JSON request body",
+      },
+    }],
+    ["a 400 message containing forbidden", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: This request contains a forbidden field",
+      },
+    }],
+    ["a 429 message containing forbidden", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "429: Retry is forbidden until the rate-limit window resets",
+      },
+    }],
+    ["a 400 message containing unauthorized", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: This request contains an unauthorized field",
+      },
+    }],
+    ["a 429 message containing unauthorized", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "429: Unauthorized request burst; retry later",
+      },
+    }],
+    ["a 400 message containing authentication failed", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: Authentication failed for this request",
+      },
+    }],
+    ["a 403 message containing authentication failed", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "403: Authentication failed for this request",
+      },
+    }],
+    ["a 429 message containing authentication failed", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "429: Authentication failed for this request",
+      },
+    }],
+    ["a 401 message containing forbidden", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "401: Forbidden request",
+      },
+    }],
+    ["a 403 message containing unauthorized", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "403: Unauthorized request",
+      },
+    }],
+    ["an unrelated 4xx status", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "404: Resource not found",
+      },
+    }],
+  ])("does not fail fast on %s", async (_label, event) => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify(event)}\n`);
+    proc.exitCode = 0;
+    proc.emit("close", 0);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).not.toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("fails fast on terminal provider quota errors", async () => {
+    const proc = createProcess();
+    spawnMock.mockReturnValue(proc);
+    const { spawnAgents } = await import("../../crew/agents.ts");
+
+    const resultPromise = spawnAgents([{
+      agent: "crew-worker",
+      task: "Implement task",
+      taskId: "task-1",
+    }], dirs.cwd);
+
+    proc.stdout.emit("data", `${JSON.stringify({
+      type: "provider_error",
+      error: {
+        status: 400,
+        type: "invalid_request_error",
+        message: "Third-party apps now draw from your extra usage. Add more at claude.ai/settings/usage and keep going.",
+      },
+    })}\n`);
+
+    const [result] = await resultPromise;
+
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("Provider error 400");
+  });
+});

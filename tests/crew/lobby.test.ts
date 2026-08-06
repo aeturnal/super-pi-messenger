@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createStockSuperpowersFixture } from "../helpers/superpowers.ts";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => {
@@ -21,7 +23,7 @@ vi.mock("node:child_process", () => ({
   }),
 }));
 
-vi.mock("../../crew/store.js", () => ({
+vi.mock("../../crew/store.ts", () => ({
   getPlan: vi.fn(() => ({ prd: "docs/PRD.md" })),
   getCrewDir: vi.fn((cwd: string) => `${cwd}/.pi/messenger/crew`),
   getTask: vi.fn(() => null),
@@ -30,21 +32,21 @@ vi.mock("../../crew/store.js", () => ({
   appendTaskProgress: vi.fn(),
 }));
 
-vi.mock("../../feed.js", () => ({
+vi.mock("../../feed.ts", () => ({
   logFeedEvent: vi.fn(),
 }));
 
-vi.mock("../../crew/utils/config.js", () => ({
+vi.mock("../../crew/utils/config.ts", () => ({
   loadCrewConfig: vi.fn(() => ({
-    concurrency: { workers: 4 },
+    concurrency: { workers: 4, max: 10 },
     models: {},
-    artifacts: { enabled: false },
-    work: {},
+    artifacts: { enabled: false, cleanupDays: 7 },
+    work: { maxAttemptsPerTask: 5, maxWaves: 50, stopOnBlock: false },
     coordination: "chatty",
   })),
 }));
 
-vi.mock("../../crew/utils/discover.js", () => ({
+vi.mock("../../crew/utils/discover.ts", () => ({
   discoverCrewAgents: vi.fn(() => [{
     name: "crew-worker",
     description: "worker",
@@ -57,12 +59,17 @@ vi.mock("../../crew/utils/discover.js", () => ({
   }]),
 }));
 
-vi.mock("../../crew/live-progress.js", () => ({
+vi.mock("../../crew/live-progress.ts", () => ({
   updateLiveWorker: vi.fn(),
   removeLiveWorker: vi.fn(),
 }));
 
-vi.mock("../../lib.js", async () => {
+vi.mock("../../crew/team/store.ts", () => ({
+  resolveRoleName: vi.fn(() => undefined),
+  resolveRoles: vi.fn(() => ({})),
+}));
+
+vi.mock("../../lib.ts", async () => {
   let counter = 0;
   return {
     generateMemorableName: () => `TestWorker${++counter}`,
@@ -76,13 +83,20 @@ function createTestCwd(): string {
 }
 
 describe("lobby workers", () => {
-  let lobby: typeof import("../../crew/lobby.js");
-  let liveProgress: typeof import("../../crew/live-progress.js");
+  let lobby: typeof import("../../crew/lobby.ts");
+  let liveProgress: typeof import("../../crew/live-progress.ts");
+  let superpowers: typeof import("../../crew/superpowers.ts");
 
   beforeEach(async () => {
     vi.resetModules();
-    lobby = await import("../../crew/lobby.js");
-    liveProgress = await import("../../crew/live-progress.js");
+    superpowers = await import("../../crew/superpowers.ts");
+    superpowers.resetSuperpowersStateForTests();
+    lobby = await import("../../crew/lobby.ts");
+    liveProgress = await import("../../crew/live-progress.ts");
+  });
+
+  afterEach(() => {
+    superpowers.resetSuperpowersStateForTests();
   });
 
   it("spawns a lobby worker and registers it in live progress", () => {
@@ -98,6 +112,110 @@ describe("lobby workers", () => {
     );
   });
 
+  it("marks a lobby subprocess as a Crew worker", () => {
+    lobby.spawnLobbyWorker("/test/cwd");
+
+    const options = vi.mocked(spawn).mock.calls.at(-1)?.[2];
+    expect(options?.env).toMatchObject({
+      PI_CREW_ROLE: "worker",
+      PI_CREW_WORKER: "1",
+      PI_LOBBY_ID: expect.any(String),
+    });
+  });
+
+  it("loads the child guard after the main extension for lobby workers", () => {
+    lobby.spawnLobbyWorker("/test/cwd");
+
+    const args = vi.mocked(spawn).mock.calls.at(-1)?.[1] as string[];
+    const extensionPaths = args.flatMap((arg, index) =>
+      arg === "--extension" ? [args[index + 1]!] : []
+    );
+    expect(extensionPaths.slice(-2)).toEqual([
+      path.resolve(fileURLToPath(new URL("../..", import.meta.url))),
+      fileURLToPath(new URL("../../crew/superpowers-guard.ts", import.meta.url)),
+    ]);
+  });
+
+  it("adds active Superpowers worker guidance to a lobby worker", () => {
+    const fixture = createStockSuperpowersFixture();
+    try {
+      superpowers.captureSuperpowersSkills(fixture.skills);
+
+      lobby.spawnLobbyWorker("/test/cwd");
+
+      const [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+      const promptPath = args[args.indexOf("--append-system-prompt") + 1]!;
+      expect(fs.readFileSync(promptPath, "utf8")).toContain("test-driven-development");
+      expect(options?.env).toMatchObject({ PI_CREW_SUPERPOWERS_MVP: "1" });
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("keeps lobby workers native when Superpowers is inactive or falls back", () => {
+    lobby.spawnLobbyWorker("/test/cwd");
+    let [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+    let promptPath = args[args.indexOf("--append-system-prompt") + 1]!;
+    expect(fs.readFileSync(promptPath, "utf8")).toBe("# Crew Worker\nYou implement tasks.");
+    expect(options?.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+
+    const fixture = createStockSuperpowersFixture({ version: "7.0.0" });
+    try {
+      superpowers.captureSuperpowersSkills(fixture.skills);
+      lobby.spawnLobbyWorker("/test/cwd");
+
+      [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+      promptPath = args[args.indexOf("--append-system-prompt") + 1]!;
+      expect(fs.readFileSync(promptPath, "utf8")).toBe("# Crew Worker\nYou implement tasks.");
+      expect(options?.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it.each(["inactive", "fallback"] as const)(
+    "removes inherited and configured Superpowers flags for %s lobby workers",
+    async (state) => {
+      const originalFlag = process.env.PI_CREW_SUPERPOWERS_MVP;
+      let fixture: ReturnType<typeof createStockSuperpowersFixture> | undefined;
+      try {
+        if (state === "inactive") {
+          superpowers.captureSuperpowersSkills([]);
+        } else {
+          fixture = createStockSuperpowersFixture({ version: "7.0.0" });
+          superpowers.captureSuperpowersSkills(fixture.skills);
+        }
+
+        process.env.PI_CREW_SUPERPOWERS_MVP = "inherited";
+        lobby.spawnLobbyWorker("/test/cwd");
+        let options = vi.mocked(spawn).mock.calls.at(-1)?.[2];
+        expect(options?.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+
+        delete process.env.PI_CREW_SUPERPOWERS_MVP;
+        const config = await import("../../crew/utils/config.ts");
+        vi.mocked(config.loadCrewConfig).mockReturnValueOnce({
+          concurrency: { workers: 4, max: 10 },
+          models: {},
+          artifacts: { enabled: false, cleanupDays: 7 },
+          work: {
+            maxAttemptsPerTask: 5,
+            maxWaves: 50,
+            stopOnBlock: false,
+            env: { PI_CREW_SUPERPOWERS_MVP: "configured" },
+          },
+          coordination: "chatty",
+        } as any);
+        lobby.spawnLobbyWorker("/test/cwd");
+        options = vi.mocked(spawn).mock.calls.at(-1)?.[2];
+        expect(options?.env).not.toHaveProperty("PI_CREW_SUPERPOWERS_MVP");
+      } finally {
+        if (originalFlag === undefined) delete process.env.PI_CREW_SUPERPOWERS_MVP;
+        else process.env.PI_CREW_SUPERPOWERS_MVP = originalFlag;
+        fixture?.cleanup();
+      }
+    },
+  );
+
   it("keeps declared extension tools in the lobby allowed-tools list", () => {
     lobby.spawnLobbyWorker("/test/cwd");
 
@@ -109,10 +227,76 @@ describe("lobby workers", () => {
   });
 
   it("returns null if no crew-worker agent is discovered", async () => {
-    const discover = await import("../../crew/utils/discover.js");
+    const discover = await import("../../crew/utils/discover.ts");
     vi.mocked(discover.discoverCrewAgents).mockReturnValueOnce([]);
     const worker = lobby.spawnLobbyWorker("/test/cwd");
     expect(worker).toBeNull();
+  });
+
+  it("passes bare .js tool entries as extension paths", async () => {
+    const discover = await import("../../crew/utils/discover.ts");
+    vi.mocked(discover.discoverCrewAgents).mockReturnValueOnce([{
+      name: "crew-worker",
+      description: "worker",
+      systemPrompt: "# Crew Worker\nYou implement tasks.",
+      tools: ["read", "custom-tool.js"],
+      source: "extension",
+      filePath: "/ext/crew-worker.md",
+      crewRole: "worker",
+    }]);
+
+    lobby.spawnLobbyWorker("/test/cwd");
+
+    const { spawn } = await import("node:child_process");
+    const args = vi.mocked(spawn).mock.calls[0][1] as string[];
+    const extensionIdx = args.indexOf("--extension");
+
+    expect(extensionIdx).toBeGreaterThan(-1);
+    expect(args[extensionIdx + 1]).toBe("custom-tool.js");
+  });
+
+  it("uses pi.cmd for lobby subprocesses on Windows", async () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      lobby.spawnLobbyWorker("/test/cwd");
+
+      const { spawn } = await import("node:child_process");
+      expect(vi.mocked(spawn).mock.calls[0][0]).toBe("pi.cmd");
+    } finally {
+      if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
+    }
+  });
+
+  it("records and exactly matches lobby worker launch compatibility", () => {
+    const cwd = createTestCwd();
+    const worker = lobby.spawnLobbyWorker(path.join(cwd, "."))!;
+    const same = {
+      cwd,
+      model: "claude-opus-4-5",
+      role: "worker",
+      superpowersActive: false,
+    };
+
+    expect(worker).toMatchObject(same);
+    expect(lobby.isLobbyWorkerCompatible(worker, same)).toBe(true);
+    expect(lobby.isLobbyWorkerCompatible(worker, { ...same, cwd: "/other/cwd" })).toBe(false);
+    expect(lobby.isLobbyWorkerCompatible(worker, { ...same, model: "other/model" })).toBe(false);
+    expect(lobby.isLobbyWorkerCompatible(worker, { ...same, role: "reviewer" })).toBe(false);
+    expect(lobby.isLobbyWorkerCompatible(worker, { ...same, superpowersActive: true })).toBe(false);
+
+    const fixture = createStockSuperpowersFixture();
+    try {
+      superpowers.captureSuperpowersSkills(fixture.skills);
+      const guidedWorker = lobby.spawnLobbyWorker(cwd)!;
+      const guided = { ...same, superpowersActive: true };
+      expect(guidedWorker).toMatchObject(guided);
+      expect(lobby.isLobbyWorkerCompatible(guidedWorker, guided)).toBe(true);
+      expect(lobby.isLobbyWorkerCompatible(guidedWorker, same)).toBe(false);
+    } finally {
+      fixture.cleanup();
+      superpowers.resetSuperpowersStateForTests();
+    }
   });
 
   it("counts available lobby workers for a cwd", () => {
@@ -173,13 +357,22 @@ describe("lobby workers", () => {
   });
 
   it("assignTaskToLobbyWorker marks worker as assigned", () => {
-    const worker = lobby.spawnLobbyWorker("/test/cwd")!;
+    const cwd = createTestCwd();
+    const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    const worker = lobby.spawnLobbyWorker(cwd)!;
     expect(worker.assignedTaskId).toBeNull();
 
-    const assigned = lobby.assignTaskToLobbyWorker(worker, "task-3", "# Task 3\nDo stuff", "/tmp/test-inbox");
+    const assigned = lobby.assignTaskToLobbyWorker(worker, "task-3", "# Task 3\nDo stuff", inboxDir);
     expect(assigned).toBe(true);
     expect(worker.assignedTaskId).toBe("task-3");
-    expect(lobby.getAvailableLobbyWorkers("/test/cwd")).toHaveLength(0);
+    expect(lobby.getAvailableLobbyWorkers(cwd)).toHaveLength(0);
+
+    const inbox = path.join(inboxDir, worker.name);
+    const messageFile = fs.readdirSync(inbox).find(file => file.endsWith(".json"));
+    expect(messageFile).toBeTruthy();
+    const message = JSON.parse(fs.readFileSync(path.join(inbox, messageFile!), "utf-8")) as { text: string };
+    expect(message.text).toContain("Follow the assignment below");
+    expect(message.text).not.toContain("reserving files, implementing, testing, committing");
   });
 
   it("assignTaskToLobbyWorker rejects already-assigned worker", () => {
@@ -188,6 +381,83 @@ describe("lobby workers", () => {
     const secondAssign = lobby.assignTaskToLobbyWorker(worker, "task-2", "prompt", "/tmp/test-inbox");
     expect(secondAssign).toBe(false);
     expect(worker.assignedTaskId).toBe("task-1");
+  });
+
+  it("waitForLobbyWorker resolves an assigned worker's completion result", async () => {
+    const cwd = createTestCwd();
+    const worker = lobby.spawnLobbyWorker(cwd)!;
+    const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    expect(lobby.assignTaskToLobbyWorker(worker, "task-complete", "# Task", inboxDir)).toBe(true);
+
+    const resultPromise = lobby.waitForLobbyWorker(worker);
+    const proc = worker.proc as any;
+    const stdoutHandler = vi.mocked(proc.stdout.on).mock.calls.find(([event]: [string]) => event === "data")![1];
+    stdoutHandler(Buffer.from(`${JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", usage: { input: 12, output: 30 } },
+    })}\n`));
+    proc._handlers["close"](0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      agent: "crew-worker",
+      taskId: "task-complete",
+      exitCode: 0,
+      output: "",
+      truncated: false,
+      progress: expect.objectContaining({ tokens: 42 }),
+    });
+  });
+
+  it("fails an assigned warm worker on a durable terminal assistant provider error", async () => {
+    const cwd = createTestCwd();
+    const worker = lobby.spawnLobbyWorker(cwd)!;
+    const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    expect(lobby.assignTaskToLobbyWorker(worker, "task-provider-error", "# Task", inboxDir)).toBe(true);
+
+    const resultPromise = lobby.waitForLobbyWorker(worker);
+    const proc = worker.proc as any;
+    const stdoutHandler = vi.mocked(proc.stdout.on).mock.calls.find(([event]: [string]) => event === "data")![1];
+    stdoutHandler(Buffer.from(`${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "400: quota exhausted. Add more credits to continue.",
+      },
+    })}\n`));
+    proc._handlers["close"](0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      taskId: "task-provider-error",
+      exitCode: 1,
+      error: "Provider error 400: 400: quota exhausted. Add more credits to continue.",
+    });
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it.each([
+    "429: Too many requests",
+    "429: Billing service temporarily unavailable; retry after 10 seconds",
+  ])("keeps an assigned warm worker alive for a temporary assistant provider error: %s", (errorMessage) => {
+    const cwd = createTestCwd();
+    const worker = lobby.spawnLobbyWorker(cwd)!;
+    const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    expect(lobby.assignTaskToLobbyWorker(worker, "task-temporary-error", "# Task", inboxDir)).toBe(true);
+
+    const proc = worker.proc as any;
+    const stdoutHandler = vi.mocked(proc.stdout.on).mock.calls.find(([event]: [string]) => event === "data")![1];
+    stdoutHandler(Buffer.from(`${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage,
+      },
+    })}\n`));
+
+    expect(proc.kill).not.toHaveBeenCalled();
   });
 
   it("manages keep-alive file lifecycle on spawn, assignment, direct assignment, and shutdown", async () => {
@@ -202,7 +472,7 @@ describe("lobby workers", () => {
     expect(assigned).toBe(true);
     expect(fs.existsSync(worker.aliveFile!)).toBe(false);
 
-    const storeModule = await import("../../crew/store.js");
+    const storeModule = await import("../../crew/store.ts");
     vi.mocked(storeModule.getTask).mockReturnValueOnce({
       id: "task-keepalive-direct", title: "Direct assign", status: "todo", attempt_count: 0,
       depends_on: [], description: "", created_at: "", milestone: false,
@@ -263,9 +533,29 @@ describe("lobby workers", () => {
     expect(promptArg).toContain("TASK ASSIGNMENT");
   });
 
-  it("close handler resets orphaned in_progress task to todo", async () => {
-    const storeModule = await import("../../crew/store.js");
-    const feedModule = await import("../../feed.js");
+  it("close handler leaves work-managed task recovery to work.execute", async () => {
+    const storeModule = await import("../../crew/store.ts");
+
+    const worker = lobby.spawnLobbyWorker("/test/cwd")!;
+    worker.assignedTaskId = "task-work-managed";
+    worker.managedByWork = true;
+
+    vi.mocked(storeModule.getTask).mockReturnValue({
+      id: "task-work-managed", title: "Managed", status: "in_progress", attempt_count: 3,
+      depends_on: [], description: "", created_at: "", milestone: false,
+      assigned_to: worker.name,
+    } as any);
+
+    const proc = worker.proc as any;
+    proc._handlers["close"](1);
+
+    expect(storeModule.updateTask).not.toHaveBeenCalled();
+    expect(storeModule.appendTaskProgress).not.toHaveBeenCalled();
+  });
+
+  it("close handler resets manually started orphaned in_progress task to todo", async () => {
+    const storeModule = await import("../../crew/store.ts");
+    const feedModule = await import("../../feed.ts");
 
     const worker = lobby.spawnLobbyWorker("/test/cwd")!;
     worker.assignedTaskId = "task-1";
@@ -296,13 +586,13 @@ describe("lobby workers", () => {
   });
 
   it("close handler blocks task when max attempts exceeded", async () => {
-    const storeModule = await import("../../crew/store.js");
-    const configModule = await import("../../crew/utils/config.js");
+    const storeModule = await import("../../crew/store.ts");
+    const configModule = await import("../../crew/utils/config.ts");
     vi.mocked(configModule.loadCrewConfig).mockReturnValue({
-      concurrency: { workers: 4 },
+      concurrency: { workers: 4, max: 10 },
       models: {},
-      artifacts: { enabled: false },
-      work: { maxAttemptsPerTask: 3 },
+      artifacts: { enabled: false, cleanupDays: 7 },
+      work: { maxAttemptsPerTask: 3, maxWaves: 50, stopOnBlock: false },
       coordination: "chatty",
     } as any);
 
@@ -326,7 +616,7 @@ describe("lobby workers", () => {
   });
 
   it("close handler skips recovery if task already completed", async () => {
-    const storeModule = await import("../../crew/store.js");
+    const storeModule = await import("../../crew/store.ts");
     vi.mocked(storeModule.getTask).mockReturnValue({
       id: "task-3", title: "Done", status: "done", attempt_count: 1,
       depends_on: [], description: "", created_at: "", milestone: false,
@@ -344,7 +634,7 @@ describe("lobby workers", () => {
   });
 
   it("close handler skips reset if task reassigned to another worker", async () => {
-    const storeModule = await import("../../crew/store.js");
+    const storeModule = await import("../../crew/store.ts");
 
     const worker = lobby.spawnLobbyWorker("/test/cwd")!;
     worker.assignedTaskId = "task-4";
@@ -373,9 +663,63 @@ describe("lobby workers", () => {
     expect(budgets.moderate).toBeLessThan(budgets.chatty);
   });
 
+  it.each([
+    ["task", "task-model", "request-model", "role-model", "config-model", "host-model", "agent-model", "task-model"],
+    ["request", undefined, "request-model", "role-model", "config-model", "host-model", "agent-model", "request-model"],
+    ["Team role", undefined, undefined, "role-model", "config-model", "host-model", "agent-model", "role-model"],
+    ["Crew config", undefined, undefined, undefined, "config-model", "host-model", "agent-model", "config-model"],
+    ["host", undefined, undefined, undefined, undefined, "openai-codex/gpt-5.6-terra", "agent-model", "openai-codex/gpt-5.6-terra"],
+    ["agent frontmatter", undefined, undefined, undefined, undefined, undefined, "agent-model", "agent-model"],
+  ])("uses %s model precedence for a newly spawned task worker", async (
+    _source,
+    taskModel,
+    requestModel,
+    roleModel,
+    configModel,
+    sessionModel,
+    agentModel,
+    expectedModel,
+  ) => {
+    const storeModule = await import("../../crew/store.ts");
+    const configModule = await import("../../crew/utils/config.ts");
+    const discoverModule = await import("../../crew/utils/discover.ts");
+    const teamStore = await import("../../crew/team/store.ts");
+    vi.mocked(storeModule.getTask).mockReturnValueOnce({
+      id: `task-${_source}`, title: "Model task", status: "todo", attempt_count: 0,
+      depends_on: [], description: "", created_at: "", milestone: false,
+      ...(taskModel ? { model: taskModel } : {}),
+      ...(roleModel ? { role: "Engineer" } : {}),
+    } as any);
+    vi.mocked(configModule.loadCrewConfig).mockReturnValue({
+      concurrency: { workers: 4, max: 10 },
+      models: configModel ? { worker: configModel } : {},
+      artifacts: { enabled: false, cleanupDays: 7 },
+      work: { maxAttemptsPerTask: 5, maxWaves: 50, stopOnBlock: false },
+      coordination: "chatty",
+    } as any);
+    vi.mocked(discoverModule.discoverCrewAgents).mockReturnValue([{
+      name: "crew-worker", description: "worker", systemPrompt: "# Worker", tools: [],
+      source: "extension", filePath: "/ext/crew-worker.md", crewRole: "worker",
+      ...(agentModel ? { model: agentModel } : {}),
+    }]);
+    vi.mocked(teamStore.resolveRoleName).mockReturnValue(roleModel ? "Engineer" : undefined);
+    vi.mocked(teamStore.resolveRoles).mockReturnValue(roleModel ? { Engineer: { name: "Engineer", model: roleModel } } : {});
+
+    lobby.spawnWorkerForTask("/test/cwd", `task-${_source}`, "# Task prompt", sessionModel, requestModel);
+
+    const args = vi.mocked(spawn).mock.calls.at(-1)?.[1] as string[];
+    if (expectedModel.includes("/")) {
+      expect(args).toContain("--provider");
+      expect(args[args.indexOf("--provider") + 1]).toBe("openai-codex");
+      expect(args[args.indexOf("--model") + 1]).toBe("gpt-5.6-terra");
+    } else {
+      expect(args[args.indexOf("--model") + 1]).toBe(expectedModel);
+    }
+  });
+
   it("spawnWorkerForTask spawns and immediately assigns", async () => {
-    const storeModule = await import("../../crew/store.js");
-    const feedModule = await import("../../feed.js");
+    const storeModule = await import("../../crew/store.ts");
+    const feedModule = await import("../../feed.ts");
     vi.mocked(storeModule.getTask).mockReturnValueOnce({
       id: "task-5", title: "Build something", status: "todo", attempt_count: 0,
       depends_on: [], description: "", created_at: "", milestone: false,
@@ -400,7 +744,7 @@ describe("lobby workers", () => {
   });
 
   it("spawnWorkerForTask returns null if task already claimed", async () => {
-    const storeModule = await import("../../crew/store.js");
+    const storeModule = await import("../../crew/store.ts");
     vi.mocked(storeModule.getTask).mockReturnValueOnce({
       id: "task-6", title: "Claimed", status: "in_progress", attempt_count: 1,
       depends_on: [], description: "", created_at: "", milestone: false,
@@ -410,14 +754,49 @@ describe("lobby workers", () => {
     expect(worker).toBeNull();
   });
 
+  it("spawnWorkerForTask refuses when an active worker is already registered for the task", async () => {
+    const storeModule = await import("../../crew/store.ts");
+    const registry = await import("../../crew/registry.ts");
+    const { spawn } = await import("node:child_process");
+    vi.mocked(spawn).mockClear();
+    vi.mocked(storeModule.getTask).mockReturnValueOnce({
+      id: "task-7", title: "Active", status: "todo", attempt_count: 0,
+      depends_on: [], description: "", created_at: "", milestone: false,
+    } as any);
+    registry.registerWorker({
+      type: "worker",
+      proc: { exitCode: null, killed: false, kill: vi.fn() } as any,
+      name: "ExistingWorker",
+      cwd: "/test/cwd",
+      taskId: "task-7",
+    });
+
+    const worker = lobby.spawnWorkerForTask("/test/cwd", "task-7", "# prompt");
+
+    expect(worker).toBeNull();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("builds minimal lobby prompt without chat instructions", async () => {
-    const config = await import("../../crew/utils/config.js");
+    const config = await import("../../crew/utils/config.ts");
     vi.mocked(config.loadCrewConfig).mockReturnValue({
-      concurrency: { workers: 4 },
+      concurrency: { workers: 4, max: 10 },
       models: {},
-      artifacts: { enabled: false },
-      work: {},
+      truncation: {
+        planners: { bytes: 204800, lines: 5000 },
+        workers: { bytes: 204800, lines: 5000 },
+        reviewers: { bytes: 102400, lines: 2000 },
+        analysts: { bytes: 102400, lines: 2000 },
+      },
+      artifacts: { enabled: false, cleanupDays: 7 },
+      memory: { enabled: false },
+      planSync: { enabled: false },
+      review: { enabled: true, maxIterations: 3 },
+      planning: { maxPasses: 1 },
+      work: { maxAttemptsPerTask: 5, maxWaves: 50, stopOnBlock: false },
+      dependencies: "advisory",
       coordination: "minimal",
+      messageBudgets: { none: 0, minimal: 2, moderate: 5, chatty: 10 },
     });
 
     const { spawn } = await import("node:child_process");

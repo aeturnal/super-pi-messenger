@@ -10,12 +10,12 @@ import {
   formatDuration,
   type MessengerState,
   type Dirs,
-} from "./lib.js";
-import * as crewStore from "./crew/store.js";
-import { adjustConcurrency, autonomousState, isAutonomousForCwd, isPlanningForCwd, planningState } from "./crew/state.js";
-import { loadCrewConfig, cycleCoordinationLevel, setCoordinationOverride } from "./crew/utils/config.js";
-import { readFeedEvents, type FeedEvent, type FeedEventType } from "./feed.js";
-import type { Task } from "./crew/types.js";
+} from "./lib.ts";
+import * as crewStore from "./crew/store.ts";
+import { adjustConcurrency, autonomousState, isAutonomousForCwd, isPlanningForCwd, planningState } from "./crew/state.ts";
+import { loadCrewConfig, cycleCoordinationLevel, setCoordinationOverride } from "./crew/utils/config.ts";
+import { readFeedEvents, type FeedEvent, type FeedEventType } from "./feed.ts";
+import type { Task } from "./crew/types.ts";
 import {
   renderStatusBar,
   renderWorkersSection,
@@ -28,7 +28,7 @@ import {
   renderPlanningState,
   renderDetailView,
   navigateTask,
-} from "./overlay-render.js";
+} from "./overlay-render.ts";
 import {
   createCrewViewState,
   handleConfirmInput,
@@ -38,12 +38,13 @@ import {
   handleCrewKeyBinding,
   setNotification,
   type CrewViewState,
-} from "./overlay-actions.js";
-import { getLiveWorkers, hasLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.js";
-import { loadConfig } from "./config.js";
-import { discoverCrewAgents } from "./crew/utils/discover.js";
-import { spawnSingleWorker, spawnWorkersForReadyTasks } from "./crew/spawn.js";
-import { spawnLobbyWorker, removeLobbyWorkerByIndex, cleanupUnassignedAliveFiles } from "./crew/lobby.js";
+} from "./overlay-actions.ts";
+import { getLiveWorkers, hasLiveWorkers, onLiveWorkersChanged } from "./crew/live-progress.ts";
+import { loadConfig } from "./config.ts";
+import { discoverCrewAgents } from "./crew/utils/discover.ts";
+import { spawnSingleWorker } from "./crew/spawn.ts";
+import * as teamStore from "./crew/team/store.ts";
+import { spawnLobbyWorker, removeLobbyWorkerByIndex } from "./crew/lobby.ts";
 
 export interface OverlayCallbacks {
   onBackground?: (snapshot: string) => void;
@@ -64,8 +65,6 @@ export class MessengerOverlay implements Component, Focusable {
   private sawIncompleteWork = false;
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
   private completionDismissed = false;
-  private wasPlanning: boolean;
-  private prevInProgressCount = 0;
 
   constructor(
     private tui: TUI,
@@ -74,16 +73,16 @@ export class MessengerOverlay implements Component, Focusable {
     private dirs: Dirs,
     private done: (snapshot?: string) => void,
     private callbacks: OverlayCallbacks,
+    cwd: string,
+    private getCurrentSessionModel: () => string | undefined = () => undefined,
   ) {
-    this.cwd = process.cwd();
+    this.cwd = cwd;
     const cfg = loadConfig(this.cwd);
     this.stuckThresholdMs = cfg.stuckThreshold * 1000;
 
     for (const key of this.state.unreadCounts.keys()) {
       this.state.unreadCounts.set(key, 0);
     }
-
-    this.wasPlanning = isPlanningForCwd(this.cwd);
 
     this.progressUnsubscribe = onLiveWorkersChanged(() => {
       this.syncCrewRefreshTimers();
@@ -107,7 +106,14 @@ export class MessengerOverlay implements Component, Focusable {
         return;
       }
     }
-    const worker = spawnSingleWorker(this.cwd, task.id);
+    if (teamStore.taskNeedsApproval(task)) {
+      const message = teamStore.taskNeedsRevision(task) ? `${task.id} needs revision` : `${task.id} needs lead approval`;
+      setNotification(this.crewViewState, this.tui, false, message);
+      this.tui.requestRender();
+      return;
+    }
+
+    const worker = spawnSingleWorker(this.cwd, task.id, this.getCurrentSessionModel());
     if (worker) {
       setNotification(this.crewViewState, this.tui, true, `${worker.name} → ${task.id}`);
     } else {
@@ -117,59 +123,24 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   private spawnWorkerForReadyTask(task: Task, newConcurrency: number): void {
-    const worker = spawnSingleWorker(this.cwd, task.id);
-    const label = worker
-      ? `${worker.name} → ${task.id} (${newConcurrency}w)`
-      : `Workers → ${newConcurrency}`;
-    setNotification(this.crewViewState, this.tui, true, label);
+    const worker = spawnSingleWorker(this.cwd, task.id, this.getCurrentSessionModel());
+    if (!worker) {
+      const message = teamStore.taskNeedsRevision(task)
+        ? `${task.id} needs revision`
+        : teamStore.taskNeedsApproval(task)
+          ? `${task.id} needs lead approval`
+          : `Failed to spawn worker for ${task.id}`;
+      setNotification(this.crewViewState, this.tui, false, message);
+      this.tui.requestRender();
+      return;
+    }
+
+    setNotification(this.crewViewState, this.tui, true, `${worker.name} → ${task.id} (${newConcurrency}w)`);
     this.tui.requestRender();
   }
 
   private isPlanningActiveForCurrentProject(): boolean {
     return isPlanningForCwd(this.cwd);
-  }
-
-  private checkAutoSpawnOnPlanComplete(planning: boolean): void {
-    const wasPlanningBefore = this.wasPlanning;
-    this.wasPlanning = planning;
-
-    if (!wasPlanningBefore || planning) return;
-
-    const config = loadCrewConfig(crewStore.getCrewDir(this.cwd));
-    const readyTasks = crewStore.getReadyTasks(this.cwd, { advisory: config.dependencies === "advisory" });
-    if (readyTasks.length > 0) {
-      const target = Math.min(readyTasks.length, autonomousState.concurrency);
-      const { assigned } = spawnWorkersForReadyTasks(this.cwd, target);
-      if (assigned > 0) {
-        setNotification(this.crewViewState, this.tui, true, `Plan ready — ${assigned} worker${assigned > 1 ? "s" : ""} started`);
-        this.tui.requestRender();
-      }
-    }
-
-    cleanupUnassignedAliveFiles(this.cwd);
-  }
-
-  private checkAutoRefillWorkers(): void {
-    const inProgressCount = crewStore.getTasks(this.cwd).filter(t => t.status === "in_progress").length;
-    const prev = this.prevInProgressCount;
-    this.prevInProgressCount = inProgressCount;
-
-    if (inProgressCount >= prev || inProgressCount >= autonomousState.concurrency) return;
-    if (!crewStore.hasPlan(this.cwd)) return;
-
-    const config = loadCrewConfig(crewStore.getCrewDir(this.cwd));
-    const readyTasks = crewStore.getReadyTasks(this.cwd, { advisory: config.dependencies === "advisory" });
-    if (readyTasks.length === 0) return;
-
-    const slots = autonomousState.concurrency - inProgressCount;
-    const target = Math.min(readyTasks.length, slots);
-    if (target <= 0) return;
-
-    const { assigned } = spawnWorkersForReadyTasks(this.cwd, target);
-    if (assigned > 0) {
-      setNotification(this.crewViewState, this.tui, true, `${assigned} worker${assigned > 1 ? "s" : ""} → ready tasks`);
-      this.tui.requestRender();
-    }
   }
 
   private syncCrewRefreshTimers(): void {
@@ -249,7 +220,15 @@ export class MessengerOverlay implements Component, Focusable {
     if (this.crewViewState.inputMode === "revise-prompt") {
       const tasks = crewStore.getTasks(this.cwd);
       const task = tasks[this.crewViewState.selectedTaskIndex];
-      handleRevisePromptInput(data, this.crewViewState, this.cwd, task, this.state.agentName, this.tui);
+      handleRevisePromptInput(
+        data,
+        this.crewViewState,
+        this.cwd,
+        task,
+        this.state.agentName,
+        this.tui,
+        this.getCurrentSessionModel(),
+      );
       return;
     }
 
@@ -277,7 +256,7 @@ export class MessengerOverlay implements Component, Focusable {
       if (next > prev) {
         const readyTasks = crewStore.getReadyTasks(this.cwd, { advisory: config.dependencies === "advisory" });
         if (readyTasks.length === 0) {
-          const worker = spawnLobbyWorker(this.cwd);
+          const worker = spawnLobbyWorker(this.cwd, undefined, this.getCurrentSessionModel());
           const label = worker ? `Lobby worker ${worker.name} spawned (${next}w)` : `Workers → ${next}`;
           setNotification(this.crewViewState, this.tui, true, label);
         } else {
@@ -572,11 +551,9 @@ export class MessengerOverlay implements Component, Focusable {
       this.crewViewState.selectedTaskIndex = Math.max(0, Math.min(this.crewViewState.selectedTaskIndex, tasks.length - 1));
     }
 
-    const selectedTask = tasks[this.crewViewState.selectedTaskIndex] ?? null;
     const hasPlan = this.hasPlan();
     const planning = this.isPlanningActiveForCurrentProject();
-    this.checkAutoSpawnOnPlanComplete(planning);
-    this.checkAutoRefillWorkers();
+    const selectedTask = tasks[this.crewViewState.selectedTaskIndex] ?? null;
 
     const lines: string[] = [];
     const titleContent = this.renderTitleContent();
@@ -587,7 +564,7 @@ export class MessengerOverlay implements Component, Focusable {
     const rightBorder = borderLen - leftBorder;
 
     lines.push(border("╭" + "─".repeat(leftBorder)) + titleText + border("─".repeat(rightBorder) + "╮"));
-    lines.push(row(renderStatusBar(this.theme, this.cwd, sectionW)));
+    lines.push(row(renderStatusBar(this.theme, this.cwd, sectionW, tasks)));
     lines.push(emptyRow());
 
     const chromeLines = 6;
@@ -607,7 +584,14 @@ export class MessengerOverlay implements Component, Focusable {
       const hasWorkers = hasLiveWorkers(this.cwd);
 
       let workerLines = renderWorkersSection(this.theme, this.cwd, sectionW, workersLimit);
-      const agentsLine = renderAgentsRow(this.cwd, sectionW, this.state, this.dirs, this.stuckThresholdMs);
+      const agentsLine = renderAgentsRow(
+        this.cwd,
+        sectionW,
+        this.state,
+        this.dirs,
+        this.stuckThresholdMs,
+        new Map([[this.cwd, tasks]]),
+      );
       const agentsHeight = 2;
       const workersHeight = () => workerLines.length > 0 ? workerLines.length + 1 : 0;
       const available = contentHeight - workersHeight() - agentsHeight;
@@ -659,9 +643,9 @@ export class MessengerOverlay implements Component, Focusable {
       } else if (planning && tasks.length === 0) {
         mainLines = renderPlanningState(this.theme, this.cwd, sectionW, mainHeight);
       } else if (isFeedFocus && tasks.length > 0) {
-        mainLines = renderTaskSummary(this.theme, this.cwd, sectionW, mainHeight);
+        mainLines = renderTaskSummary(this.theme, this.cwd, sectionW, mainHeight, tasks);
       } else {
-        mainLines = renderTaskList(this.theme, this.cwd, sectionW, mainHeight, this.crewViewState);
+        mainLines = renderTaskList(this.theme, this.cwd, sectionW, mainHeight, this.crewViewState, tasks);
       }
 
       contentLines = [];

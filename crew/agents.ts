@@ -10,30 +10,32 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { discoverCrewAgents, type CrewAgentConfig } from "./utils/discover.js";
-import { truncateOutput } from "./utils/truncate.js";
+import { discoverCrewAgents, type CrewAgentConfig } from "./utils/discover.ts";
+import { truncateOutput } from "./utils/truncate.ts";
 import {
   createProgress,
   parseJsonlLine,
   updateProgress,
-  getFinalOutput,
+  getAssistantText,
+  compactEventForArtifact,
+  getTerminalProviderError,
   type PiEvent,
-} from "./utils/progress.js";
+} from "./utils/progress.ts";
 import {
   getArtifactPaths,
   ensureArtifactsDir,
   writeArtifact,
   writeMetadata,
   appendJsonl
-} from "./utils/artifacts.js";
-import { loadCrewConfig, getTruncationForRole, type CrewConfig } from "./utils/config.js";
-import { removeLiveWorker, updateLiveWorker } from "./live-progress.js";
-import { autonomousState, waitForConcurrencyChange } from "./state.js";
-import { registerWorker, unregisterWorker, killAll } from "./registry.js";
-import type { AgentTask, AgentResult } from "./types.js";
-import { generateMemorableName } from "../lib.js";
-import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.js";
-import { prepareSuperpowersLaunch, renderSuperpowersGuidance } from "./superpowers.js";
+} from "./utils/artifacts.ts";
+import { loadCrewConfig, getTruncationForRole, type CrewConfig } from "./utils/config.ts";
+import { removeLiveWorker, updateLiveWorker } from "./live-progress.ts";
+import { autonomousState, waitForConcurrencyChange } from "./state.ts";
+import { registerWorker, unregisterWorker, killAll } from "./registry.ts";
+import type { AgentTask, AgentResult } from "./types.ts";
+import { generateMemorableName } from "../lib.ts";
+import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
+import { prepareSuperpowersLaunch, renderSuperpowersGuidance } from "./superpowers.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +49,26 @@ export interface SpawnOptions {
   messengerDirs?: { registry: string; inbox: string };
 }
 
+export interface WorkerGuidance {
+  active: boolean;
+  env: Record<string, string>;
+  systemPromptSuffix?: string;
+}
+
+export function prepareWorkerGuidance(
+  role: "worker" | "reviewer",
+  assignmentId?: string,
+): WorkerGuidance {
+  const launch = prepareSuperpowersLaunch(role, assignmentId);
+  if (!launch) return { active: false, env: {} };
+
+  return {
+    active: true,
+    env: { [SUPERPOWERS_CHILD_FLAG]: "1" },
+    systemPromptSuffix: renderSuperpowersGuidance(launch),
+  };
+}
+
 export function shutdownAllWorkers(): void {
   killAll();
 }
@@ -54,10 +76,16 @@ export function shutdownAllWorkers(): void {
 export function resolveModel(
   taskModel?: string,
   paramModel?: string,
+  roleModel?: string,
   configModel?: string,
+  sessionModel?: string,
   agentModel?: string,
 ): string | undefined {
-  return taskModel ?? paramModel ?? configModel ?? agentModel;
+  return taskModel ?? paramModel ?? roleModel ?? configModel ?? sessionModel ?? agentModel;
+}
+
+export function getPiCommand(): string {
+  return process.platform === "win32" ? "pi.cmd" : "pi";
 }
 
 export function pushModelArgs(args: string[], model: string): void {
@@ -140,29 +168,39 @@ export async function spawnAgents(
   // Setup artifacts directory if enabled
   const artifactsDir = path.join(crewDir, "artifacts");
   if (config.artifacts.enabled) {
-    ensureArtifactsDir(artifactsDir);
+    ensureArtifactsDir(artifactsDir, config.artifacts.cleanupDays);
   }
 
   const results: AgentResult[] = [];
   const queue = tasks.map((task, index) => ({ task, index }));
   const running: Promise<void>[] = [];
+  let aggregateFailure: { error: unknown } | undefined;
 
   while (queue.length > 0 || running.length > 0) {
     if (options.signal?.aborted && running.length === 0) break;
 
-    while (running.length < autonomousState.concurrency && queue.length > 0) {
+    while (!aggregateFailure && running.length < autonomousState.concurrency && queue.length > 0) {
       if (options.signal?.aborted) break;
       const { task, index } = queue.shift()!;
       const promise = runAgent(task, index, cwd, agents, config, runId, artifactsDir, options)
         .then(result => {
           results.push(result);
-          running.splice(running.indexOf(promise), 1);
           options.onProgress?.(results);
+        })
+        .catch(error => {
+          aggregateFailure ??= { error };
+        })
+        .finally(() => {
+          running.splice(running.indexOf(promise), 1);
         });
       running.push(promise);
     }
     if (running.length > 0) {
       await Promise.race([...running, waitForConcurrencyChange()]);
+      if (aggregateFailure) {
+        await Promise.all(running);
+        throw aggregateFailure.error;
+      }
       if (options.signal?.aborted) continue;
     }
   }
@@ -186,7 +224,9 @@ async function runAgent(
   const workerName = generateMemorableName();
 
   const role = agentConfig?.crewRole ?? "worker";
-  const superpowersLaunch = prepareSuperpowersLaunch(role, task.taskId);
+  const workerGuidance: WorkerGuidance = role === "worker" || role === "reviewer"
+    ? prepareWorkerGuidance(role, task.taskId)
+    : { active: false, env: {} };
   const maxOutput = task.maxOutput
     ?? agentConfig?.maxOutput
     ?? getTruncationForRole(config, role);
@@ -236,20 +276,17 @@ async function runAgent(
       }
     }
 
-    // Pass extension so workers can use pi_messenger
+    // Pass extensions to every Crew child.
     args.push("--extension", EXTENSION_DIR);
-    if (superpowersLaunch) {
-      args.push("--extension", SUPERPOWERS_GUARD_PATH);
-    }
+    args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
     let promptTmpDir: string | null = null;
-    if (agentConfig?.systemPrompt || superpowersLaunch) {
+    if (agentConfig?.systemPrompt || workerGuidance.systemPromptSuffix) {
       promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-agent-"));
       const promptPath = path.join(promptTmpDir, `${task.agent.replace(/[^\w.-]/g, "_")}.md`);
       let appendSystemPrompt = agentConfig?.systemPrompt ?? "";
-      if (superpowersLaunch) {
-        const guidance = renderSuperpowersGuidance(superpowersLaunch);
-        appendSystemPrompt += appendSystemPrompt ? `\n\n${guidance}` : guidance;
+      if (workerGuidance.systemPromptSuffix) {
+        appendSystemPrompt += appendSystemPrompt ? `\n\n${workerGuidance.systemPromptSuffix}` : workerGuidance.systemPromptSuffix;
       }
       fs.writeFileSync(promptPath, appendSystemPrompt, { mode: 0o600 });
       args.push("--append-system-prompt", promptPath);
@@ -261,17 +298,22 @@ async function runAgent(
     const workerFlag = role === "worker"
       ? { PI_CREW_WORKER: "1", PI_AGENT_NAME: workerName }
       : {};
-    const superpowersFlag = superpowersLaunch
-      ? { PI_CREW_ROLE: role, [SUPERPOWERS_CHILD_FLAG]: "1" }
-      : {};
-    const env = Object.keys(envOverrides).length > 0 || role === "worker" || superpowersLaunch
-      ? { ...process.env, ...envOverrides, ...workerFlag, ...superpowersFlag }
-      : undefined;
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...envOverrides,
+      ...workerFlag,
+      PI_CREW_ROLE: role,
+    };
+    if (workerGuidance.active) {
+      Object.assign(env, workerGuidance.env);
+    } else {
+      delete env[SUPERPOWERS_CHILD_FLAG];
+    }
 
-    const proc = spawn("pi", args, {
+    const proc = spawn(getPiCommand(), args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
-      ...(env ? { env } : {}),
+      env,
     });
     if (task.taskId) {
       registerWorker({ type: "worker", proc, name: workerName, cwd, taskId: task.taskId });
@@ -280,7 +322,8 @@ async function runAgent(
     let discoveredWorkerName: string | null = null;
 
     let jsonlBuffer = "";
-    const events: PiEvent[] = [];
+    let fullOutput = "";
+    let terminalProviderError: string | null = null;
 
     proc.stdout?.on("data", (data) => {
       try {
@@ -291,11 +334,18 @@ async function runAgent(
         for (const line of lines) {
           const event = parseJsonlLine(line);
           if (event) {
-            events.push(event);
             updateProgress(progress, event, startTime);
+            const assistantText = getAssistantText(event);
+            if (assistantText) fullOutput = assistantText;
             if (artifactPaths) {
-              try { appendJsonl(artifactPaths.jsonlPath, line); }
+              try { appendJsonl(artifactPaths.jsonlPath, JSON.stringify(compactEventForArtifact(event))); }
               catch { artifactPaths = undefined; }
+            }
+            const providerError = getTerminalProviderError(event);
+            if (providerError && !terminalProviderError) {
+              terminalProviderError = providerError;
+              progress.error = providerError;
+              proc.kill("SIGTERM");
             }
             if (task.taskId) {
               updateLiveWorker(cwd, task.taskId, {
@@ -322,11 +372,12 @@ async function runAgent(
         removeLiveWorker(cwd, task.taskId);
         unregisterWorker(cwd, task.taskId);
       }
-      progress.status = code === 0 ? "completed" : "failed";
+      const exitCode = terminalProviderError ? 1 : code ?? 1;
+      progress.status = exitCode === 0 ? "completed" : "failed";
       progress.durationMs = Date.now() - startTime;
-      if (stderr && code !== 0) progress.error = stderr;
+      if (terminalProviderError) progress.error = terminalProviderError;
+      else if (stderr && exitCode !== 0) progress.error = stderr;
 
-      const fullOutput = getFinalOutput(events);
       const truncation = truncateOutput(fullOutput, maxOutput, artifactPaths?.outputPath);
 
       if (artifactPaths) {
@@ -336,7 +387,7 @@ async function runAgent(
             runId,
             agent: task.agent,
             index,
-            exitCode: code ?? 1,
+            exitCode,
             durationMs: progress.durationMs,
             tokens: progress.tokens,
             truncated: truncation.truncated,
@@ -351,7 +402,7 @@ async function runAgent(
 
       resolve({
         agent: task.agent,
-        exitCode: code ?? 1,
+        exitCode,
         output: truncation.text,
         truncated: truncation.truncated,
         progress,

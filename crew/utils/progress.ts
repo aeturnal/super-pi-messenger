@@ -27,6 +27,7 @@ export interface AgentProgress {
 // Event types from pi's --mode json output
 export interface PiEvent {
   type: string;
+  [key: string]: unknown;
   toolName?: string;
   args?: Record<string, unknown>;
   message?: {
@@ -35,6 +36,7 @@ export interface PiEvent {
     model?: string;
     content?: Array<{ type: string; text?: string }>;
     errorMessage?: string;
+    stopReason?: string;
   };
 }
 
@@ -107,14 +109,100 @@ function extractArgsPreview(args?: Record<string, unknown>): string {
   return "";
 }
 
-export function getFinalOutput(messages: PiEvent[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.type === "message_end" && msg.message?.role === "assistant") {
-      for (const part of msg.message.content ?? []) {
-        if (part.type === "text" && part.text) return part.text;
-      }
-    }
+export function getAssistantText(event: PiEvent): string {
+  if (event.type !== "message_end" || event.message?.role !== "assistant") return "";
+  for (const part of event.message.content ?? []) {
+    if (part.type === "text" && part.text) return part.text;
   }
   return "";
+}
+
+export function getFinalOutput(messages: PiEvent[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const text = getAssistantText(messages[i]);
+    if (text) return text;
+  }
+  return "";
+}
+
+export function compactEventForArtifact(event: PiEvent): Record<string, unknown> {
+  if (event.type !== "message_update") return event as Record<string, unknown>;
+
+  const compact: Record<string, unknown> = { ...event };
+  delete compact.message;
+
+  const assistantMessageEvent = compact.assistantMessageEvent;
+  if (assistantMessageEvent && typeof assistantMessageEvent === "object") {
+    const nested = { ...(assistantMessageEvent as Record<string, unknown>) };
+    delete nested.partial;
+    compact.assistantMessageEvent = nested;
+  }
+
+  return compact;
+}
+
+export function getTerminalProviderError(event: PiEvent): string | null {
+  const assistantError = isTerminalAssistantError(event);
+  if (!assistantError && event.type !== "provider_error") return null;
+
+  const errorMessage = assistantError ? event.message!.errorMessage : firstUsefulMessage(event);
+  const status = assistantError
+    ? findStatusCode(event.message) ?? findFormattedStatus(errorMessage)
+    : findStatusCode(event);
+  if (status === undefined || ![400, 401, 402, 403, 429].includes(status)) return null;
+
+  const text = assistantError ? errorMessage ?? "" : collectStrings(event).join(" ");
+  const normalized = text.toLowerCase();
+  const durableAccountError = /(quota (?:is |has been )?exhausted|billing disabled|payment required|invalid (?:api )?(?:key|credentials?)|account disabled|extra usage|add more (?:credits|usage))/.test(normalized);
+  const authenticationError = status === 401 && /(unauthorized|authentication failed)/.test(normalized);
+  const authorizationError = status === 403 && /forbidden/.test(normalized);
+  if (!durableAccountError && !authenticationError && !authorizationError) {
+    return null;
+  }
+
+  const message = errorMessage ?? text;
+  const concise = message.replace(/\s+/g, " ").trim().slice(0, 500);
+  return `Provider error ${status}: ${concise || "non-retryable provider error"}`;
+}
+
+function isTerminalAssistantError(event: PiEvent): boolean {
+  return (event.type === "message_update" || event.type === "message_end")
+    && event.message?.role === "assistant"
+    && event.message.stopReason === "error";
+}
+
+function findFormattedStatus(errorMessage: string | undefined): number | undefined {
+  const match = errorMessage?.match(/^\s*(400|401|402|403|429)\s*:/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function findStatusCode(value: unknown): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (["status", "statusCode", "httpStatus", "code"].includes(key) && typeof child === "number") return child;
+    const nested = findStatusCode(child);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
+function collectStrings(value: unknown, depth = 0): string[] {
+  if (depth > 5 || value === null || value === undefined) return [];
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(item => collectStrings(item, depth + 1));
+  if (typeof value !== "object") return [];
+  return Object.values(value as Record<string, unknown>).flatMap(item => collectStrings(item, depth + 1));
+}
+
+function firstUsefulMessage(value: unknown, depth = 0): string | undefined {
+  if (depth > 5 || !value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["message", "errorMessage", "detail", "details"]) {
+    if (typeof record[key] === "string") return record[key] as string;
+  }
+  for (const child of Object.values(record)) {
+    const nested = firstUsefulMessage(child, depth + 1);
+    if (nested) return nested;
+  }
+  return undefined;
 }
