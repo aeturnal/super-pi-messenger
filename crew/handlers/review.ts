@@ -5,7 +5,6 @@
  * Simplified: works with current plan
  */
 
-import { execSync } from "node:child_process";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CrewParams } from "../types.js";
 import { result } from "../utils/result.js";
@@ -13,6 +12,11 @@ import { spawnAgents } from "../agents.js";
 import { discoverCrewAgents } from "../utils/discover.js";
 import { loadCrewConfig } from "../utils/config.js";
 import { parseVerdict, type ParsedReview } from "../utils/verdict.js";
+import {
+  invokeLegacyReviewer,
+  LegacyReviewInvocationError,
+  type LegacyReviewerProvider,
+} from "../execution/reviews.js";
 import * as store from "../store.js";
 
 export async function execute(
@@ -55,119 +59,44 @@ export async function execute(
 // Implementation Review
 // =============================================================================
 
-export async function reviewImplementation(cwd: string, taskId: string, modelOverride?: string) {
-  const task = store.getTask(cwd, taskId);
-  if (!task) {
-    return result(`Error: Task ${taskId} not found.`, {
-      mode: "review",
-      error: "task_not_found",
-      target: taskId
-    });
-  }
-
-  if (task.status !== "done" && task.status !== "in_progress") {
-    return result(`Error: Task ${taskId} is ${task.status}. Can only review in_progress or done tasks.`, {
-      mode: "review",
-      error: "invalid_status",
-      status: task.status
-    });
-  }
-
-  // Get git diff
-  const baseCommit = task.base_commit;
-  if (!baseCommit) {
-    return result(`Error: Task ${taskId} has no base_commit. Cannot generate diff.`, {
-      mode: "review",
-      error: "no_base_commit"
-    });
-  }
-
-  const diff = getGitDiff(baseCommit, cwd);
-  const commitLog = getCommitLog(baseCommit, cwd);
-
-  // Get task spec for context
-  const taskSpec = store.getTaskSpec(cwd, taskId) ?? "";
-  const plan = store.getPlan(cwd);
-
-  // Build review prompt
-  const prompt = `# Code Review Request
-
-## Task Information
-
-**Task ID:** ${taskId}
-**Task Title:** ${task.title}
-**PRD:** ${plan?.prd ?? "Unknown"}
-
-## Task Specification
-
-${taskSpec || "*No spec available*"}
-
-## Changes
-
-### Commits
-${commitLog || "*No commits*"}
-
-### Diff
-\`\`\`diff
-${diff}
-\`\`\`
-
-## Your Review
-
-Review this implementation following the crew-reviewer protocol.
-Output your verdict as SHIP, NEEDS_WORK, or MAJOR_RETHINK with detailed feedback.`;
-
-  // Spawn reviewer
-  const [reviewResult] = await spawnAgents([{
-    agent: "crew-reviewer",
-    task: prompt,
-    modelOverride,
-  }], cwd);
-
-  if (reviewResult.exitCode !== 0) {
-    return result(`Error: Reviewer failed: ${reviewResult.error ?? "Unknown error"}`, {
-      mode: "review",
-      error: "reviewer_failed"
-    });
-  }
-
-  // Parse verdict from output
-  const verdict: ParsedReview = parseVerdict(reviewResult.output);
-
-  // Store review feedback in task for retry context
-  store.updateTask(cwd, taskId, {
-    last_review: {
-      verdict: verdict.verdict,
-      summary: verdict.summary,
-      issues: verdict.issues,
-      suggestions: verdict.suggestions,
-      reviewed_at: new Date().toISOString()
-    }
-  });
-  const shortSummary = verdict.summary.split("\n")[0].slice(0, 120);
-  const progressMsg = `Review: ${verdict.verdict} — ${shortSummary}`;
-  store.appendTaskProgress(cwd, taskId, "system", progressMsg);
-
-  const text = `# Review: ${taskId}
+export async function reviewImplementation(
+  cwd: string,
+  taskId: string,
+  modelOverride?: string,
+  provider?: LegacyReviewerProvider,
+) {
+  try {
+    const verdict = await invokeLegacyReviewer(cwd, taskId, modelOverride, provider);
+    const text = `# Review: ${taskId}
 
 **Verdict:** ${verdict.verdict}
 
 ${verdict.summary}
 
-${verdict.issues.length > 0 ? `## Issues\n${verdict.issues.map(i => `- ${i}`).join("\n")}` : ""}
+${verdict.issues.length > 0 ? `## Issues\n${verdict.issues.map(issue => `- ${issue}`).join("\n")}` : ""}
 
-${verdict.suggestions.length > 0 ? `## Suggestions\n${verdict.suggestions.map(s => `- ${s}`).join("\n")}` : ""}
+${verdict.suggestions.length > 0 ? `## Suggestions\n${verdict.suggestions.map(suggestion => `- ${suggestion}`).join("\n")}` : ""}
 
 ${verdict.verdict === "SHIP" ? "✅ Ready to merge!" : verdict.verdict === "NEEDS_WORK" ? "⚠️ Address issues and re-review." : "🔄 Consider re-planning this task."}`;
 
-  return result(text, {
-    mode: "review",
-    type: "impl",
-    taskId,
-    verdict: verdict.verdict,
-    issueCount: verdict.issues.length,
-    suggestionCount: verdict.suggestions.length
-  });
+    return result(text, {
+      mode: "review",
+      type: "impl",
+      taskId,
+      verdict: verdict.verdict,
+      issueCount: verdict.issues.length,
+      suggestionCount: verdict.suggestions.length,
+    });
+  } catch (error) {
+    const code = error instanceof LegacyReviewInvocationError
+      ? error.code
+      : "review_provider_failed";
+    return result(`Error: Reviewer failed: ${error instanceof Error ? error.message : String(error)}`, {
+      mode: "review",
+      error: code,
+      taskId,
+    });
+  }
 }
 
 // =============================================================================
@@ -263,36 +192,4 @@ ${verdict.verdict === "SHIP" ? "✅ Plan is ready for execution!" : verdict.verd
     issueCount: verdict.issues.length,
     suggestionCount: verdict.suggestions.length
   });
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-function getGitDiff(baseCommit: string, cwd: string): string {
-  try {
-    const diff = execSync(
-      `git diff ${baseCommit}..HEAD`,
-      { cwd, encoding: "utf-8", maxBuffer: 5 * 1024 * 1024 }
-    );
-    // Truncate very long diffs
-    if (diff.length > 50000) {
-      return diff.slice(0, 50000) + "\n\n[Diff truncated - too large]";
-    }
-    return diff || "*No changes*";
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return `*Failed to get diff: ${message}*`;
-  }
-}
-
-function getCommitLog(baseCommit: string, cwd: string): string {
-  try {
-    return execSync(
-      `git log ${baseCommit}..HEAD --oneline --no-decorate`,
-      { cwd, encoding: "utf-8" }
-    ).trim() || "*No commits*";
-  } catch {
-    return "*No commits*";
-  }
 }

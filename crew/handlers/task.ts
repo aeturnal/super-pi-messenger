@@ -14,13 +14,21 @@ import * as store from "../store.js";
 import { logFeedEvent } from "../../feed.js";
 import { executeTaskAction } from "../task-actions.js";
 import { taskRevise, taskReviseTree } from "./revise.js";
+import { completeOwnedAttempt } from "../execution/completion.js";
+import { resolveLobbyAttemptIdentity } from "../execution/lobby-assignment.js";
+import type { ReconcileFacts, ReconcileReason } from "../execution/scheduler.js";
 export { executeRevise, executeReviseTree, type ReviseResult } from "./revise.js";
+
+export interface TaskHandlerDependencies {
+  requestReconcile?(reason: ReconcileReason, facts?: ReconcileFacts): void;
+}
 
 export async function execute(
   op: string,
   params: CrewParams,
   state: MessengerState,
-  ctx: ExtensionContext
+  ctx: ExtensionContext,
+  dependencies: TaskHandlerDependencies = {},
 ) {
   const cwd = ctx.cwd ?? process.cwd();
 
@@ -36,7 +44,7 @@ export async function execute(
     case "start":
       return taskStart(cwd, params, state);
     case "done":
-      return taskDone(cwd, params, state);
+      return taskDone(cwd, params, state, dependencies);
     case "block":
       return taskBlock(cwd, params, state);
     case "unblock":
@@ -419,32 +427,52 @@ If blocked: \`pi_messenger({ action: "task.block", id: "${id}", reason: "..." })
 // task.done
 // =============================================================================
 
-function taskDone(cwd: string, params: CrewParams, state: MessengerState) {
+function taskDone(
+  cwd: string,
+  params: CrewParams,
+  state: MessengerState,
+  dependencies: TaskHandlerDependencies,
+) {
   const id = params.id;
   if (!id) {
     return result("Error: id required for task.done", { mode: "task.done", error: "missing_id" });
   }
 
-  const task = store.getTask(cwd, id);
-  if (!task) {
-    return result(`Error: Task ${id} not found`, { mode: "task.done", error: "not_found", id });
-  }
-
-  if (task.status !== "in_progress") {
-    return result(`Error: Task ${id} is ${task.status}, not in_progress`, {
-      mode: "task.done", error: "invalid_status", id, status: task.status
+  const lobbyIdentity = process.env.PI_LOBBY_ID
+    ? resolveLobbyAttemptIdentity(cwd)
+    : null;
+  const attemptId = process.env.PI_LOBBY_ID
+    ? lobbyIdentity?.attemptId
+    : params.attemptId ?? process.env.PI_CREW_ATTEMPT_ID;
+  const summary = params.summary ?? "Task completed";
+  const evidence: TaskEvidence | undefined = params.evidence;
+  const config = loadCrewConfig(store.getCrewDir(cwd));
+  const completion = completeOwnedAttempt({
+    cwd,
+    taskId: id,
+    attemptId,
+    summary,
+    evidence,
+    reviewEnabled: config.review.enabled,
+    trustedIdentity: lobbyIdentity ?? undefined,
+  });
+  if (completion.kind === "rejected") {
+    return result(`Error: Failed to complete task ${id}: ${completion.reason}`, {
+      mode: "task.done",
+      error: completion.reason,
+      id,
     });
   }
 
-  const summary = params.summary ?? "Task completed";
-  const evidence: TaskEvidence | undefined = params.evidence;
-
-  const completed = store.completeTask(cwd, id, summary, evidence);
-  if (!completed) {
-    return result(`Error: Failed to complete task ${id}`, { mode: "task.done", error: "complete_failed", id });
+  const completed = completion.task;
+  if (completion.kind === "committed") {
+    logFeedEvent(cwd, state.agentName || "unknown", "task.done", id, summary);
+    const reviewAttemptId = completed.legacy_review_state?.attemptId;
+    const facts: ReconcileFacts | undefined = completed.status === "review_pending" && reviewAttemptId ? {
+      taskOutcomes: [{ name: "task.review_pending", taskId: id, attemptId: reviewAttemptId }],
+    } : undefined;
+    dependencies.requestReconcile?.("durable_completion", facts);
   }
-
-  logFeedEvent(cwd, state.agentName || "unknown", "task.done", id, summary);
 
   const plan = store.getPlan(cwd);
   const tasks = store.getTasks(cwd);
@@ -454,16 +482,15 @@ function taskDone(cwd: string, params: CrewParams, state: MessengerState) {
   if (remaining.length === 0) {
     nextSteps = `\n\n🎉 **All tasks complete!** Plan is finished.`;
   } else {
-    const config = loadCrewConfig(store.getCrewDir(cwd));
     const ready = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" });
     if (ready.length > 0) {
       nextSteps = `\n\n**Ready tasks:** ${ready.map(t => t.id).join(", ")}`;
     }
   }
 
-  const text = `✅ Completed task **${id}**
+  const text = `${completion.kind === "duplicate" ? "✅ Already completed" : "✅ Completed"} task **${id}**
 
-**Summary:** ${summary}
+**Summary:** ${completed.summary ?? summary}
 **Progress:** ${plan?.completed_count}/${plan?.task_count}${nextSteps}`;
 
   return result(text, {

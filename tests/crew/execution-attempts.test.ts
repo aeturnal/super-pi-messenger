@@ -279,6 +279,61 @@ describe("durable cancellation", () => {
 });
 
 describe("non-cancellation close reconciliation", () => {
+  it.each(["done", "review_pending"] as const)(
+    "does not emit a duplicate outcome event after durable %s completion",
+    completion => {
+      const { cwd, crewDir } = createTempCrewDirs();
+      const task = seedRunningTask(cwd);
+      writeSchedulerRecord(cwd, scheduler([attemptA]));
+      taskStore.updateTask(cwd, task.id, completion === "done" ? {
+        status: "done",
+        completion_attempt_id: attemptA,
+      } : {
+        status: "review_pending",
+        completion_attempt_id: attemptA,
+        legacy_review_state: { version: 1, state: "pending", reviewCount: 0, attemptId: attemptA },
+      });
+
+      expect(reconcileChildClose({ cwd, attemptId: attemptA, exitCode: 0, signal: null, closedAt }).kind)
+        .toBe(completion === "done" ? "completed" : "review_pending");
+      expect(readSchedulerRecord(cwd)?.activeAttemptIds).toEqual([]);
+      expect(taskStore.getTask(cwd, task.id)?.current_attempt_id).toBeUndefined();
+      expect(fs.existsSync(path.join(crewDir, "scheduler-events.jsonl"))).toBe(false);
+    },
+  );
+
+  it.each([
+    { state: "needs_work", status: "todo" },
+    { state: "major_rethink", status: "blocked" },
+    { state: "failed", status: "blocked" },
+  ] as const)("does not let a late close overwrite a terminal $state review", ({ state, status }) => {
+    const { cwd, crewDir } = createTempCrewDirs();
+    const task = seedRunningTask(cwd);
+    writeSchedulerRecord(cwd, scheduler([attemptA]));
+    taskStore.updateTask(cwd, task.id, {
+      status,
+      assigned_to: undefined,
+      current_attempt_id: undefined,
+      completion_attempt_id: state === "needs_work" ? undefined : attemptA,
+      legacy_review_state: {
+        version: 1,
+        state,
+        reviewCount: 1,
+        attemptId: attemptA,
+        claimToken: "claim-a",
+        claimantControllerId: "controller-a",
+      },
+      blocked_reason: status === "blocked" ? `Review terminal: ${state}` : undefined,
+    });
+    const before = taskStore.getTask(cwd, task.id);
+
+    expect(reconcileChildClose({ cwd, attemptId: attemptA, exitCode: 0, signal: null, closedAt }).kind)
+      .toBe("completed");
+    expect(taskStore.getTask(cwd, task.id)).toEqual(before);
+    expect(readSchedulerRecord(cwd)?.activeAttemptIds).toEqual([]);
+    expect(fs.existsSync(path.join(crewDir, "scheduler-events.jsonl"))).toBe(false);
+  });
+
   it.each([
     { code: 0, signal: null, kind: "protocol_incomplete", blockedCode: "protocol_incomplete" },
     { code: 1, signal: null, kind: "worker_crash", blockedCode: "worker_crash" },

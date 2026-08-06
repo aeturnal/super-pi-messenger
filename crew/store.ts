@@ -362,7 +362,7 @@ export function completeTask(
   evidence?: TaskEvidence
 ): Task | null {
   const task = getTask(cwd, taskId);
-  if (!task || task.status !== "in_progress") return null;
+  if (!task || task.status !== "in_progress" || task.current_attempt_id) return null;
 
   const updated = updateTask(cwd, taskId, {
     status: "done",
@@ -371,16 +371,14 @@ export function completeTask(
     evidence,
     assigned_to: undefined,
   });
-
-  // Update plan completed count
-  if (updated) {
-    const plan = getPlan(cwd);
-    if (plan) {
-      updatePlan(cwd, { completed_count: plan.completed_count + 1 });
-    }
-  }
+  if (!updated) return null;
 
   autoCompleteMilestones(cwd);
+  const plan = getPlan(cwd);
+  if (plan) {
+    const completedCount = getTasks(cwd).filter(candidate => candidate.status === "done").length;
+    updatePlan(cwd, { completed_count: completedCount });
+  }
 
   return updated;
 }

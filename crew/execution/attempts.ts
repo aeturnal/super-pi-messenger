@@ -9,7 +9,8 @@ import { readAttempt, readSchedulerRecord, updateAttempt, writeSchedulerRecord }
 import type { AttemptCancellation, AttemptRecord, CancellationKind } from "./types.js";
 
 export type CloseClassification =
-  | { kind: "completed" | "review_pending" }
+  | { kind: "completed" }
+  | { kind: "review_pending" }
   | { kind: "cancelled"; cancellation: AttemptCancellation }
   | { kind: "protocol_incomplete"; blockedCode: "protocol_incomplete" }
   | { kind: "worker_crash"; blockedCode: "worker_crash" };
@@ -44,6 +45,12 @@ export function classifyChildClose(input: ClassifyChildCloseInput): CloseClassif
 
   if (input.task.status === "done" && matchingCompletion) return { kind: "completed" };
   if (input.task.status === "review_pending" && matchingReview) return { kind: "review_pending" };
+  const reviewState = input.task.legacy_review_state?.state;
+  if (matchingReview && reviewState
+    && reviewState !== "pending"
+    && reviewState !== "claiming") {
+    return { kind: "completed" };
+  }
   if (input.cancellation) return { kind: "cancelled", cancellation: input.cancellation };
   if (input.exitCode === 0) {
     return { kind: "protocol_incomplete", blockedCode: "protocol_incomplete" };
@@ -193,9 +200,12 @@ function removeActiveAttempt(
   });
 }
 
-const closeEventNames: Record<CloseClassification["kind"], SchedulerEventName> = {
-  completed: "scheduler.reconcile",
-  review_pending: "task.review_pending",
+type CloseEventClassification = Exclude<
+  CloseClassification,
+  { kind: "completed" | "review_pending" }
+>;
+
+const closeEventNames: Record<CloseEventClassification["kind"], SchedulerEventName> = {
   cancelled: "task.cancelled",
   protocol_incomplete: "task.protocol_incomplete",
   worker_crash: "task.worker_crash",
@@ -204,7 +214,7 @@ const closeEventNames: Record<CloseClassification["kind"], SchedulerEventName> =
 function closeEvent(
   request: ReconcileChildCloseRequest,
   attempt: AttemptRecord,
-  classification: CloseClassification,
+  classification: CloseEventClassification,
 ): SchedulerEvent {
   return {
     version: 1,
@@ -346,7 +356,9 @@ export function reconcileChildClose(
 
   if (firstClose) {
     removeActiveAttempt(request.cwd, request.attemptId, dependencies);
-    dependencies.appendSchedulerEvent(request.cwd, closeEvent(request, attempt, classification));
+    if (classification.kind !== "completed" && classification.kind !== "review_pending") {
+      dependencies.appendSchedulerEvent(request.cwd, closeEvent(request, attempt, classification));
+    }
   }
   return classification;
 }

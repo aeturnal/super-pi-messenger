@@ -91,7 +91,7 @@ Release your reservations:
 pi_messenger({ action: "release" })
 ```
 
-Mark the task complete with evidence:
+Mark the task complete with evidence. `task.done` is bound automatically to this launched attempt; never call it from another process or for another worker's task.
 
 ```typescript
 pi_messenger({
@@ -108,6 +108,7 @@ pi_messenger({
 ## Shutdown Handling
 
 If you receive a message saying "SHUTDOWN REQUESTED":
+
 1. Stop what you're doing
 2. Release reservations: `pi_messenger({ action: "release" })`
 3. Do NOT mark the task as done — leave it as in_progress for retry

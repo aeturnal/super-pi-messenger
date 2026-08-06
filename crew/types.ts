@@ -52,7 +52,13 @@ export interface Task {
   summary?: string;              // Completion summary from task.done
   evidence?: TaskEvidence;       // Evidence from task.done
   blocked_reason?: string;       // Reason from task.block
-  blocked_code?: "protocol_incomplete" | "worker_crash";
+  blocked_code?:
+    | "protocol_incomplete"
+    | "worker_crash"
+    | "review_provider_unavailable"
+    | "review_provider_failed"
+    | "review_malformed"
+    | "review_input_missing";
   attempt_count: number;         // How many times attempted (for auto-block)
   current_attempt_id?: string;
   completion_attempt_id?: string;
@@ -91,6 +97,7 @@ export interface CrewParams {
   // Completion
   summary?: string;
   evidence?: TaskEvidence;
+  attemptId?: string;             // Trusted test/internal routing only; never exposed in the public tool schema
 
   // Content
   content?: string;                // Task description/spec content
