@@ -23,8 +23,10 @@ This Super Pi Messenger version incorporates upstream [`pi-messenger` v0.15.0](h
 - Crew subprocess launches use `pi.cmd` on Windows and task reset paths now refuse active workers before making tasks startable again, addressing #11. Thanks to Logan Laughlin (`llaughlin`) for the report.
 - Compacted streaming `message_update` artifacts and stopped retaining every parsed event in memory, fixing the transcript amplification in #27. Thanks to Hugo Ruíz (`hugotown`) and `aeturnal` for the measurements, and to `suse-coder` (#13) and Tom (`monotykamary`) (#4) for the earlier reports of the resulting stalls and jank.
 - Crew subprocesses now fail fast on terminal provider usage/quota/auth 4xx JSON events instead of waiting through retry loops, fixing #21. Thanks to Velinus (`velinussage`) for the report.
+- Temporary generic provider 429 rate-limit errors now remain retryable; fail-fast handling remains limited to terminal assistant errors with an allowlisted status and durable credential, billing, or account-quota evidence.
 
 ### Changed
+- Documented controller-only Team administration, `autoWork: false` plan inspection, revision re-approval, and the automatic-review acceptance gate.
 - `readFeedEvents` now reads only a bounded tail of `feed.jsonl` in backward 64KB chunks instead of parsing the whole file, making overlay feed reads on large histories dramatically faster (~1,800x on a 100k-event feed). Non-positive limits now return no events.
 - Overlay rendering, auto-spawn/refill checks, and stuck-agent heartbeats now reuse a single Crew task snapshot per frame instead of rescanning the task directory per section, roughly quadrupling render-helper throughput on large task lists.
 - Aligned Team built-in roles and sample profiles with the packaged `pi-subagents` role vocabulary while keeping Crew as the execution engine.

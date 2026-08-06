@@ -37,4 +37,17 @@ describe("Super Pi Messenger public identity", () => {
       "git+https://github.com/aeturnal/super-pi-messenger.git",
     );
   });
+
+  it("documents Team authority, inspection, approval, and review gates", () => {
+    expect(readme).toContain("Crew children cannot dispatch or administer Team.");
+    expect(readme).toContain(
+      "Pass `autoWork: false` to leave a completed plan idle for inspection before starting work.",
+    );
+    expect(readme).toContain(
+      "A revised task still requires Team approval before work can start.",
+    );
+    expect(readme).toContain(
+      "When automatic review is enabled, automatic implementation is accepted only after a `SHIP` review.",
+    );
+  });
 });

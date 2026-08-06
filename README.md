@@ -51,7 +51,7 @@ npx pi-messenger --crew-uninstall
 - Workers start with `test-driven-development` and `verification-before-completion`; reviewers start with `verification-before-completion`.
 - Other Pi skills remain available.
 - Crew solely owns planning, dispatch, task state, review dispatch, and repository coordination.
-- Crew children cannot start nested orchestration or nested worktrees.
+- Crew children cannot start nested orchestration or nested worktrees. Crew children cannot dispatch or administer Team.
 - Crew status shows Superpowers integration as `active`, `inactive`, or `fallback`.
 - Stock Superpowers absence is silent; invalid installations warn once and continue with native Crew launch behavior.
 - When the controlling Pi agent determines that stock `subagent-driven-development` applies, Crew is automatically authorized as the sole implementation and review dispatcher; no separate Crew confirmation is required.
@@ -116,7 +116,7 @@ Crew logs are per project, under that project's working directory: `.pi/messenge
 ### Workflow
 
 1. **Plan** — Planner explores the codebase and PRD, drafts tasks with dependencies. A reviewer checks the plan; the planner refines until SHIP or `maxPasses` is reached. History is stored in `planning-progress.md`.
-2. **Work** — Workers implement ready tasks (all dependencies met) in parallel waves. A single `work` call runs one wave. `autonomous: true` runs waves back-to-back until everything is done or blocked. Each completed task gets an automatic reviewer pass — SHIP keeps it done, NEEDS_WORK resets it for retry with feedback, MAJOR_RETHINK blocks it. Controlled by `review.enabled` and `review.maxIterations`.
+2. **Work** — Workers implement ready tasks (all dependencies met) in parallel waves. A single `work` call runs one wave. `autonomous: true` runs waves back-to-back until everything is done or blocked. Each completed task gets an automatic reviewer pass — SHIP keeps it done, NEEDS_WORK resets it for retry with feedback, MAJOR_RETHINK blocks it. Controlled by `review.enabled` and `review.maxIterations`. When automatic review is enabled, automatic implementation is accepted only after a `SHIP` review.
 3. **Review** — Manual review of a specific task or the plan: `pi_messenger({ action: "review", target: "task-1" })`. Returns SHIP, NEEDS_WORK, or MAJOR_RETHINK with detailed feedback.
 
 No special PRD format required — the planner auto-discovers `PRD.md`, `SPEC.md`, `DESIGN.md`, etc. in your project root and `docs/`. Or skip the file entirely:
@@ -127,6 +127,8 @@ pi_messenger({ action: "plan", prompt: "Scan the codebase for bugs" })
 // Plan + auto-start autonomous work when planning completes
 pi_messenger({ action: "plan" })  // auto-starts workers (default)
 ```
+
+Pass `autoWork: false` to leave a completed plan idle for inspection before starting work.
 
 ### Wave Execution
 
@@ -197,7 +199,7 @@ pi_messenger({ action: "team.status" })
 
 `team.setup` activates the profile, saves an editable JSON copy if needed, creates a starter charter when the project does not have one, and returns the next planning/status commands.
 
-When Team is active, planner task JSON may include `role` and `riskLabels`. Tasks persist those as `role`, `risk_labels`, and `approval`; existing tasks without those fields still work. Workers receive bounded Team role, charter, memory, and approval context. `work` skips tasks that require approval but are not approved and returns pending approvals under `needsApproval`; rejected tasks are surfaced separately with `task.revise` / `task.revise-tree` guidance.
+When Team is active, planner task JSON may include `role` and `riskLabels`. Tasks persist those as `role`, `risk_labels`, and `approval`; existing tasks without those fields still work. Workers receive bounded Team role, charter, memory, and approval context. `work` skips tasks that require approval but are not approved and returns pending approvals under `needsApproval`; rejected tasks are surfaced separately with `task.revise` / `task.revise-tree` guidance. A revised task still requires Team approval before work can start.
 
 Team's built-in role names follow the packaged `pi-subagents` vocabulary where possible: `context-builder`, `delegate`, `oracle`, `planner`, `researcher`, `reviewer`, `scout`, and `worker`. Roles resolve from those built-in defaults, the active profile, and optional filesystem metadata from `pi-subagents` markdown files when present. `pi-messenger` only reads those files; it does not require or call the subagent extension, and Crew still uses its own Crew agents for execution.
 
