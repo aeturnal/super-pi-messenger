@@ -20,7 +20,8 @@ The implementation must preserve:
 - ordinary retry and maximum-attempt behavior for other worker failures;
 - retry behavior for temporary throttling;
 - explicit retry through a later user-initiated Work command;
-- identical durable-failure behavior for fresh and lobby workers.
+- identical durable-failure behavior for fresh and lobby workers;
+- the existing rule that a durable `task.done` state wins over a later nonzero process exit.
 
 ## Existing Behavior
 
@@ -46,7 +47,7 @@ This interface carries the already-known semantic result across the existing pro
 
 Work processes all results from the current wave before deciding whether to continue.
 
-For each result with `terminalProviderError`:
+For each result with `terminalProviderError` whose task is not already `done` or `blocked`:
 
 1. Preserve normal launch-attempt accounting.
 2. Append a task-progress entry containing the bounded provider-error message.
