@@ -179,6 +179,7 @@ export interface AgentResult {
   taskId?: string;
   wasGracefullyShutdown?: boolean;
   error?: string;
+  terminalProviderError?: string;
   artifactPaths?: {
     input: string;
     output: string;

@@ -432,6 +432,7 @@ describe("lobby workers", () => {
       taskId: "task-provider-error",
       exitCode: 1,
       error: "Provider error 400: 400: quota exhausted. Add more credits to continue.",
+      terminalProviderError: "Provider error 400: 400: quota exhausted. Add more credits to continue.",
     });
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
   });

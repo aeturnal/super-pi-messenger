@@ -118,6 +118,7 @@ describe("crew agent event handling", () => {
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
     expect(result.exitCode).toBe(1);
     expect(result.error).toContain("Provider error 400");
+    expect(result.terminalProviderError).toBe(result.error);
   });
 
   it.each([
@@ -169,6 +170,7 @@ describe("crew agent event handling", () => {
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
     expect(result.exitCode).toBe(1);
     expect(result.error).toContain(errorMessage);
+    expect(result.terminalProviderError).toBe(result.error);
   });
 
   it.each([
@@ -205,6 +207,7 @@ describe("crew agent event handling", () => {
 
     expect(proc.kill).not.toHaveBeenCalled();
     expect(result.exitCode).toBe(0);
+    expect(result.terminalProviderError).toBeUndefined();
   });
 
   it.each([
