@@ -67,7 +67,7 @@ Extend the autonomous stop-reason interface with:
 "provider_failure"
 ```
 
-After the current wave is recorded, a durable provider failure takes precedence over normal ready-task continuation. Work calls `stopAutonomous("provider_failure")`, persists the state entry, and emits a bounded wave-level entry containing the affected task IDs and provider-error messages.
+After the current wave is recorded, a durable provider failure takes precedence over normal ready-task continuation. Work calls `stopAutonomous("provider_failure")` and persists the existing Crew state entry. Task progress, the activity feed, and returned Work text carry the bounded provider-error details; no additional event interface is introduced.
 
 Manual cancellation remains higher priority if the abort signal is already set. Completed work cannot coincide with a durable failure because the affected task remains `todo`.
 
