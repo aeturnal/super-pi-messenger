@@ -410,6 +410,7 @@ async function runAgent(
         taskId: task.taskId,
         wasGracefullyShutdown: gracefulShutdownRequested,
         error: progress.error,
+        terminalProviderError: terminalProviderError ?? undefined,
         artifactPaths: artifactPaths ? {
           input: artifactPaths.inputPath,
           output: artifactPaths.outputPath,

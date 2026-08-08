@@ -91,6 +91,24 @@ function recordWorkerFailure(
   return "retry";
 }
 
+function recordDurableProviderFailure(
+  cwd: string,
+  taskId: string,
+  message: string,
+): void {
+  store.appendTaskProgress(
+    cwd,
+    taskId,
+    "system",
+    `${message}; provider requires user action, reset to todo`,
+  );
+  store.updateTask(cwd, taskId, {
+    status: "todo",
+    assigned_to: undefined,
+    blocked_reason: undefined,
+  });
+}
+
 export async function execute(
   params: CrewParams,
   dirs: Dirs,
@@ -353,6 +371,7 @@ export async function execute(
   const succeeded: string[] = [];
   const failed: string[] = [];
   const blocked: string[] = [];
+  const durableProviderFailures: Array<{ taskId: string; error: string }> = [];
 
   for (let i = 0; i < workerResults.length; i++) {
     const r = workerResults[i];
@@ -389,6 +408,20 @@ export async function execute(
       }
 
       const workerName = task.assigned_to ?? "crew-worker";
+      if (r.terminalProviderError) {
+        recordDurableProviderFailure(cwd, taskId, r.terminalProviderError);
+        logFeedEvent(
+          cwd,
+          workerName,
+          "task.reset",
+          taskId,
+          "Provider requires user action",
+        );
+        durableProviderFailures.push({ taskId, error: r.terminalProviderError });
+        failed.push(taskId);
+        continue;
+      }
+
       const failure = recordWorkerFailure(
         cwd,
         taskId,
@@ -519,6 +552,9 @@ export async function execute(
     if (signal?.aborted) {
       stopAutonomous("manual");
       appendEntry("crew-state", autonomousState);
+    } else if (durableProviderFailures.length > 0) {
+      stopAutonomous("provider_failure");
+      appendEntry("crew-state", autonomousState);
     } else {
       const nextReady = store.getReadyTasks(cwd, { advisory: config.dependencies === "advisory" }).filter(t => !teamStore.taskNeedsApproval(t));
       const allTasks = store.getTasks(cwd);
@@ -573,7 +609,15 @@ export async function execute(
   const nextText = actionableNextReady.length > 0
     ? `\n\n**Ready for next wave:** ${actionableNextReady.map(t => t.id).join(", ")}`
     : "";
-  const continueText = autonomous && !signal?.aborted && actionableNextReady.length > 0
+  const providerFailureText = durableProviderFailures.length > 0
+    ? `\n🛑 Durable provider failure: ${durableProviderFailures
+      .map(failure => `${failure.taskId}: ${failure.error}`)
+      .join(";")}\nAutonomous work stopped. Fix the provider account, billing, credentials, or authorization, then run Work explicitly to retry.`
+    : "";
+  const continueText = autonomous
+    && !signal?.aborted
+    && durableProviderFailures.length === 0
+    && actionableNextReady.length > 0
     ? "Autonomous mode: Continuing to next wave..."
     : signal?.aborted && autonomous
       ? "Autonomous mode stopped (cancelled)."
@@ -588,7 +632,7 @@ export async function execute(
 **PRD:** ${store.getPlanLabel(plan)}
 **Tasks attempted:** ${remainingTasks.length}${lobbyAssigned.size > 0 ? ` (+${lobbyAssigned.size} lobby)` : ""}
 **Progress:** ${progress}
-${statusText}${lobbyText}${rejectedTasksText(finalRejected)}${nextText}
+${statusText}${lobbyText}${rejectedTasksText(finalRejected)}${providerFailureText}${nextText}
 
 ${continueText}`;
 

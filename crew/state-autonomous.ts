@@ -15,6 +15,12 @@ export interface WaveResult {
   timestamp: string;
 }
 
+export type AutonomousStopReason =
+  | "completed"
+  | "blocked"
+  | "manual"
+  | "provider_failure";
+
 export interface AutonomousState {
   active: boolean;
   cwd: string | null;
@@ -22,7 +28,7 @@ export interface AutonomousState {
   waveHistory: WaveResult[];
   startedAt: string | null;
   stoppedAt: string | null;
-  stopReason: "completed" | "blocked" | "manual" | null;
+  stopReason: AutonomousStopReason | null;
   concurrency: number;
   autoOverlayPending: boolean;
   pid: number | null;
@@ -93,7 +99,7 @@ export function startAutonomous(cwd: string, concurrency: number): void {
   autonomousState.pid = process.pid;
 }
 
-export function stopAutonomous(reason: "completed" | "blocked" | "manual"): void {
+export function stopAutonomous(reason: AutonomousStopReason): void {
   autonomousState.active = false;
   autonomousState.autoOverlayPending = false;
   autonomousState.stoppedAt = new Date().toISOString();

@@ -244,6 +244,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
       truncated: false,
       progress,
       error: terminalProviderError ?? undefined,
+      terminalProviderError: terminalProviderError ?? undefined,
     });
 
     const displayId = worker.assignedTaskId ?? taskId;
