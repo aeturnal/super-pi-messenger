@@ -2,151 +2,100 @@
 
 ## Goal
 
-Let Crew translate a sequentially presented Superpowers implementation plan into a safe parallel dependency graph. Preserve strict real dependencies, task-level Superpowers methods, and review gates without turning numbering or document order into a global chain.
+Let Crew turn a sequentially presented Superpowers implementation plan into a safe parallel task graph. Preserve real dependencies and strict scheduling without treating task numbering or document order as execution order.
 
-## Current Failure
+## Confirmed Failure
 
-The current deterministic handoff run did not receive a usable task graph from the Crew planner. Planning ended with `no tasks parsed`. The controller then manually created tasks and inserted implementation-review pairs into one strict chain. With project configuration set to strict dependencies, concurrency three could not start more than one task.
+The current handoff run ended with `no tasks parsed`. Its result invited manual task creation. The controller then created implementation-review pairs as one strict chain. Because strict dependency mode was working correctly, configured concurrency could not start more than one task.
 
-The packaged planner prompt already asks for a parallel graph, but this is prompt guidance only. There is no structural quality gate for unjustified serialization, no required reason for each dependency, and no bounded format-repair path when `tasks-json` is missing or malformed.
+The planner prompt already asks for a parallel graph, but the result has no bounded format repair and no structural check for a needless linear chain.
 
 ## Ownership Boundary
 
-The Superpowers plan remains the exact source of requirements and task detail. Crew owns execution order, dependency compilation, dispatch, and review scheduling.
+The exact Superpowers plan remains the source of requirements. Crew owns dependency compilation, task dispatch, and automatic review dispatch.
 
-Numbered headings such as `Task 1`, `Task 2`, and `Task 3` are presentation order only. Crew may reorder and run them concurrently. Superpowers practices such as TDD, verification, and task review remain requirements inside each task; they do not create a global serial executor.
+Numbered Superpowers tasks are presentation order only. TDD, verification, and task review remain requirements inside each task, but they do not create a global implementation-review-implementation sequence.
 
-The outer compatibility policy will explicitly forbid the controller from manually converting the plan into an implementation-review-implementation chain. When Crew is available, the controller passes the exact plan to Crew and lets Crew compile and execute the graph.
+The outer compatibility policy will state that the controller must not manually recreate or serialize Crew tasks when Crew planning fails. Crew either creates a valid graph or fails safely for the user to retry or revise.
 
-## Hard Dependency Rules
+## Planner Rules
 
-Crew may create a hard dependency only when the consumer:
+Update the planner instructions with these rules:
 
-- imports or calls code, types, or files produced by the provider;
-- needs a concrete artifact, schema, migration, or verified behavior from the provider;
-- must modify the same files and ownership cannot safely be divided;
-- must wait for the provider's review because it consumes that reviewed output.
+- Add a dependency only when the consumer needs a concrete file, symbol, schema, migration, or verified behavior from the provider.
+- State the concrete reason in the task description.
+- Do not infer a dependency from task number, document order, or generic “next” wording.
+- Minimize the critical path while preserving real dependencies.
+- Return the existing `tasks-json` schema exactly.
 
-Task numbering, document order, conceptual preference, and generic phrases such as “after Task 1” are not sufficient by themselves.
+No new public action, task schema, dependency mode, or persisted dependency-reason metadata is added.
 
-Each planner task object keeps `dependsOn` for compatibility and adds `dependencyReasons`, keyed by dependency title. Example:
+## Minimal Validation and Repair
 
-```json
-{
-  "title": "Persist workspace identity",
-  "dependsOn": ["Resolve linked-worktree identity"],
-  "dependencyReasons": {
-    "Resolve linked-worktree identity": "Imports WorkspaceIdentity from crew/types.ts"
-  }
-}
-```
+Perform validation on parsed planner tasks before creating any stored tasks.
 
-After title-to-ID resolution, Crew persists the reasons keyed by task ID. Status and task inspection can explain why an edge exists. Missing or unresolved dependency names remain invalid planner output.
+Reject:
 
-## Graph Analysis
+- unresolved dependency titles;
+- self-dependencies;
+- dependency cycles.
 
-Add a small pure graph-analysis module. Given parsed tasks, it reports:
+Add two bounded repair paths:
 
-- root task count;
-- topological waves;
-- maximum wave width;
-- critical-path length;
-- cycles and unresolved edges;
-- dependencies lacking concrete reasons.
+1. **Format repair:** When neither the JSON block nor markdown fallback yields tasks, ask the planner once to return the same plan using the exact existing `tasks-json` format.
+2. **Linear-graph reconsideration:** When four or more tasks form one complete chain, ask the planner once to remove unsupported edges and expose safe parallel branches, or retain the chain with a concrete reason for every edge.
 
-A graph is suspiciously serial when it has at least four tasks and its critical path contains at least 80 percent of all tasks while no wave is wider than two tasks. A fully linear graph is always suspicious at four or more tasks.
+The repair prompts receive the exact source plan and prior planner output. They may restructure execution but may not change requirements.
 
-The analyzer never deletes dependencies. It supplies evidence to a planner repair pass and rejects cycles or unresolved edges.
+If repaired output is still unparseable or structurally invalid, planning fails before task creation. It must not invite the controller to create tasks manually. A structurally valid linear graph returned after the required reconsideration is accepted because some work is genuinely sequential; retained-edge reasons remain visible in task descriptions for human review.
 
-## Bounded Planner Repair
+The implementation may use small pure helpers for dependency resolution, cycle detection, and complete-chain detection. It does not add general graph scoring, arbitrary percentage thresholds, or automatic edge deletion.
 
-Planning has two independent, bounded repair opportunities:
+## Execution
 
-1. **Format repair:** If the planner omits or malforms the `tasks-json` block, make one focused request containing the existing output and exact schema. The repair may change formatting but not requirements.
-2. **Graph repair:** If the parsed graph is suspiciously serial or lacks dependency reasons, make one focused request to remove unsupported edges, split independent work streams, and justify retained edges.
+Keep strict dependency behavior unchanged. The existing scheduler already launches all currently ready tasks up to configured concurrency. A better graph therefore produces parallel implementation waves without a scheduler rewrite.
 
-A repaired serial graph is accepted when every retained edge has a concrete reason. This permits genuinely sequential work. If output remains malformed, cyclic, unresolved, or unjustified after its repair opportunity, planning fails before creating any tasks. Crew never persists a partial graph and never silently falls back to a different plan.
-
-Repair passes are validation work and do not consume the configured general planning review pass count.
-
-## Strict Parallel Scheduling
-
-Strict dependency mode remains the default and remains authoritative. Crew does not implement global advisory scheduling or ignore declared dependencies.
-
-All ready tasks launch up to the configured worker concurrency. When one task completes, its review can begin without waiting for unrelated workers in the same wave. Workers already running continue during that review.
-
-When required automatic review is enabled, worker completion sets an internal review state to `pending`. The task may display as implemented, but it does not satisfy dependencies until review changes that state to `accepted`. With review disabled, completion immediately satisfies dependencies as it does today. Retry and block outcomes clear the pending gate while applying their existing task status changes.
-
-After a task receives an accepted review, newly ready dependents may fill an available worker slot even if unrelated work or reviews remain active. A failed review resets or blocks only that task and therefore only its true downstream dependents.
-
-This requires replacing the current whole-wave worker barrier followed by a sequential review loop with bounded per-task completion handling. The total number of active implementation workers remains within `concurrency.workers`. Concurrent reviews are bounded by the number of completed tasks from that worker set, which cannot exceed the configured worker concurrency.
-
-State changes remain serialized through existing task-store operations. Result reporting is collected deterministically by task ID even when completion order differs.
-
-## Review Behavior
-
-Crew remains the sole review dispatcher.
-
-- Independent completed tasks may be reviewed concurrently.
-- A task is not considered dependency-ready until its required automatic review ships.
-- `NEEDS_WORK` resets only the reviewed task for retry.
-- `MAJOR_RETHINK` blocks only the reviewed task and its dependents.
-- Missing or failed required review remains a safe block, as today.
-- The controller does not create separate review tasks solely to serialize the plan.
+Keep the current automatic review lifecycle unchanged for this correction. Crew remains the sole automatic review dispatcher, and the controller does not insert separate review tasks to serialize independent implementation work.
 
 ## Example
 
-The deterministic handoff plan can compile to:
+The current seven-task handoff plan can be represented approximately as:
 
 ```text
 Task 1
   ├── Task 2
   └── Task 3
 
-Tasks 2 and 3 accepted:
+Tasks 2 and 3 complete:
   ├── Task 4
   ├── Task 5
   └── Task 7
 
-Task 5 accepted:
+Task 5 complete:
   └── Task 6
 ```
 
-Tasks 2 and 3 may run together because they consume Task 1 but not each other. Tasks 4, 5, and 7 may run together when their concrete inputs are available. Task 6 waits only for Task 5.
-
-## Observability
-
-Planning results and status output will include a compact graph summary:
-
-```text
-Graph: 7 tasks, roots 1, waves 4, max width 3, critical path 4
-```
-
-If a serial graph is retained after repair, planning output states that its dependencies were explicitly justified. Feed events distinguish format repair and graph repair so extra model work is visible.
+This permits parallel waves while retaining strict dependencies.
 
 ## Tests
 
-Add focused tests for:
+Add focused tests proving:
 
-- numbered tasks with no concrete relationship becoming independent roots;
-- concrete file, symbol, schema, and review dependencies being retained;
-- missing dependency reasons triggering one graph repair;
-- a fully serial but justified graph being accepted after reconsideration;
-- malformed `tasks-json` receiving one format repair;
-- malformed repaired output failing without partial task creation;
-- cycle and unresolved-title rejection;
-- graph metrics for branched and linear DAGs;
-- multiple ready tasks launching up to configured concurrency;
-- a completed task entering review while an unrelated worker remains active;
-- independent reviews running concurrently;
-- accepted reviews releasing only their dependents;
-- failed reviews not stopping unrelated branches;
-- the outer Superpowers policy assigning graph and review scheduling to Crew.
+- numbered independent tasks become independent roots;
+- concrete dependencies remain intact;
+- malformed planner output receives one format repair;
+- a complete chain of four or more tasks receives one reconsideration;
+- a justified complete chain is accepted;
+- a repaired branched graph creates parallel-ready roots;
+- unresolved titles, self-dependencies, cycles, and repeated malformed output create no tasks;
+- planning failure does not instruct the controller to create tasks manually;
+- existing strict scheduling launches all ready tasks up to concurrency;
+- the outer Superpowers policy assigns execution and review dispatch to Crew without imposing document order.
 
-Planner and scheduler tests must use deterministic mocked child results. Existing strict dependency, approval, retry, durable provider failure, cancellation, and review-limit tests must continue to pass.
+Existing planning, strict dependency, approval, cancellation, retry, and automatic review tests must continue to pass.
 
 ## Scope
 
-This design does not add advisory dependencies, interface-ready task states, a new public planning action, or automatic dependency deletion. It does not modify stock Superpowers files. It does not permit nested agents or alternate review dispatchers.
+This design does not add advisory dependencies, interface-ready states, dependency metadata persistence, graph observability, dynamic slot refilling, concurrent review scheduling, or a new scheduler. It does not modify stock Superpowers files.
 
-Communication restoration is a prerequisite because parallel workers need mesh registration, direct messages, and broadcasts to coordinate safely.
+Communication restoration is implemented first so parallel workers can coordinate safely.

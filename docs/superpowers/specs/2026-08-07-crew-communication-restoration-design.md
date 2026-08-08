@@ -2,100 +2,80 @@
 
 ## Goal
 
-Restore Crew children as full mesh participants so planners, workers, reviewers, analysts, and lobby workers can register, appear in presence, receive messages, and communicate within safe role boundaries. Restore live team broadcasts and make overlay send failures visible.
+Restore Crew workers as registered mesh participants so they can receive direct messages, broadcast to active peers, report `chatty` updates, and perform their assigned task protocol without exposing controller-only orchestration.
 
-## Root Cause
+## Confirmed Regressions
 
-Commit `62bee20` introduced a child action allowlist in `crew/child-actions.ts`. The list denies `join`, `task.start`, and `task.block`, even though packaged Crew prompts require those actions. Because the router checks the list before handling `join`, a child cannot register. Its inbox watcher never starts, direct messages remain unread, allowed messaging actions later fail as not registered, and `chatty` coordination instructions cannot produce status broadcasts.
+The child action allowlist in `crew/child-actions.ts` denies `join`, `task.start`, and `task.block`, although the packaged worker prompt requires them. A denied `join` prevents registration and the inbox watcher from starting. Direct messages then remain unread and later worker actions fail.
 
-The current run provided direct evidence: worker reports said `join` and `task.start` were controller-only, no worker join events appeared in the feed, and a direct message remained in the intended worker inbox.
+`executeSend()` also has a `PI_CREW_WORKER` branch that logs broadcasts only to the feed. It bypasses the existing peer-delivery path, so workers cannot use broadcasts for team conversation.
 
-A separate degradation in commit `830842b` changed worker broadcasts from live peer delivery to feed-only logging. That prevents workers from using broadcasts for team conversation even when registration works.
+Separately, message-send failures appear to do nothing in the overlay. The handler sets a notification but remains in message mode, while the renderer shows the composer instead of the notification.
 
-The overlay has an additional presentation bug. Message validation and delivery failures set a notification while leaving message mode active, but `renderLegend()` renders the message bar before notifications. Enter therefore appears to do nothing.
+## Smallest Correction
 
-## Role-Specific Action Policy
+### Role-aware child actions
 
-Replace the single child allowlist with a role-aware policy.
+Replace the single child allowlist with a fail-closed role-aware check.
 
-Every Crew child role may use mesh coordination actions:
+All Crew child roles may use existing read-only coordination and messaging actions, including `join`, presence, feed, direct messages, broadcasts, and status updates.
 
-- `join` and `leave`
-- `status`, `list`, `whois`, `feed`, and `set_status`
-- `send` and `broadcast`
-- `crew.status` and `crew.agents`
+Execution workers may additionally use the worker protocol already named in their prompt:
 
-Workers, including lobby workers after assignment, may additionally use the task protocol:
+- reservations;
+- task inspection;
+- `task.start`;
+- `task.progress`;
+- `task.done`;
+- `task.block`.
 
-- `reserve` and `release`
-- `task.show`, `task.list`, and `task.ready`
-- `task.start`, `task.progress`, `task.done`, and `task.block`
+Planning, work dispatch, review dispatch, task creation and revision, approval decisions, and Team administration remain controller-only. Unknown actions remain denied.
 
-Planners, reviewers, and analysts remain read-only with respect to task execution unless they are deliberately launched through the worker role for a Crew task. The effective process role, not a task label supplied by an untrusted prompt, determines permission.
+The router must allow a permitted child to call `join` before requiring registration. Permission must come from the process's Crew role, not from an action argument or task label.
 
-These actions remain controller-only:
+### Task ownership
 
-- planning, cancellation, work dispatch, review dispatch, and synchronization;
-- task creation, splitting, reset, deletion, approval, rejection, and revision;
-- Team setup, profiles, charters, memory administration, and other Team control operations;
-- unknown future actions, which remain denied by default.
+Allowing worker task actions must not allow mutation of another worker's task.
 
-`join` must be evaluated before registration is required. The router must still apply the child policy before executing the action.
+- Progress, completion, and blocking require the registered child to own the task.
+- Starting a task uses the existing atomic ready-task checks.
+- Lobby workers keep their existing rule that an assigned task is already started.
 
-## Task Ownership
+Ownership is enforced in code, not only in prompts.
 
-Permission to call a task action does not grant permission to mutate arbitrary tasks.
+### Live worker broadcasts
 
-- `task.progress`, `task.done`, and `task.block` require `task.assigned_to` to equal the registered child name.
-- `task.start` may claim only a ready, startable task through the existing atomic task action. It cannot take an active, blocked, approval-gated, or dependency-blocked task.
-- A lobby assignment is already started by Crew. Its prompt continues to forbid a second `task.start` call.
-- Controller calls retain their existing authority.
+Remove the worker-only feed shortcut from `executeSend()`. Worker broadcasts use the existing broadcast path, which already:
 
-The ownership check must live in the task handler or task-action boundary, not only in prompts.
+- resolves active peers and excludes the sender;
+- validates recipients;
+- writes peer inbox messages;
+- reports partial or complete delivery failure;
+- records one broadcast feed event;
+- applies the configured message budget.
 
-## Live Broadcasts
+No second broadcast implementation or delivery format is added.
 
-Remove the worker-only feed shortcut from `executeSend()`.
+### Visible send errors
 
-A broadcast will:
-
-1. Resolve all active peers except the sender.
-2. Validate each peer registration.
-3. Write one inbox message per valid peer.
-4. Record one project feed event.
-5. Return successful and failed recipients.
-
-A partial broadcast succeeds and reports failures. A broadcast with no successful recipients returns a bounded error. Existing per-process message budgets remain in force, including the `chatty` default of ten outgoing messages. Incoming inbox messages continue to be delivered as steering turns with reply guidance.
-
-Broadcasts are therefore both live peer communication and user-visible feed activity. Direct messages remain the preferred path for urgent or targeted questions.
-
-## Overlay Send Feedback
-
-The overlay must display validation and delivery errors while preserving the typed message.
-
-Message mode will render an active notification together with, or ahead of, the composer instead of hiding it behind the normal message bar. Successful sends continue to clear the composer. Failed sends keep the input and recipient text so the user can correct and retry.
-
-This covers empty or malformed mentions, no active peers, invalid recipients, and delivery failures.
+While message mode is active, render its current notification without discarding the typed message. A failed send leaves the composer content available for correction. A successful send keeps the current behavior of clearing and closing the composer.
 
 ## Tests
 
-Add regression coverage for:
+Add focused regression tests proving:
 
-- an unregistered child successfully calling `join`;
-- each child role's allowed and denied action matrix;
-- a worker starting, progressing, completing, and blocking only its own task;
-- a child being denied controller, approval, Team, and unknown actions;
-- a worker broadcast writing to every active peer inbox and exactly one feed event;
-- partial and complete broadcast failures;
-- an inbox watcher delivering a direct message to a registered child;
-- the `chatty` budget still limiting outgoing messages;
-- overlay Enter showing errors while preserving input;
-- successful overlay sends clearing input.
+- an unregistered Crew child can call `join`;
+- each effective child role permits only its intended action set;
+- a worker can start, progress, complete, and block its own task but not another worker's task;
+- controller-only and unknown actions remain denied;
+- a worker broadcast reaches every active peer inbox and records one feed event;
+- direct inbox delivery works after child registration;
+- message budgets still apply;
+- overlay send errors are visible and preserve input;
+- successful overlay sends clear input.
 
-Tests must reproduce the current regression before production changes. Existing controller-only approval tests remain unchanged and must continue to pass.
+Existing approval and controller-boundary tests must continue to pass.
 
 ## Scope
 
-This change does not add a visual TUI to headless Crew processes. Crew children continue to run in non-interactive Pi mode and participate through the `pi_messenger` tool, registry, inbox watcher, and steering messages.
-
-This change does not alter worktree handling, planning behavior, dependency scheduling, model selection, or Team approval policy.
+This change restores existing mesh behavior. It does not add a new messaging protocol, visual TUI for headless children, scheduler, worktree behavior, planning behavior, or Team policy.
