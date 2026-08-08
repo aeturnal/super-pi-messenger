@@ -88,6 +88,7 @@ describe("workspace-backed child launches", () => {
   let captures: SpawnCapture[];
 
   beforeEach(() => {
+    vi.stubEnv("PI_CREW_WORKSPACE_ROOT", undefined);
     fx = createGitWorktreeFixture();
     captures = [];
     spawnMock.mockReset();
@@ -102,7 +103,10 @@ describe("workspace-backed child launches", () => {
     });
   });
 
-  afterEach(() => fx.cleanup());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fx.cleanup();
+  });
 
   it.each(["planner", "worker", "reviewer", "analyst"] as const)(
     "launches a %s child in the stored workspace with identity guidance",
