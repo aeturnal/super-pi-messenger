@@ -36,6 +36,7 @@ Perform validation on parsed planner tasks before creating any stored tasks.
 
 Reject:
 
+- duplicate task titles;
 - unresolved dependency titles;
 - self-dependencies;
 - dependency cycles.

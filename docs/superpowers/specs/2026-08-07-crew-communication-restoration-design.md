@@ -18,12 +18,11 @@ Separately, message-send failures appear to do nothing in the overlay. The handl
 
 Replace the single child allowlist with a fail-closed role-aware check.
 
-All Crew child roles may use existing read-only coordination and messaging actions, including `join`, presence, feed, direct messages, broadcasts, and status updates.
+All Crew child roles may use existing read-only coordination and messaging actions, including `join`, presence, feed, task inspection, direct messages, broadcasts, and status updates.
 
-Execution workers may additionally use the worker protocol already named in their prompt:
+Execution workers may additionally use the mutating worker protocol already named in their prompt:
 
 - reservations;
-- task inspection;
 - `task.start`;
 - `task.progress`;
 - `task.done`;
