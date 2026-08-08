@@ -5,8 +5,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createStockSuperpowersFixture } from "../helpers/superpowers.ts";
+import { createGitWorktreeFixture } from "../helpers/git-worktree.ts";
+import { resolveWorkspace } from "../../crew/workspace.ts";
 
-vi.mock("node:child_process", () => ({
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:child_process")>(),
   spawn: vi.fn(() => {
     const handlers: Record<string, Function> = {};
     const proc: any = {
@@ -89,6 +92,9 @@ describe("lobby workers", () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    const storeModule = await import("../../crew/store.ts");
+    vi.mocked(storeModule.getPlan).mockReset();
+    vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md" } as any);
     superpowers = await import("../../crew/superpowers.ts");
     superpowers.resetSuperpowersStateForTests();
     lobby = await import("../../crew/lobby.ts");
@@ -296,6 +302,51 @@ describe("lobby workers", () => {
     } finally {
       fixture.cleanup();
       superpowers.resetSuperpowersStateForTests();
+    }
+  });
+
+  it("binds a workspace-backed lobby worker to the canonical plan workspace", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const workspace = resolveWorkspace(fixture.worktree, fixture.worktree);
+      const storeModule = await import("../../crew/store.ts");
+      vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md", workspace } as any);
+
+      const worker = lobby.spawnLobbyWorker(fixture.worktree)!;
+      const [, , options] = vi.mocked(spawn).mock.calls.at(-1)!;
+      const prompt = vi.mocked(spawn).mock.calls.at(-1)![1]!.at(-1) as string;
+
+      expect(worker).toMatchObject({ cwd: workspace.root, workspace });
+      expect(options?.cwd).toBe(workspace.root);
+      expect(options?.env).toMatchObject({ PI_CREW_WORKSPACE_ROOT: workspace.root });
+      expect(prompt).toContain(workspace.root);
+      expect(prompt).toContain("git rev-parse --show-toplevel");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("requires matching workspace identity for workspace-backed lobby assignments", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const workspace = resolveWorkspace(fixture.worktree, fixture.worktree);
+      const otherWorkspace = resolveWorkspace(fixture.otherWorktree, fixture.otherWorktree);
+      const storeModule = await import("../../crew/store.ts");
+      vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md", workspace } as any);
+      const worker = lobby.spawnLobbyWorker(fixture.worktree)!;
+      const required = {
+        cwd: workspace.root,
+        model: "claude-opus-4-5",
+        role: "worker",
+        superpowersActive: false,
+        workspace,
+      };
+
+      expect(lobby.isLobbyWorkerCompatible(worker, required)).toBe(true);
+      expect(lobby.isLobbyWorkerCompatible({ ...worker, workspace: undefined }, required)).toBe(false);
+      expect(lobby.isLobbyWorkerCompatible(worker, { ...required, workspace: otherWorkspace })).toBe(false);
+    } finally {
+      fixture.cleanup();
     }
   });
 
@@ -742,6 +793,28 @@ describe("lobby workers", () => {
     expect(feedModule.logFeedEvent).toHaveBeenCalledWith(
       "/test/cwd", worker!.name, "task.start", "task-5", "Build something",
     );
+  });
+
+  it("spawnWorkerForTask verifies the plan workspace before starting a todo task", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const storeModule = await import("../../crew/store.ts");
+      vi.mocked(storeModule.getTask).mockReturnValue({
+        id: "task-workspace", title: "Workspace task", status: "todo", attempt_count: 0,
+        depends_on: [], description: "", created_at: "", milestone: false,
+      } as any);
+      vi.mocked(storeModule.getPlan).mockReturnValue({
+        prd: "docs/PRD.md",
+        workspace: resolveWorkspace(fixture.otherWorktree, fixture.otherWorktree),
+      } as any);
+
+      expect(() => lobby.spawnWorkerForTask(fixture.worktree, "task-workspace", "# Task prompt"))
+        .toThrow("workspace_identity_mismatch");
+      expect(storeModule.updateTask).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      fixture.cleanup();
+    }
   });
 
   it("spawnWorkerForTask returns null if task already claimed", async () => {

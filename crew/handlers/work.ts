@@ -19,6 +19,7 @@ import * as store from "../store.ts";
 import { getCrewDir } from "../store.ts";
 import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
 import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, waitForLobbyWorker, type LobbyCompatibility, type LobbyWorker } from "../lobby.ts";
+import { verifyPlanWorkspace } from "../workspace.ts";
 import { hasActiveWorker, killWorkerByTask } from "../registry.ts";
 import { logFeedEvent } from "../../feed.ts";
 import { approvalTaskSummaries } from "../utils/task-format.ts";
@@ -249,15 +250,20 @@ export async function execute(
       ),
       role: roleName ?? "worker",
       superpowersActive,
+      workspace: plan.workspace,
     });
   }
 
+  const verifiedLobbyWorkspace = verifyPlanWorkspace(cwd);
   const lobbyWorkers = getAvailableLobbyWorkers(cwd);
   for (const lobbyWorker of lobbyWorkers) {
     if (lobbyAssigned.size >= remainingSlots) break;
     const task = candidateTasks.find(t =>
       !lobbyAssigned.has(t.id)
-      && isLobbyWorkerCompatible(lobbyWorker, lobbyRequirements.get(t.id)!),
+      && isLobbyWorkerCompatible(lobbyWorker, {
+        ...lobbyRequirements.get(t.id)!,
+        workspace: verifiedLobbyWorkspace ?? undefined,
+      }),
     );
     if (!task) continue;
 

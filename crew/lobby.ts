@@ -15,7 +15,8 @@ import { randomUUID } from "node:crypto";
 import { generateMemorableName } from "../lib.ts";
 import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
 import { normalizeCwd } from "./state.ts";
-import type { AgentResult } from "./types.ts";
+import type { AgentResult, WorkspaceIdentity } from "./types.ts";
+import { verifyPlanWorkspace, workspacePrompt } from "./workspace.ts";
 import {
   resolveThinking,
   modelHasThinkingSuffix,
@@ -65,6 +66,17 @@ export interface LobbyCompatibility {
   model?: string;
   role?: string;
   superpowersActive: boolean;
+  workspace?: WorkspaceIdentity;
+}
+
+function hasMatchingWorkspaceIdentity(
+  workerWorkspace: WorkspaceIdentity | undefined,
+  requiredWorkspace: WorkspaceIdentity | undefined,
+): boolean {
+  if (!workerWorkspace || !requiredWorkspace) return workerWorkspace === requiredWorkspace;
+  return workerWorkspace.root === requiredWorkspace.root
+    && workerWorkspace.gitDir === requiredWorkspace.gitDir
+    && workerWorkspace.gitCommonDir === requiredWorkspace.gitCommonDir;
 }
 
 export function isLobbyWorkerCompatible(
@@ -74,7 +86,8 @@ export function isLobbyWorkerCompatible(
   return worker.cwd === normalizeCwd(required.cwd)
     && worker.model === required.model
     && worker.role === required.role
-    && worker.superpowersActive === required.superpowersActive;
+    && worker.superpowersActive === required.superpowersActive
+    && hasMatchingWorkspaceIdentity(worker.workspace, required.workspace);
 }
 
 function lobbyTaskId(id: string): string {
@@ -82,6 +95,8 @@ function lobbyTaskId(id: string): string {
 }
 
 export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionModel?: string, modelOverride?: string): LobbyWorker | null {
+  const workspace = verifyPlanWorkspace(cwd);
+  const launchCwd = workspace?.root ?? cwd;
   const agents = discoverCrewAgents(cwd);
   const workerConfig = agents.find(a => a.name === "crew-worker");
   if (!workerConfig) return null;
@@ -97,7 +112,8 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     if (!collision) break;
     name = generateMemorableName();
   }
-  const prompt = promptOverride ?? buildLobbyPrompt(cwd, config);
+  const lobbyPrompt = promptOverride ?? buildLobbyPrompt(cwd, config);
+  const prompt = workspace ? `${workspacePrompt(workspace)}\n\n${lobbyPrompt}` : lobbyPrompt;
 
   const args = ["--mode", "json", "--no-session", "-p"];
   const model = modelOverride ?? resolveModel(undefined, undefined, undefined, config.models?.worker, sessionModel, workerConfig.model);
@@ -150,6 +166,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     PI_CREW_WORKER: "1",
     PI_CREW_ROLE: "worker",
     PI_LOBBY_ID: id,
+    ...(workspace ? { PI_CREW_WORKSPACE_ROOT: workspace.root } : {}),
   };
   if (workerGuidance.active) {
     Object.assign(env, workerGuidance.env);
@@ -158,7 +175,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   }
 
   const proc = spawn(getPiCommand(), args, {
-    cwd,
+    cwd: launchCwd,
     stdio: ["ignore", "pipe", "pipe"],
     env,
   });
@@ -175,7 +192,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     type: "lobby",
     lobbyId: id,
     name,
-    cwd: normalizeCwd(cwd),
+    cwd: normalizeCwd(launchCwd),
     proc,
     taskId,
     startedAt: Date.now(),
@@ -187,6 +204,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     model,
     role: "worker",
     superpowersActive: workerGuidance.active,
+    workspace: workspace ?? undefined,
     completion,
     resolveCompletion,
   };
@@ -302,6 +320,11 @@ export function getAvailableLobbyWorkers(cwd: string): LobbyWorker[] {
   return registryGetAvailableLobbyWorkers(cwd);
 }
 
+function hasMatchingLobbyPlanWorkspace(worker: LobbyWorker): boolean {
+  const workspace = verifyPlanWorkspace(worker.cwd);
+  return hasMatchingWorkspaceIdentity(worker.workspace, workspace ?? undefined);
+}
+
 export function assignTaskToLobbyWorker(
   worker: LobbyWorker,
   taskId: string,
@@ -310,6 +333,7 @@ export function assignTaskToLobbyWorker(
 ): boolean {
   if (worker.assignedTaskId) return false;
   if (worker.proc.exitCode !== null) return false;
+  if (!hasMatchingLobbyPlanWorkspace(worker)) return false;
 
   const targetInbox = path.join(inboxDir, worker.name);
   try { fs.mkdirSync(targetInbox, { recursive: true }); } catch {}
@@ -411,12 +435,14 @@ export function spawnWorkerForTask(
   if (!task || task.status !== "todo") return null;
   if (hasActiveWorker(cwd, taskId)) return null;
 
+  const workspace = verifyPlanWorkspace(cwd);
   const config = loadCrewConfig(store.getCrewDir(cwd));
   const roleName = teamStore.resolveRoleName(cwd, task.role);
   const roleModel = roleName ? teamStore.resolveRoles(cwd)[roleName]?.model : undefined;
   const taskModel = resolveModel(task.model, requestModel, roleModel, config.models?.worker, sessionModel);
   const worker = spawnLobbyWorker(cwd, taskPrompt, sessionModel, taskModel);
   if (!worker) return null;
+  if (!hasMatchingWorkspaceIdentity(worker.workspace, workspace ?? undefined)) return null;
 
   removeLiveWorker(cwd, lobbyTaskId(worker.lobbyId));
   worker.assignedTaskId = taskId;
