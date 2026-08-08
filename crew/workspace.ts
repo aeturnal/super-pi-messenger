@@ -9,7 +9,8 @@ export type WorkspaceErrorCode =
   | "workspace_cwd_mismatch"
   | "workspace_submodule"
   | "workspace_not_linked"
-  | "workspace_identity_mismatch";
+  | "workspace_identity_mismatch"
+  | "plan_outside_workspace";
 
 export class WorkspaceError extends Error {
   readonly code: WorkspaceErrorCode;
@@ -75,6 +76,29 @@ function resolveIdentity(workspace: string, cwd: string): WorkspaceIdentity {
 
 export function resolveWorkspace(workspace: string, cwd: string): WorkspaceIdentity {
   return resolveIdentity(workspace, cwd);
+}
+
+export function resolveContainedFile(workspace: WorkspaceIdentity, filePath: string): string {
+  const file = canonicalize(filePath);
+  const relative = path.relative(workspace.root, file);
+
+  if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) {
+    throw new WorkspaceError("plan_outside_workspace", {
+      expected: workspace.root,
+      observed: file,
+    });
+  }
+
+  return file;
+}
+
+export function workspacePrompt(identity: WorkspaceIdentity): string {
+  return [
+    `Authoritative workspace root: ${identity.root}`,
+    "Do not edit files outside this root.",
+    "Before the first edit, run `git rev-parse --show-toplevel`.",
+    "If its result differs from `PI_CREW_WORKSPACE_ROOT`, stop and block the task.",
+  ].join("\n");
 }
 
 export function verifyWorkspace(expected: WorkspaceIdentity, cwd: string): WorkspaceIdentity {
