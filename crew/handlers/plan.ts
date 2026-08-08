@@ -230,20 +230,20 @@ export async function execute(
   const reportProgress = () => onProgress?.();
   resetPlanningCancellation();
 
-  if (params.workspace && !prd) {
-    return result("An explicit PRD is required when workspace is supplied.", {
-      mode: "plan",
-      error: "workspace_requires_prd",
-    });
-  }
-
   let workspaceIdentity: WorkspaceIdentity | undefined;
-  if (params.workspace) {
+  if (params.workspace !== undefined) {
     try {
       workspaceIdentity = resolveWorkspace(params.workspace, cwd);
     } catch (error) {
       return workspaceFailure(error, params.workspace);
     }
+  }
+
+  if (params.workspace !== undefined && !prd) {
+    return result("An explicit PRD is required when workspace is supplied.", {
+      mode: "plan",
+      error: "workspace_requires_prd",
+    });
   }
 
   const existingPlan = store.getPlan(cwd);

@@ -97,6 +97,33 @@ describe("plan workspace handoff", () => {
     expectNoPlanningStarted();
   });
 
+  it("rejects an explicitly empty workspace with a plan before planning", async () => {
+    const r = await planHandler.execute(
+      {
+        action: "plan",
+        prd: "docs/superpowers/plans/example.md",
+        workspace: "",
+        autoWork: false,
+      },
+      context(),
+      "agent",
+    );
+
+    expect(r.details?.error).toBe("workspace_not_absolute");
+    expectNoPlanningStarted();
+  });
+
+  it("rejects an explicitly empty workspace without a plan before discovery", async () => {
+    const r = await planHandler.execute(
+      { action: "plan", workspace: "", autoWork: false },
+      context(),
+      "agent",
+    );
+
+    expect(r.details?.error).toBe("workspace_not_absolute");
+    expectNoPlanningStarted();
+  });
+
   it("rejects a missing workspace before planning", async () => {
     const missingWorkspace = path.join(fx.worktree, "missing-workspace");
     const r = await planHandler.execute(
