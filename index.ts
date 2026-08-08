@@ -415,6 +415,12 @@ Usage (action-based API - preferred):
   // Crew: Plan from PRD
   pi_messenger({ action: "plan" })                              → Auto-discover PRD
   pi_messenger({ action: "plan", prd: "docs/PRD.md" })          → Explicit PRD path
+  // Superpowers handoff: pass both exact paths; Crew verifies but never manages the worktree.
+  pi_messenger({
+    action: "plan",
+    prd: "docs/superpowers/plans/feature.md",
+    workspace: "/absolute/worktree"
+  })
   pi_messenger({ action: "plan", prompt: "Scan for bugs" })     → Inline prompt (no PRD)
   pi_messenger({ action: "plan.cancel" })                       → Cancel active planning
   

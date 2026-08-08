@@ -81,6 +81,11 @@ describe("packaged Superpowers controlling-agent policy", () => {
     expect(result).toContain("without requesting separate approval");
     expect(result).toContain("sole implementation and review dispatcher");
     expect(result).toContain("If Crew is unavailable");
+    expect(result).toContain('prd: "<exact implementation-plan path>"');
+    expect(result).toContain('workspace: "<absolute linked-worktree path>"');
+    expect(result).toContain("Do not use bare plan auto-discovery");
+    expect(result).toContain("Do not replace the implementation plan with a summary");
+    expect(result).toContain("enter the linked worktree before starting Crew planning");
     expect(result).toContain(
       "Otherwise, do not start Crew planning or autonomous work unless the user explicitly asks",
     );
