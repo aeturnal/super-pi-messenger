@@ -400,16 +400,6 @@ export function executeSend(
 
   let recipients: string[];
   if (broadcast) {
-    if (process.env.PI_CREW_WORKER) {
-      messagesSentThisSession++;
-      const preview = message.length > 200 ? message.slice(0, 197) + "..." : message;
-      logFeedEvent(cwd, state.agentName, "message", undefined, preview);
-      const remaining = budget - messagesSentThisSession;
-      return result(
-        `Broadcast logged. (${remaining} message${remaining === 1 ? "" : "s"} remaining)`,
-        { mode: "send", sent: ["feed"], failed: [] }
-      );
-    }
     const agents = store.getActiveAgents(state, dirs);
     recipients = agents.map(a => a.name);
     if (recipients.length === 0) {

@@ -532,11 +532,13 @@ describe("executeSend broadcast filtering", () => {
   });
 
   afterEach(() => {
+    delete process.env.PI_CREW_ROLE;
     delete process.env.PI_CREW_WORKER;
     vi.restoreAllMocks();
   });
 
-  it("worker broadcast logs to feed only", () => {
+  it("worker broadcast delivers to every active peer", () => {
+    process.env.PI_CREW_ROLE = "worker";
     process.env.PI_CREW_WORKER = "1";
 
     const result = executeSend(
@@ -548,8 +550,26 @@ describe("executeSend broadcast filtering", () => {
       "Worker update"
     );
 
-    expect(result.content[0]?.text).toContain("Broadcast logged");
-    expect(storeModule.sendMessageToAgent).not.toHaveBeenCalled();
+    expect(result.content[0]?.text).toBe("Message sent to OakBear, PineFox. (9 messages remaining)");
+    expect(result.details).toEqual({ mode: "send", sent: ["OakBear", "PineFox"], failed: [] });
+    expect(storeModule.sendMessageToAgent).toHaveBeenCalledTimes(2);
+    expect(storeModule.sendMessageToAgent).toHaveBeenNthCalledWith(
+      1,
+      state,
+      messageDirs,
+      "OakBear",
+      "Worker update",
+      undefined,
+    );
+    expect(storeModule.sendMessageToAgent).toHaveBeenNthCalledWith(
+      2,
+      state,
+      messageDirs,
+      "PineFox",
+      "Worker update",
+      undefined,
+    );
+    expect(feedModule.logFeedEvent).toHaveBeenCalledTimes(1);
     expect(feedModule.logFeedEvent).toHaveBeenCalledWith(
       dirs.cwd,
       "EpicGrove",
@@ -634,7 +654,7 @@ describe("executeSend broadcast filtering", () => {
       "Second broadcast"
     );
 
-    expect(first.content[0]?.text).toContain("Broadcast logged");
+    expect(first.content[0]?.text).toContain("Message sent to OakBear, PineFox.");
     expect(first.content[0]?.text).toContain("(0 messages remaining)");
     expect(second.content[0]?.text).toContain("Message budget reached (1/1");
   });
