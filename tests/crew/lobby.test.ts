@@ -5,8 +5,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createStockSuperpowersFixture } from "../helpers/superpowers.ts";
+import { createGitWorktreeFixture } from "../helpers/git-worktree.ts";
+import { resolveWorkspace } from "../../crew/workspace.ts";
 
-vi.mock("node:child_process", () => ({
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:child_process")>(),
   spawn: vi.fn(() => {
     const handlers: Record<string, Function> = {};
     const proc: any = {
@@ -23,14 +26,30 @@ vi.mock("node:child_process", () => ({
   }),
 }));
 
-vi.mock("../../crew/store.ts", () => ({
-  getPlan: vi.fn(() => ({ prd: "docs/PRD.md" })),
-  getCrewDir: vi.fn((cwd: string) => `${cwd}/.pi/messenger/crew`),
-  getTask: vi.fn(() => null),
-  getBaseCommit: vi.fn(() => "abc1234"),
-  updateTask: vi.fn(),
-  appendTaskProgress: vi.fn(),
-}));
+vi.mock("../../crew/store.ts", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const taskPath = (cwd: string, taskId: string) => path.join(cwd, ".pi", "messenger", "crew", "tasks", `${taskId}.json`);
+  const getTask = vi.fn((cwd: string, taskId: string) => {
+    try { return JSON.parse(fs.readFileSync(taskPath(cwd, taskId), "utf8")); } catch { return null; }
+  });
+  return {
+    getPlan: vi.fn(() => ({ prd: "docs/PRD.md" })),
+    getCrewDir: vi.fn((cwd: string) => `${cwd}/.pi/messenger/crew`),
+    getTask,
+    getBaseCommit: vi.fn(() => "abc1234"),
+    updateTask: vi.fn((cwd: string, taskId: string, updates: Record<string, unknown>) => {
+      const task = getTask(cwd, taskId);
+      if (!task) return null;
+      const updated = { ...task, ...updates, updated_at: new Date().toISOString() };
+      if (fs.existsSync(taskPath(cwd, taskId))) {
+        fs.writeFileSync(taskPath(cwd, taskId), JSON.stringify(updated, null, 2));
+      }
+      return updated;
+    }),
+    appendTaskProgress: vi.fn(),
+  };
+});
 
 vi.mock("../../feed.ts", () => ({
   logFeedEvent: vi.fn(),
@@ -60,6 +79,7 @@ vi.mock("../../crew/utils/discover.ts", () => ({
 }));
 
 vi.mock("../../crew/live-progress.ts", () => ({
+  getLiveWorkers: vi.fn(() => new Map()),
   updateLiveWorker: vi.fn(),
   removeLiveWorker: vi.fn(),
 }));
@@ -82,6 +102,20 @@ function createTestCwd(): string {
   return cwd;
 }
 
+function createAssignmentTask(cwd: string, taskId: string): void {
+  const taskPath = path.join(cwd, ".pi", "messenger", "crew", "tasks", `${taskId}.json`);
+  fs.mkdirSync(path.dirname(taskPath), { recursive: true });
+  fs.writeFileSync(taskPath, JSON.stringify({
+    id: taskId,
+    title: taskId,
+    status: "todo",
+    depends_on: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    attempt_count: 0,
+  }, null, 2));
+}
+
 describe("lobby workers", () => {
   let lobby: typeof import("../../crew/lobby.ts");
   let liveProgress: typeof import("../../crew/live-progress.ts");
@@ -89,6 +123,9 @@ describe("lobby workers", () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    const storeModule = await import("../../crew/store.ts");
+    vi.mocked(storeModule.getPlan).mockReset();
+    vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md" } as any);
     superpowers = await import("../../crew/superpowers.ts");
     superpowers.resetSuperpowersStateForTests();
     lobby = await import("../../crew/lobby.ts");
@@ -299,6 +336,73 @@ describe("lobby workers", () => {
     }
   });
 
+  it("binds a workspace-backed lobby worker to the canonical plan workspace", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const workspace = resolveWorkspace(fixture.worktree, fixture.worktree);
+      const storeModule = await import("../../crew/store.ts");
+      vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md", workspace } as any);
+
+      const taskPrompt = "Wait for a task assignment.";
+      const worker = lobby.spawnLobbyWorker(fixture.worktree, taskPrompt)!;
+      const [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+      const promptArgs = args as string[];
+      const systemPromptFlag = promptArgs.indexOf("--append-system-prompt");
+      const systemPrompt = fs.readFileSync(promptArgs[systemPromptFlag + 1]!, "utf8");
+
+      expect(worker).toMatchObject({ cwd: workspace.root, workspace });
+      expect(options?.cwd).toBe(workspace.root);
+      expect(options?.env).toMatchObject({ PI_CREW_WORKSPACE_ROOT: workspace.root });
+      expect(systemPromptFlag).toBeGreaterThan(-1);
+      expect(systemPrompt).toContain(`Authoritative workspace root: ${workspace.root}`);
+      expect(systemPrompt).toContain("git rev-parse --show-toplevel");
+      expect(systemPrompt).toContain("stop and block the task");
+      expect(promptArgs.at(-1)).toBe(taskPrompt);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("requires matching workspace identity for workspace-backed lobby assignments", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const workspace = resolveWorkspace(fixture.worktree, fixture.worktree);
+      const otherWorkspace = resolveWorkspace(fixture.otherWorktree, fixture.otherWorktree);
+      const storeModule = await import("../../crew/store.ts");
+      vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md", workspace } as any);
+      const worker = lobby.spawnLobbyWorker(fixture.worktree)!;
+      const required = {
+        cwd: workspace.root,
+        model: "claude-opus-4-5",
+        role: "worker",
+        superpowersActive: false,
+        workspace,
+      };
+
+      expect(lobby.isLobbyWorkerCompatible(worker, required)).toBe(true);
+      expect(lobby.isLobbyWorkerCompatible({ ...worker, workspace: undefined }, required)).toBe(false);
+      expect(lobby.isLobbyWorkerCompatible(worker, { ...required, workspace: otherWorkspace })).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("rechecks the stored plan identity before assigning a selected lobby worker", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const workspace = resolveWorkspace(fixture.worktree, fixture.worktree);
+      const storeModule = await import("../../crew/store.ts");
+      vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md", workspace } as any);
+      const worker = lobby.spawnLobbyWorker(fixture.worktree)!;
+
+      vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md" } as any);
+
+      expect(lobby.verifyLobbyWorkerAssignment(worker)).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("counts available lobby workers for a cwd", () => {
     expect(lobby.getLobbyWorkerCount("/test/cwd")).toBe(0);
     lobby.spawnLobbyWorker("/test/cwd");
@@ -361,6 +465,7 @@ describe("lobby workers", () => {
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
     const worker = lobby.spawnLobbyWorker(cwd)!;
     expect(worker.assignedTaskId).toBeNull();
+    createAssignmentTask(cwd, "task-3");
 
     const assigned = lobby.assignTaskToLobbyWorker(worker, "task-3", "# Task 3\nDo stuff", inboxDir);
     expect(assigned).toBe(true);
@@ -387,6 +492,7 @@ describe("lobby workers", () => {
     const cwd = createTestCwd();
     const worker = lobby.spawnLobbyWorker(cwd)!;
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    createAssignmentTask(cwd, "task-complete");
     expect(lobby.assignTaskToLobbyWorker(worker, "task-complete", "# Task", inboxDir)).toBe(true);
 
     const resultPromise = lobby.waitForLobbyWorker(worker);
@@ -412,6 +518,7 @@ describe("lobby workers", () => {
     const cwd = createTestCwd();
     const worker = lobby.spawnLobbyWorker(cwd)!;
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    createAssignmentTask(cwd, "task-provider-error");
     expect(lobby.assignTaskToLobbyWorker(worker, "task-provider-error", "# Task", inboxDir)).toBe(true);
 
     const resultPromise = lobby.waitForLobbyWorker(worker);
@@ -444,6 +551,7 @@ describe("lobby workers", () => {
     const cwd = createTestCwd();
     const worker = lobby.spawnLobbyWorker(cwd)!;
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    createAssignmentTask(cwd, "task-temporary-error");
     expect(lobby.assignTaskToLobbyWorker(worker, "task-temporary-error", "# Task", inboxDir)).toBe(true);
 
     const proc = worker.proc as any;
@@ -468,6 +576,7 @@ describe("lobby workers", () => {
     const worker = lobby.spawnLobbyWorker(cwd)!;
     expect(worker.aliveFile).toBeTruthy();
     expect(fs.existsSync(worker.aliveFile!)).toBe(true);
+    createAssignmentTask(cwd, "task-keepalive");
 
     const assigned = lobby.assignTaskToLobbyWorker(worker, "task-keepalive", "# Task\nDo work", inboxDir);
     expect(assigned).toBe(true);
@@ -742,6 +851,71 @@ describe("lobby workers", () => {
     expect(feedModule.logFeedEvent).toHaveBeenCalledWith(
       "/test/cwd", worker!.name, "task.start", "task-5", "Build something",
     );
+  });
+
+  it("uses one verified plan workspace snapshot for direct launch and publication", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const storeModule = await import("../../crew/store.ts");
+      const registry = await import("../../crew/registry.ts");
+      const workspace = resolveWorkspace(fixture.worktree, fixture.worktree);
+      const task = {
+        id: "task-snapshot", title: "Snapshot task", status: "todo", attempt_count: 0,
+        depends_on: [], description: "", created_at: "", milestone: false,
+      } as any;
+      vi.mocked(storeModule.getTask).mockReturnValue(task);
+      vi.mocked(storeModule.getPlan)
+        .mockReturnValueOnce({ prd: "docs/PRD.md", workspace } as any)
+        .mockReturnValue({ prd: "docs/PRD.md" } as any);
+      vi.mocked(storeModule.updateTask).mockClear();
+      vi.mocked(spawn).mockClear();
+
+      const worker = lobby.spawnWorkerForTask(fixture.worktree, task.id, "# Task prompt");
+
+      expect(storeModule.getPlan).toHaveBeenCalledTimes(1);
+      expect(worker).toMatchObject({ assignedTaskId: task.id, workspace });
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(spawn).mock.calls[0]?.[2]?.cwd).toBe(workspace.root);
+      expect(fs.existsSync(worker!.aliveFile!)).toBe(false);
+      expect(registry.findWorkerByTask(fixture.worktree, task.id)).toBe(worker);
+      expect(fs.existsSync(worker!.promptTmpDir!)).toBe(true);
+      expect(storeModule.updateTask).toHaveBeenCalledTimes(1);
+      expect(storeModule.updateTask).toHaveBeenCalledWith(
+        fixture.worktree,
+        task.id,
+        expect.objectContaining({ status: "in_progress", assigned_to: worker!.name }),
+      );
+
+      const promptTmpDir = worker!.promptTmpDir!;
+      (worker!.proc as any)._handlers["close"](0);
+      expect(registry.findWorkerByTask(fixture.worktree, task.id)).toBeNull();
+      expect(fs.existsSync(promptTmpDir)).toBe(false);
+    } finally {
+      lobby.shutdownLobbyWorkers(fixture.worktree);
+      fixture.cleanup();
+    }
+  });
+
+  it("spawnWorkerForTask verifies the plan workspace before starting a todo task", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const storeModule = await import("../../crew/store.ts");
+      vi.mocked(storeModule.getTask).mockReturnValue({
+        id: "task-workspace", title: "Workspace task", status: "todo", attempt_count: 0,
+        depends_on: [], description: "", created_at: "", milestone: false,
+      } as any);
+      vi.mocked(storeModule.getPlan).mockReturnValue({
+        prd: "docs/PRD.md",
+        workspace: resolveWorkspace(fixture.otherWorktree, fixture.otherWorktree),
+      } as any);
+
+      expect(() => lobby.spawnWorkerForTask(fixture.worktree, "task-workspace", "# Task prompt"))
+        .toThrow("workspace_identity_mismatch");
+      expect(storeModule.updateTask).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      fixture.cleanup();
+    }
   });
 
   it("spawnWorkerForTask returns null if task already claimed", async () => {

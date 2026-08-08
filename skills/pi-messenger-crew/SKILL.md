@@ -42,6 +42,13 @@ pi_messenger({ action: "plan" })
 // Or specify path
 pi_messenger({ action: "plan", prd: "path/to/PRD.md" })
 
+// Superpowers handoffs pass both exact paths. Crew verifies but never manages the worktree.
+pi_messenger({
+  action: "plan",
+  prd: "docs/superpowers/plans/feature.md",
+  workspace: "/absolute/worktree"
+})
+
 // Or pass an inline prompt (no PRD file needed)
 pi_messenger({ action: "plan", prompt: "Scan the codebase for bugs focusing on error handling" })
 

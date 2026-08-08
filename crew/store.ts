@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import type { Plan, Task, TaskApproval, TaskApprovalDecisionStatus, TaskEvidence } from "./types.ts";
+import type { Plan, Task, TaskApproval, TaskApprovalDecisionStatus, TaskEvidence, WorkspaceIdentity } from "./types.ts";
 import { allocateTaskId } from "./id-allocator.ts";
 import { normalizeRiskLabels } from "./utils/risk-labels.ts";
 
@@ -81,12 +81,13 @@ export function getPlan(cwd: string): Plan | null {
   return readJson<Plan>(path.join(getCrewDir(cwd), "plan.json"));
 }
 
-export function createPlan(cwd: string, prdPath: string, prompt?: string): Plan {
+export function createPlan(cwd: string, prdPath: string, prompt?: string, workspace?: WorkspaceIdentity): Plan {
   const now = new Date().toISOString();
   
   const plan: Plan = {
     prd: prdPath,
     ...(prompt ? { prompt } : {}),
+    ...(workspace ? { workspace } : {}),
     created_at: now,
     updated_at: now,
     task_count: 0,

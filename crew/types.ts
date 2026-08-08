@@ -12,9 +12,16 @@ import type { CrewAgentConfig } from "./utils/discover.ts";
 // Plan Types
 // =============================================================================
 
+export interface WorkspaceIdentity {
+  root: string;
+  gitDir: string;
+  gitCommonDir: string;
+}
+
 export interface Plan {
   prd: string;                   // Path to PRD file (relative to cwd)
   prompt?: string;               // Inline prompt text (when no PRD file)
+  workspace?: WorkspaceIdentity; // Linked-worktree identity for Superpowers handoffs
   created_at: string;            // ISO timestamp
   updated_at: string;            // ISO timestamp
   task_count: number;            // Total tasks
@@ -90,6 +97,7 @@ export interface CrewParams {
 
   // Plan
   prd?: string;                  // PRD file path for plan action
+  workspace?: string;            // Absolute linked-worktree path for a Superpowers plan handoff
 
   // Task IDs
   id?: string;                   // Task ID (task-N)

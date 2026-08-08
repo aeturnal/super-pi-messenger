@@ -15,7 +15,8 @@ import { randomUUID } from "node:crypto";
 import { generateMemorableName } from "../lib.ts";
 import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
 import { normalizeCwd } from "./state.ts";
-import type { AgentResult } from "./types.ts";
+import type { AgentResult, WorkspaceIdentity } from "./types.ts";
+import { verifyPlanWorkspace, workspacePrompt } from "./workspace.ts";
 import {
   resolveThinking,
   modelHasThinkingSuffix,
@@ -33,7 +34,7 @@ import {
   parseJsonlLine,
   updateProgress,
 } from "./utils/progress.ts";
-import { updateLiveWorker, removeLiveWorker } from "./live-progress.ts";
+import { getLiveWorkers, updateLiveWorker, removeLiveWorker } from "./live-progress.ts";
 import * as store from "./store.ts";
 import { logFeedEvent } from "../feed.ts";
 import {
@@ -65,6 +66,17 @@ export interface LobbyCompatibility {
   model?: string;
   role?: string;
   superpowersActive: boolean;
+  workspace?: WorkspaceIdentity;
+}
+
+function hasMatchingWorkspaceIdentity(
+  workerWorkspace: WorkspaceIdentity | undefined,
+  requiredWorkspace: WorkspaceIdentity | undefined,
+): boolean {
+  if (!workerWorkspace || !requiredWorkspace) return workerWorkspace === requiredWorkspace;
+  return workerWorkspace.root === requiredWorkspace.root
+    && workerWorkspace.gitDir === requiredWorkspace.gitDir
+    && workerWorkspace.gitCommonDir === requiredWorkspace.gitCommonDir;
 }
 
 export function isLobbyWorkerCompatible(
@@ -74,7 +86,8 @@ export function isLobbyWorkerCompatible(
   return worker.cwd === normalizeCwd(required.cwd)
     && worker.model === required.model
     && worker.role === required.role
-    && worker.superpowersActive === required.superpowersActive;
+    && worker.superpowersActive === required.superpowersActive
+    && hasMatchingWorkspaceIdentity(worker.workspace, required.workspace);
 }
 
 function lobbyTaskId(id: string): string {
@@ -82,6 +95,23 @@ function lobbyTaskId(id: string): string {
 }
 
 export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionModel?: string, modelOverride?: string): LobbyWorker | null {
+  return spawnLobbyWorkerFromSnapshot(
+    cwd,
+    verifyPlanWorkspace(cwd),
+    promptOverride,
+    sessionModel,
+    modelOverride,
+  );
+}
+
+function spawnLobbyWorkerFromSnapshot(
+  cwd: string,
+  workspace: WorkspaceIdentity | null,
+  promptOverride?: string,
+  sessionModel?: string,
+  modelOverride?: string,
+): LobbyWorker | null {
+  const launchCwd = workspace?.root ?? cwd;
   const agents = discoverCrewAgents(cwd);
   const workerConfig = agents.find(a => a.name === "crew-worker");
   if (!workerConfig) return null;
@@ -97,7 +127,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     if (!collision) break;
     name = generateMemorableName();
   }
-  const prompt = promptOverride ?? buildLobbyPrompt(cwd, config);
+  const lobbyPrompt = promptOverride ?? buildLobbyPrompt(cwd, config);
 
   const args = ["--mode", "json", "--no-session", "-p"];
   const model = modelOverride ?? resolveModel(undefined, undefined, undefined, config.models?.worker, sessionModel, workerConfig.model);
@@ -129,18 +159,19 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
   let promptTmpDir: string | null = null;
-  if (workerConfig.systemPrompt || workerGuidance.systemPromptSuffix) {
+  if (workerConfig.systemPrompt || workerGuidance.systemPromptSuffix || workspace) {
     promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-lobby-"));
     const promptPath = path.join(promptTmpDir, "crew-worker.md");
-    let appendSystemPrompt = workerConfig.systemPrompt ?? "";
-    if (workerGuidance.systemPromptSuffix) {
-      appendSystemPrompt += appendSystemPrompt ? `\n\n${workerGuidance.systemPromptSuffix}` : workerGuidance.systemPromptSuffix;
-    }
-    fs.writeFileSync(promptPath, appendSystemPrompt, { mode: 0o600 });
+    const promptSections = [
+      workerConfig.systemPrompt,
+      workerGuidance.systemPromptSuffix,
+      workspace ? workspacePrompt(workspace) : undefined,
+    ].filter((section): section is string => Boolean(section));
+    fs.writeFileSync(promptPath, promptSections.join("\n\n"), { mode: 0o600 });
     args.push("--append-system-prompt", promptPath);
   }
 
-  args.push(prompt);
+  args.push(lobbyPrompt);
 
   const envOverrides = config.work.env ?? {};
   const env: NodeJS.ProcessEnv = {
@@ -150,6 +181,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     PI_CREW_WORKER: "1",
     PI_CREW_ROLE: "worker",
     PI_LOBBY_ID: id,
+    ...(workspace ? { PI_CREW_WORKSPACE_ROOT: workspace.root } : {}),
   };
   if (workerGuidance.active) {
     Object.assign(env, workerGuidance.env);
@@ -158,7 +190,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
   }
 
   const proc = spawn(getPiCommand(), args, {
-    cwd,
+    cwd: launchCwd,
     stdio: ["ignore", "pipe", "pipe"],
     env,
   });
@@ -175,7 +207,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     type: "lobby",
     lobbyId: id,
     name,
-    cwd: normalizeCwd(cwd),
+    cwd: normalizeCwd(launchCwd),
     proc,
     taskId,
     startedAt: Date.now(),
@@ -187,6 +219,7 @@ export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionMo
     model,
     role: "worker",
     superpowersActive: workerGuidance.active,
+    workspace: workspace ?? undefined,
     completion,
     resolveCompletion,
   };
@@ -302,17 +335,42 @@ export function getAvailableLobbyWorkers(cwd: string): LobbyWorker[] {
   return registryGetAvailableLobbyWorkers(cwd);
 }
 
+export function verifyLobbyWorkerAssignment(worker: LobbyWorker): boolean {
+  if (worker.assignedTaskId) return false;
+  if (worker.proc.exitCode !== null) return false;
+  const workspace = verifyPlanWorkspace(worker.cwd);
+  return hasMatchingWorkspaceIdentity(worker.workspace, workspace ?? undefined);
+}
+
 export function assignTaskToLobbyWorker(
   worker: LobbyWorker,
   taskId: string,
   taskPrompt: string,
   inboxDir: string,
 ): boolean {
-  if (worker.assignedTaskId) return false;
-  if (worker.proc.exitCode !== null) return false;
+  if (!verifyLobbyWorkerAssignment(worker)) return false;
+
+  const task = store.getTask(worker.cwd, taskId);
+  if (!task || task.status !== "todo") return false;
+
+  const taskPath = path.join(store.getCrewDir(worker.cwd), "tasks", `${taskId}.json`);
+  let taskBytes: Buffer;
+  try {
+    taskBytes = fs.readFileSync(taskPath);
+  } catch {
+    return false;
+  }
 
   const targetInbox = path.join(inboxDir, worker.name);
-  try { fs.mkdirSync(targetInbox, { recursive: true }); } catch {}
+  const random = Math.random().toString(36).substring(2, 8);
+  const msgFile = path.join(targetInbox, `${Date.now()}-${random}.json`);
+  const aliveFile = worker.aliveFile;
+  const aliveBytes = aliveFile && fs.existsSync(aliveFile) ? fs.readFileSync(aliveFile) : null;
+  const lobbyId = lobbyTaskId(worker.lobbyId);
+  const previousLiveWorker = getLiveWorkers(worker.cwd).get(lobbyId);
+  const previousAssignedTaskId = worker.assignedTaskId;
+  let messageWritten = false;
+  let liveWorkerRemoved = false;
 
   const msg = {
     id: randomUUID(),
@@ -329,24 +387,39 @@ ${taskPrompt}`,
     replyTo: null,
   };
 
-  const random = Math.random().toString(36).substring(2, 8);
-  const msgFile = path.join(targetInbox, `${Date.now()}-${random}.json`);
-  const aliveFile = worker.aliveFile;
-  if (aliveFile) {
-    try { fs.unlinkSync(aliveFile); } catch {}
-  }
   try {
+    const updated = store.updateTask(worker.cwd, taskId, {
+      status: "in_progress",
+      started_at: new Date().toISOString(),
+      base_commit: store.getBaseCommit(worker.cwd),
+      assigned_to: worker.name,
+      attempt_count: task.attempt_count + 1,
+    });
+    if (!updated) throw new Error("task_update_failed");
+
+    fs.mkdirSync(targetInbox, { recursive: true });
+    if (aliveFile && aliveBytes) fs.unlinkSync(aliveFile);
+    messageWritten = true;
     fs.writeFileSync(msgFile, JSON.stringify(msg, null, 2));
+    liveWorkerRemoved = true;
+    removeLiveWorker(worker.cwd, lobbyId);
+    worker.assignedTaskId = taskId;
+    return true;
   } catch {
-    if (aliveFile) {
-      try { fs.writeFileSync(aliveFile, "", { mode: 0o600 }); } catch {}
+    try { fs.writeFileSync(taskPath, taskBytes); } catch {}
+    worker.assignedTaskId = previousAssignedTaskId;
+    if (messageWritten) {
+      try { fs.unlinkSync(msgFile); } catch {}
+    }
+    if (aliveFile && aliveBytes && !fs.existsSync(aliveFile)) {
+      try { fs.writeFileSync(aliveFile, aliveBytes, { mode: 0o600 }); } catch {}
+    }
+    if (liveWorkerRemoved && previousLiveWorker) {
+      const { cwd: _cwd, ...liveWorker } = previousLiveWorker;
+      try { updateLiveWorker(worker.cwd, lobbyId, liveWorker); } catch {}
     }
     return false;
   }
-
-  removeLiveWorker(worker.cwd, lobbyTaskId(worker.lobbyId));
-  worker.assignedTaskId = taskId;
-  return true;
 }
 
 export function killLobbyWorkerForTask(cwd: string, taskId: string): boolean {
@@ -411,11 +484,12 @@ export function spawnWorkerForTask(
   if (!task || task.status !== "todo") return null;
   if (hasActiveWorker(cwd, taskId)) return null;
 
+  const workspace = verifyPlanWorkspace(cwd);
   const config = loadCrewConfig(store.getCrewDir(cwd));
   const roleName = teamStore.resolveRoleName(cwd, task.role);
   const roleModel = roleName ? teamStore.resolveRoles(cwd)[roleName]?.model : undefined;
   const taskModel = resolveModel(task.model, requestModel, roleModel, config.models?.worker, sessionModel);
-  const worker = spawnLobbyWorker(cwd, taskPrompt, sessionModel, taskModel);
+  const worker = spawnLobbyWorkerFromSnapshot(cwd, workspace, taskPrompt, sessionModel, taskModel);
   if (!worker) return null;
 
   removeLiveWorker(cwd, lobbyTaskId(worker.lobbyId));

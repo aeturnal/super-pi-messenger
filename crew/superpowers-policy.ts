@@ -9,6 +9,8 @@ Outside Crew, Superpowers owns development workflow and methodology. pi-messenge
 
 Whenever \`subagent-driven-development\` is applicable, selected, or loaded, Crew is automatically authorized. Translate its implementer and reviewer workflow into Crew planning and work, use Crew as the sole implementation and review dispatcher, and proceed without requesting separate approval. Do not start nested agents, alternative subagent mechanisms, nested plan executors, branch-finishing workflows, or nested worktree management. If Crew is unavailable, report that condition instead of substituting another dispatcher.
 
+When writing-plans produced an implementation plan, enter the linked worktree before starting Crew planning. Pass the exact paths with pi_messenger({ action: "plan", prd: "<exact implementation-plan path>", workspace: "<absolute linked-worktree path>" }). Do not use bare plan auto-discovery. Do not replace the implementation plan with a summary. Crew verifies the worktree but does not create or switch it.
+
 Otherwise, do not start Crew planning or autonomous work unless the user explicitly asks to use Crew.`;
 
 export function applySuperpowersOuterPolicy(

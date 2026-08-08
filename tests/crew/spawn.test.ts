@@ -8,7 +8,7 @@ const lobbyMock = vi.hoisted(() => {
   let counter = 0;
   return {
     getAvailableLobbyWorkers: vi.fn(() => [] as Array<{ name: string; lobbyId: string }>),
-    assignTaskToLobbyWorker: vi.fn(() => true),
+    assignTaskToLobbyWorker: vi.fn<typeof import("../../crew/lobby.ts").assignTaskToLobbyWorker>(() => true),
     spawnWorkerForTask: vi.fn<() => { name: string } | null>(() => {
       counter++;
       return { name: `SpawnedWorker${counter}` };
@@ -52,7 +52,18 @@ describe("spawnWorkersForReadyTasks", () => {
     homedirMock.mockReturnValue(dirs.root);
     lobbyMock.reset();
     lobbyMock.getAvailableLobbyWorkers.mockReturnValue([]);
-    lobbyMock.assignTaskToLobbyWorker.mockReturnValue(true);
+    lobbyMock.assignTaskToLobbyWorker.mockImplementation((worker: { name: string }, taskId: string) => {
+      const task = store.getTask(dirs.cwd, taskId);
+      if (!task || task.status !== "todo") return false;
+      store.updateTask(dirs.cwd, taskId, {
+        status: "in_progress",
+        started_at: new Date().toISOString(),
+        base_commit: store.getBaseCommit(dirs.cwd),
+        assigned_to: worker.name,
+        attempt_count: task.attempt_count + 1,
+      });
+      return true;
+    });
     lobbyMock.spawnWorkerForTask.mockClear();
     lobbyMock.assignTaskToLobbyWorker.mockClear();
 
@@ -111,22 +122,18 @@ describe("spawnWorkersForReadyTasks", () => {
     expect(lobbyMock.spawnWorkerForTask).not.toHaveBeenCalled();
   });
 
-  it("reports mutation when a failed lobby assignment retains task start metadata", () => {
+  it("does not mutate a task when lobby assignment fails", () => {
     lobbyMock.getAvailableLobbyWorkers.mockReturnValue([{ name: "Lobby1", lobbyId: "lb-1" }]);
     lobbyMock.assignTaskToLobbyWorker.mockReturnValue(false);
     lobbyMock.spawnWorkerForTask.mockReturnValue(null);
     vi.spyOn(store, "getBaseCommit").mockReturnValue("base-before-delivery");
     const task = store.getTasks(dirs.cwd)[0]!;
+    const taskPath = path.join(dirs.tasksDir, `${task.id}.json`);
+    const before = fs.readFileSync(taskPath);
 
     const result = spawn.spawnWorkersForReadyTasks(dirs.cwd, 1);
-    const updated = store.getTask(dirs.cwd, task.id)!;
 
-    expect(result.assigned).toBe(0);
-    expect(result.mutated).toBe(true);
-    expect(updated.status).toBe("todo");
-    expect(updated.assigned_to).toBeUndefined();
-    expect(updated.attempt_count).toBe(1);
-    expect(updated.started_at).toEqual(expect.any(String));
-    expect(updated.base_commit).toBe("base-before-delivery");
+    expect(result).toMatchObject({ assigned: 0, mutated: false });
+    expect(fs.readFileSync(taskPath)).toEqual(before);
   });
 });

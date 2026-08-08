@@ -14,6 +14,7 @@ import { isPlanningForCwd, cancelPlanningRun, autonomousState, isAutonomousForCw
 import { logFeedEvent } from "../feed.ts";
 import { isCrewChildProcess } from "./utils/child-process.ts";
 import { isCrewChildActionAllowed } from "./child-actions.ts";
+import { verifyPlanWorkspace } from "./workspace.ts";
 
 type DeliverFn = (msg: AgentMailMessage) => void;
 type UpdateStatusFn = (ctx: ExtensionContext) => void;
@@ -84,6 +85,23 @@ export async function executeCrewAction(
   // ═══════════════════════════════════════════════════════════════════════
   if (!state.registered) {
     return handlers.notRegisteredError();
+  }
+
+  const requiresWorkspaceVerification = (
+    (group === "work" && op !== "stop")
+    || group === "review"
+    || group === "sync"
+    || (group === "task" && (op === "revise" || op === "revise-tree"))
+  );
+  if (requiresWorkspaceVerification) {
+    try {
+      verifyPlanWorkspace(ctx.cwd);
+    } catch {
+      return result("Workspace validation failed: workspace_mismatch", {
+        mode: action,
+        error: "workspace_mismatch",
+      });
+    }
   }
 
   switch (group) {

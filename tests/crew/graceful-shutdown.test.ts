@@ -382,7 +382,7 @@ describe("crew/graceful shutdown", () => {
     expect(response.details.blocked).toEqual([task.id]);
   });
 
-  it("counts a failed lobby assignment and unchanged fresh startup failure before blocking", async () => {
+  it("does not count a rolled-back lobby delivery as an attempt", async () => {
     vi.resetModules();
     mockLobbyProcesses();
 
@@ -396,7 +396,7 @@ describe("crew/graceful shutdown", () => {
       work: { maxAttemptsPerTask: 2 },
     }));
     store.createPlan(dirs.cwd, "docs/PRD.md");
-    const task = store.createTask(dirs.cwd, "Fresh task", "Count both failed launch paths");
+    const task = store.createTask(dirs.cwd, "Fresh task", "Count only the fresh launch attempt");
     lobby.spawnLobbyWorker(dirs.cwd)!;
 
     const messengerDirs = createDirs(dirs.cwd);
@@ -427,13 +427,12 @@ describe("crew/graceful shutdown", () => {
     );
 
     expect(store.getTask(dirs.cwd, task.id)).toMatchObject({
-      status: "blocked",
-      attempt_count: 2,
-      blocked_reason: "Max attempts (2) reached",
+      status: "todo",
+      attempt_count: 1,
     });
     expect(store.getTask(dirs.cwd, task.id)?.assigned_to).toBeUndefined();
-    expect(response.details.failed).toEqual([]);
-    expect(response.details.blocked).toEqual([task.id]);
+    expect(response.details.failed).toEqual([task.id]);
+    expect(response.details.blocked).toEqual([]);
   });
 
   it("blocks a fresh worker failure at the attempt limit and clears ownership", async () => {

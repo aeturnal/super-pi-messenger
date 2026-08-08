@@ -54,20 +54,9 @@ export function spawnWorkersForReadyTasks(
     const others = fresh.filter(t => t.id !== task.id);
     const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
 
+    if (!assignTaskToLobbyWorker(lw, task.id, prompt, inboxDir)) continue;
+
     mutated = true;
-    store.updateTask(cwd, task.id, {
-      status: "in_progress",
-      started_at: new Date().toISOString(),
-      base_commit: store.getBaseCommit(cwd),
-      assigned_to: lw.name,
-      attempt_count: task.attempt_count + 1,
-    });
-
-    if (!assignTaskToLobbyWorker(lw, task.id, prompt, inboxDir)) {
-      store.updateTask(cwd, task.id, { status: "todo", assigned_to: undefined });
-      continue;
-    }
-
     store.appendTaskProgress(cwd, task.id, "system", `Assigned to lobby worker ${lw.name} (attempt ${task.attempt_count + 1})`);
     logFeedEvent(cwd, lw.name, "task.start", task.id, task.title);
     if (!firstWorkerName) firstWorkerName = lw.name;
