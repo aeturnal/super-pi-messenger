@@ -128,7 +128,6 @@ function spawnLobbyWorkerFromSnapshot(
     name = generateMemorableName();
   }
   const lobbyPrompt = promptOverride ?? buildLobbyPrompt(cwd, config);
-  const prompt = workspace ? `${workspacePrompt(workspace)}\n\n${lobbyPrompt}` : lobbyPrompt;
 
   const args = ["--mode", "json", "--no-session", "-p"];
   const model = modelOverride ?? resolveModel(undefined, undefined, undefined, config.models?.worker, sessionModel, workerConfig.model);
@@ -160,18 +159,19 @@ function spawnLobbyWorkerFromSnapshot(
   args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
   let promptTmpDir: string | null = null;
-  if (workerConfig.systemPrompt || workerGuidance.systemPromptSuffix) {
+  if (workerConfig.systemPrompt || workerGuidance.systemPromptSuffix || workspace) {
     promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-lobby-"));
     const promptPath = path.join(promptTmpDir, "crew-worker.md");
-    let appendSystemPrompt = workerConfig.systemPrompt ?? "";
-    if (workerGuidance.systemPromptSuffix) {
-      appendSystemPrompt += appendSystemPrompt ? `\n\n${workerGuidance.systemPromptSuffix}` : workerGuidance.systemPromptSuffix;
-    }
-    fs.writeFileSync(promptPath, appendSystemPrompt, { mode: 0o600 });
+    const promptSections = [
+      workerConfig.systemPrompt,
+      workerGuidance.systemPromptSuffix,
+      workspace ? workspacePrompt(workspace) : undefined,
+    ].filter((section): section is string => Boolean(section));
+    fs.writeFileSync(promptPath, promptSections.join("\n\n"), { mode: 0o600 });
     args.push("--append-system-prompt", promptPath);
   }
 
-  args.push(prompt);
+  args.push(lobbyPrompt);
 
   const envOverrides = config.work.env ?? {};
   const env: NodeJS.ProcessEnv = {

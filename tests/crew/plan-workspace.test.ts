@@ -86,6 +86,80 @@ describe("plan workspace handoff", () => {
     expect(spawnAgents.mock.calls[0][1]).toBe(workspace);
   });
 
+  it("retains the exact workspace plan and uses a prompt only as re-plan steering", async () => {
+    const prd = "docs/superpowers/plans/example.md";
+    const workspace = resolveWorkspace(fx.worktree, fx.worktree);
+    store.createPlan(fx.worktree, prd, undefined, workspace);
+    store.createTask(fx.worktree, "Old task");
+
+    const r = await planHandler.execute(
+      { action: "plan", prompt: "focus on the handoff boundary", autoWork: false },
+      context(),
+      "agent",
+    );
+
+    expect(r.details?.error).toBeUndefined();
+    expect(store.getPlan(fx.worktree)).toMatchObject({ prd, workspace });
+    expect(store.getPlan(fx.worktree)?.prompt).toBeUndefined();
+    const plannerTask = spawnAgents.mock.calls[0][0][0].task;
+    expect(plannerTask).toContain(`PRD: ${prd}`);
+    expect(plannerTask).toContain("Distinctive plan content for workspace planning.");
+    expect(plannerTask).not.toContain("## Request\nfocus on the handoff boundary");
+    expect(spawnAgents.mock.calls[0][1]).toBe(workspace.root);
+    expect(fs.readFileSync(path.join(store.getCrewDir(fx.worktree), "planning-progress.md"), "utf8"))
+      .toContain("Re-plan: focus on the handoff boundary");
+  });
+
+  it("keeps existing tasks when inherited workspace identity verification fails", async () => {
+    const wrongWorkspace = resolveWorkspace(fx.otherWorktree, fx.otherWorktree);
+    store.createPlan(fx.worktree, "docs/superpowers/plans/example.md", undefined, wrongWorkspace);
+    const oldTask = store.createTask(fx.worktree, "Old task");
+
+    const r = await planHandler.execute(
+      { action: "plan", prompt: "re-plan", autoWork: false },
+      context(),
+      "agent",
+    );
+
+    expect(r.details?.error).toBe("workspace_identity_mismatch");
+    expect(store.getTask(fx.worktree, oldTask.id)).toMatchObject({ title: "Old task", status: "todo" });
+    expect(spawnAgents).not.toHaveBeenCalled();
+  });
+
+  it("keeps existing tasks when the stored plan is outside the inherited workspace", async () => {
+    const workspace = resolveWorkspace(fx.worktree, fx.worktree);
+    const outsidePlan = path.join(fx.main, "outside-replan.md");
+    fs.writeFileSync(outsidePlan, "# Outside re-plan\n");
+    store.createPlan(fx.worktree, outsidePlan, undefined, workspace);
+    const oldTask = store.createTask(fx.worktree, "Old task");
+
+    const r = await planHandler.execute(
+      { action: "plan", prompt: "re-plan", autoWork: false },
+      context(),
+      "agent",
+    );
+
+    expect(r.details?.error).toBe("plan_outside_workspace");
+    expect(store.getTask(fx.worktree, oldTask.id)).toMatchObject({ title: "Old task", status: "todo" });
+    expect(spawnAgents).not.toHaveBeenCalled();
+  });
+
+  it("keeps existing tasks when the contained stored plan cannot be read", async () => {
+    const workspace = resolveWorkspace(fx.worktree, fx.worktree);
+    store.createPlan(fx.worktree, "docs/superpowers/plans", undefined, workspace);
+    const oldTask = store.createTask(fx.worktree, "Old task");
+
+    const r = await planHandler.execute(
+      { action: "plan", prompt: "re-plan", autoWork: false },
+      context(),
+      "agent",
+    );
+
+    expect(r.details?.error).toBe("prd_read_failed");
+    expect(store.getTask(fx.worktree, oldTask.id)).toMatchObject({ title: "Old task", status: "todo" });
+    expect(spawnAgents).not.toHaveBeenCalled();
+  });
+
   it("requires an explicit plan when workspace is supplied", async () => {
     const r = await planHandler.execute(
       { action: "plan", workspace: fx.worktree, autoWork: false },

@@ -30,7 +30,7 @@ import * as store from "../store.ts";
 import * as teamStore from "../team/store.ts";
 import type { TeamProfile, TeamRoleDefinition } from "../team/types.ts";
 import { taskMetadataMarkers } from "../utils/task-format.ts";
-import { resolveContainedFile, resolveWorkspace, WorkspaceError } from "../workspace.ts";
+import { resolveContainedFile, resolveWorkspace, verifyWorkspace, WorkspaceError } from "../workspace.ts";
 
 const PRD_PATTERNS = [
   "PRD.md", "prd.md",
@@ -247,6 +247,24 @@ export async function execute(
   }
 
   const existingPlan = store.getPlan(cwd);
+  let effectivePrd = prd;
+  if (
+    existingPlan?.workspace
+    && prompt
+    && prd === undefined
+    && params.workspace === undefined
+  ) {
+    const storedWorkspace = existingPlan.workspace;
+    try {
+      workspaceIdentity = verifyWorkspace(storedWorkspace, cwd);
+      effectivePrd = existingPlan.prd;
+    } catch (error) {
+      return workspaceFailure(error, storedWorkspace.root);
+    }
+  }
+
+  let shouldWipeTasks = false;
+  let shouldResetCrewDir = false;
   if (existingPlan) {
     const existingTasks = store.getTasks(cwd);
     const planningActive = isPlanningForCwd(cwd);
@@ -276,28 +294,27 @@ export async function execute(
           inProgress: inProgress.map(t => t.id),
         });
       }
-      wipeTasks(cwd);
+      shouldWipeTasks = true;
     }
 
     if (existingTasks.length === 0 && !prompt) {
-      const crewDir = store.getCrewDir(cwd);
-      try { fs.rmSync(crewDir, { recursive: true, force: true }); } catch {}
+      shouldResetCrewDir = true;
     }
   }
 
   let prdPath: string;
   let prdContent: string;
 
-  if (prd) {
-    prdPath = prd;
-    const requestedPath = path.isAbsolute(prd)
-      ? prd
-      : path.join(workspaceIdentity?.root ?? cwd, prd);
+  if (effectivePrd) {
+    prdPath = effectivePrd;
+    const requestedPath = path.isAbsolute(effectivePrd)
+      ? effectivePrd
+      : path.join(workspaceIdentity?.root ?? cwd, effectivePrd);
     if (!fs.existsSync(requestedPath)) {
-      return result(`PRD file not found: ${prd}`, {
+      return result(`PRD file not found: ${effectivePrd}`, {
         mode: "plan",
         error: "prd_not_found",
-        prd
+        prd: effectivePrd,
       });
     }
     let fullPath = requestedPath;
@@ -305,10 +322,18 @@ export async function execute(
       try {
         fullPath = resolveContainedFile(workspaceIdentity, requestedPath);
       } catch (error) {
-        return workspaceFailure(error, params.workspace!);
+        return workspaceFailure(error, workspaceIdentity.root);
       }
     }
-    prdContent = fs.readFileSync(fullPath, "utf-8");
+    try {
+      prdContent = fs.readFileSync(fullPath, "utf-8");
+    } catch {
+      return result(`PRD file could not be read: ${effectivePrd}`, {
+        mode: "plan",
+        error: "prd_read_failed",
+        prd: effectivePrd,
+      });
+    }
     if (prdContent.length > MAX_PRD_SIZE) {
       prdContent = prdContent.slice(0, MAX_PRD_SIZE) + "\n\n[Content truncated]";
     }
@@ -330,6 +355,14 @@ export async function execute(
         searchedPatterns: PRD_PATTERNS
       });
     }
+  }
+
+  if (shouldWipeTasks) {
+    wipeTasks(cwd);
+  }
+  if (shouldResetCrewDir) {
+    const crewDir = store.getCrewDir(cwd);
+    try { fs.rmSync(crewDir, { recursive: true, force: true }); } catch {}
   }
 
   const isPromptBased = prdPath === "(prompt)";

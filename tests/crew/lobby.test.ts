@@ -343,15 +343,21 @@ describe("lobby workers", () => {
       const storeModule = await import("../../crew/store.ts");
       vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md", workspace } as any);
 
-      const worker = lobby.spawnLobbyWorker(fixture.worktree)!;
-      const [, , options] = vi.mocked(spawn).mock.calls.at(-1)!;
-      const prompt = vi.mocked(spawn).mock.calls.at(-1)![1]!.at(-1) as string;
+      const taskPrompt = "Wait for a task assignment.";
+      const worker = lobby.spawnLobbyWorker(fixture.worktree, taskPrompt)!;
+      const [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+      const promptArgs = args as string[];
+      const systemPromptFlag = promptArgs.indexOf("--append-system-prompt");
+      const systemPrompt = fs.readFileSync(promptArgs[systemPromptFlag + 1]!, "utf8");
 
       expect(worker).toMatchObject({ cwd: workspace.root, workspace });
       expect(options?.cwd).toBe(workspace.root);
       expect(options?.env).toMatchObject({ PI_CREW_WORKSPACE_ROOT: workspace.root });
-      expect(prompt).toContain(workspace.root);
-      expect(prompt).toContain("git rev-parse --show-toplevel");
+      expect(systemPromptFlag).toBeGreaterThan(-1);
+      expect(systemPrompt).toContain(`Authoritative workspace root: ${workspace.root}`);
+      expect(systemPrompt).toContain("git rev-parse --show-toplevel");
+      expect(systemPrompt).toContain("stop and block the task");
+      expect(promptArgs.at(-1)).toBe(taskPrompt);
     } finally {
       fixture.cleanup();
     }
