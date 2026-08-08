@@ -237,6 +237,15 @@ describe("crew action router status behavior", () => {
 		expect(isCrewChildActionAllowed("task.start")).toBe(true);
 	});
 
+	it("gives an explicit reviewer role priority over legacy worker markers", () => {
+		vi.stubEnv("PI_CREW_ROLE", "reviewer");
+		vi.stubEnv("PI_CREW_WORKER", "1");
+		vi.stubEnv("PI_LOBBY_ID", "lobby-1");
+
+		expect(isCrewChildActionAllowed("feed")).toBe(true);
+		expect(isCrewChildActionAllowed("task.start")).toBe(false);
+	});
+
 	it("fails closed for missing or unrecognized child roles", () => {
 		expect(isCrewChildActionAllowed("join", undefined)).toBe(false);
 		expect(isCrewChildActionAllowed("join", "unknown" as never)).toBe(false);

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessengerState } from "../../lib.ts";
 import { spawnAgents } from "../../crew/agents.ts";
 import { createProgress } from "../../crew/utils/progress.ts";
@@ -33,7 +33,14 @@ function getSubtaskIds(value: unknown): string[] {
 }
 
 describe("Team task approval gates", () => {
+  beforeEach(() => {
+    vi.stubEnv("PI_CREW_ROLE", undefined);
+    vi.stubEnv("PI_CREW_WORKER", undefined);
+    vi.stubEnv("PI_LOBBY_ID", undefined);
+  });
+
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.PI_MESSENGER_TEAM_PROFILE_DIR;
   });
 
