@@ -8,10 +8,7 @@ import { createProgress } from "../../crew/utils/progress.ts";
 
 const lobbyMock = vi.hoisted(() => ({
   getAvailableLobbyWorkers: vi.fn(() => [] as Array<{ name: string; lobbyId: string }>),
-  assignTaskToLobbyWorker: vi.fn((worker: { assignedTaskId: string | null }, taskId: string) => {
-    worker.assignedTaskId = taskId;
-    return true;
-  }),
+  assignTaskToLobbyWorker: vi.fn<typeof import("../../crew/lobby.ts").assignTaskToLobbyWorker>(() => true),
   cleanupUnassignedAliveFiles: vi.fn(),
   isLobbyWorkerCompatible: vi.fn((_candidate: { role?: string }, _required: { role?: string }) => false),
   waitForLobbyWorker: vi.fn((worker: { assignedTaskId: string | null }) => Promise.resolve({
