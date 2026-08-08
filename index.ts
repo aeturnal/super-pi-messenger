@@ -456,6 +456,7 @@ Usage (action-based API - preferred):
       // CREW PARAMETERS
       // ═══════════════════════════════════════════════════════════════════════
       prd: Type.Optional(Type.String({ description: "PRD file path for plan action" })),
+      workspace: Type.Optional(Type.String({ description: "Absolute linked-worktree path for a Superpowers plan handoff" })),
       prompt: Type.Optional(Type.String({ description: "Inline prompt for plan action, or revision instructions for task.revise/task.revise-tree" })),
       id: Type.Optional(Type.String({ description: "Task ID (task-N format)" })),
       taskId: Type.Optional(Type.String({ description: "Swarm task ID (e.g., TASK-01) - for action-based claim/unclaim/complete" })),
