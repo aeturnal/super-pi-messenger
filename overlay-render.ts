@@ -437,6 +437,10 @@ export function renderLegend(
   viewState: CrewViewState,
   task: Task | null,
 ): string {
+  if (viewState.notification && Date.now() >= viewState.notification.expiresAt) {
+    viewState.notification = null;
+  }
+
   if (viewState.confirmAction) {
     const text = renderConfirmBar(viewState.confirmAction.taskId, viewState.confirmAction.label, viewState.confirmAction.type);
     return truncateToWidth(theme.fg("warning", appendUniversalHints(text)), width);
@@ -448,7 +452,8 @@ export function renderLegend(
   }
 
   if (viewState.inputMode === "message") {
-    const text = renderMessageBar(viewState.messageInput);
+    const notification = viewState.notification ? `${viewState.notification.message}  ` : "";
+    const text = notification + renderMessageBar(viewState.messageInput);
     return truncateToWidth(theme.fg("accent", text + "  [^T] [^B]"), width);
   }
 
@@ -459,10 +464,7 @@ export function renderLegend(
   }
 
   if (viewState.notification) {
-    if (Date.now() < viewState.notification.expiresAt) {
-      return truncateToWidth(appendUniversalHints(viewState.notification.message), width);
-    }
-    viewState.notification = null;
+    return truncateToWidth(appendUniversalHints(viewState.notification.message), width);
   }
 
   if (viewState.mode === "detail" && task) {
