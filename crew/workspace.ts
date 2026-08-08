@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import * as path from "node:path";
 import type { WorkspaceIdentity } from "./types.ts";
+import { getPlan } from "./store.ts";
 
 export type WorkspaceErrorCode =
   | "workspace_not_absolute"
@@ -99,6 +100,11 @@ export function workspacePrompt(identity: WorkspaceIdentity): string {
     "Before the first edit, run `git rev-parse --show-toplevel`.",
     "If its result differs from `PI_CREW_WORKSPACE_ROOT`, stop and block the task.",
   ].join("\n");
+}
+
+export function verifyPlanWorkspace(cwd: string): WorkspaceIdentity | null {
+  const workspace = getPlan(cwd)?.workspace;
+  return workspace ? verifyWorkspace(workspace, cwd) : null;
 }
 
 export function verifyWorkspace(expected: WorkspaceIdentity, cwd: string): WorkspaceIdentity {

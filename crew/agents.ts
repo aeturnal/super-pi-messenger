@@ -36,6 +36,7 @@ import type { AgentTask, AgentResult } from "./types.ts";
 import { generateMemorableName } from "../lib.ts";
 import { SUPERPOWERS_CHILD_FLAG } from "./superpowers-guard.ts";
 import { prepareSuperpowersLaunch, renderSuperpowersGuidance } from "./superpowers.ts";
+import { verifyPlanWorkspace, workspacePrompt } from "./workspace.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -160,6 +161,8 @@ export async function spawnAgents(
   cwd: string,
   options: SpawnOptions = {}
 ): Promise<AgentResult[]> {
+  const workspace = verifyPlanWorkspace(cwd);
+  const launchCwd = workspace?.root ?? cwd;
   const crewDir = options.crewDir ?? path.join(cwd, ".pi", "messenger", "crew");
   const config = loadCrewConfig(crewDir);
   const agents = discoverCrewAgents(cwd);
@@ -182,7 +185,7 @@ export async function spawnAgents(
     while (!aggregateFailure && running.length < autonomousState.concurrency && queue.length > 0) {
       if (options.signal?.aborted) break;
       const { task, index } = queue.shift()!;
-      const promise = runAgent(task, index, cwd, agents, config, runId, artifactsDir, options)
+      const promise = runAgent(task, index, cwd, launchCwd, workspace, agents, config, runId, artifactsDir, options)
         .then(result => {
           results.push(result);
           options.onProgress?.(results);
@@ -212,6 +215,8 @@ async function runAgent(
   task: AgentTask,
   index: number,
   cwd: string,
+  launchCwd: string,
+  workspace: ReturnType<typeof verifyPlanWorkspace>,
   agents: CrewAgentConfig[],
   config: CrewConfig,
   runId: string,
@@ -281,14 +286,15 @@ async function runAgent(
     args.push("--extension", SUPERPOWERS_GUARD_PATH);
 
     let promptTmpDir: string | null = null;
-    if (agentConfig?.systemPrompt || workerGuidance.systemPromptSuffix) {
+    if (agentConfig?.systemPrompt || workerGuidance.systemPromptSuffix || workspace) {
       promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-agent-"));
       const promptPath = path.join(promptTmpDir, `${task.agent.replace(/[^\w.-]/g, "_")}.md`);
-      let appendSystemPrompt = agentConfig?.systemPrompt ?? "";
-      if (workerGuidance.systemPromptSuffix) {
-        appendSystemPrompt += appendSystemPrompt ? `\n\n${workerGuidance.systemPromptSuffix}` : workerGuidance.systemPromptSuffix;
-      }
-      fs.writeFileSync(promptPath, appendSystemPrompt, { mode: 0o600 });
+      const promptSections = [
+        agentConfig?.systemPrompt,
+        workerGuidance.systemPromptSuffix,
+        workspace ? workspacePrompt(workspace) : undefined,
+      ].filter((section): section is string => Boolean(section));
+      fs.writeFileSync(promptPath, promptSections.join("\n\n"), { mode: 0o600 });
       args.push("--append-system-prompt", promptPath);
     }
 
@@ -303,6 +309,7 @@ async function runAgent(
       ...envOverrides,
       ...workerFlag,
       PI_CREW_ROLE: role,
+      ...(workspace ? { PI_CREW_WORKSPACE_ROOT: workspace.root } : {}),
     };
     if (workerGuidance.active) {
       Object.assign(env, workerGuidance.env);
@@ -311,7 +318,7 @@ async function runAgent(
     }
 
     const proc = spawn(getPiCommand(), args, {
-      cwd,
+      cwd: launchCwd,
       stdio: ["ignore", "pipe", "pipe"],
       env,
     });
