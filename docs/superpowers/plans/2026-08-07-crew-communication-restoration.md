@@ -31,13 +31,12 @@ All four tasks are independent and may run concurrently. They touch separate pro
 **Files:**
 
 - Modify: `crew/child-actions.ts`
-- Modify: `crew/index.ts:49-58`
 - Modify: `tests/crew/router-status.test.ts:90-178`
 
 **Interfaces:**
 
 - Consumes: `isCrewChildProcess(): boolean` from `crew/utils/child-process.ts` and process markers `PI_CREW_ROLE`, `PI_CREW_WORKER`, `PI_LOBBY_ID`.
-- Produces: `getCrewChildRole(): CrewChildRole | undefined` and `isCrewChildActionAllowed(action: string, role?: CrewChildRole): boolean` from `crew/child-actions.ts`.
+- Produces: `isCrewChildActionAllowed(action: string, role?: CrewChildRole): boolean` from `crew/child-actions.ts`; process-role detection remains private to that module.
 - Dependencies: none.
 
 - [ ] **Step 1: Replace the flat-matrix expectation with failing role-matrix tests**
@@ -45,10 +44,7 @@ All four tasks are independent and may run concurrently. They touch separate pro
 In `tests/crew/router-status.test.ts`, import the policy functions and replace the current shared “safe action matrix” test with explicit role expectations:
 
 ```ts
-import {
-  getCrewChildRole,
-  isCrewChildActionAllowed,
-} from "../../crew/child-actions.ts";
+import { isCrewChildActionAllowed } from "../../crew/child-actions.ts";
 
 it("allows mesh actions for every Crew child role", () => {
   const shared = [
@@ -93,14 +89,14 @@ it("keeps orchestration, approval, Team, and unknown actions controller-only", (
   }
 });
 
-it("derives legacy worker markers as the worker role", () => {
+it("allows worker actions through legacy worker markers", () => {
   vi.stubEnv("PI_CREW_ROLE", undefined);
   vi.stubEnv("PI_CREW_WORKER", "1");
-  expect(getCrewChildRole()).toBe("worker");
+  expect(isCrewChildActionAllowed("task.start")).toBe(true);
 
   vi.stubEnv("PI_CREW_WORKER", undefined);
   vi.stubEnv("PI_LOBBY_ID", "lobby-1");
-  expect(getCrewChildRole()).toBe("worker");
+  expect(isCrewChildActionAllowed("task.start")).toBe(true);
 });
 ```
 
@@ -141,14 +137,14 @@ Run:
 npm test -- tests/crew/router-status.test.ts
 ```
 
-Expected: FAIL because `getCrewChildRole` is not exported, the policy has no role parameter, and `join`, `task.start`, and `task.block` are denied.
+Expected: FAIL because the policy has no role parameter and `join`, `task.start`, and `task.block` are denied.
 
 - [ ] **Step 3: Implement the minimal role-aware predicate**
 
 Replace `crew/child-actions.ts` with:
 
 ```ts
-export type CrewChildRole = "planner" | "reviewer" | "analyst" | "worker";
+type CrewChildRole = "planner" | "reviewer" | "analyst" | "worker";
 
 const CHILD_ROLES = new Set<CrewChildRole>([
   "planner", "reviewer", "analyst", "worker",
@@ -164,7 +160,7 @@ const WORKER_ACTIONS = new Set([
   "reserve", "release", "task.start", "task.progress", "task.done", "task.block",
 ]);
 
-export function getCrewChildRole(): CrewChildRole | undefined {
+function getCrewChildRole(): CrewChildRole | undefined {
   const configured = process.env.PI_CREW_ROLE;
   if (configured && CHILD_ROLES.has(configured as CrewChildRole)) {
     return configured as CrewChildRole;
@@ -185,24 +181,7 @@ export function isCrewChildActionAllowed(
 }
 ```
 
-In `crew/index.ts`, pass the effective role explicitly at the existing guard:
-
-```ts
-import {
-  getCrewChildRole,
-  isCrewChildActionAllowed,
-} from "./child-actions.ts";
-
-const childRole = getCrewChildRole();
-if (isCrewChildProcess() && !isCrewChildActionAllowed(action, childRole)) {
-  return result(`Error: ${action} is controller-only.`, {
-    mode: action,
-    error: "controller_only",
-  });
-}
-```
-
-Do not move `join`; once the policy permits it, the existing pre-registration branch is correct.
+Do not modify the router or move `join`; the existing `isCrewChildActionAllowed(action)` call will use the policy's private default role detection before reaching the existing pre-registration branch.
 
 - [ ] **Step 4: Run focused and related authorization tests**
 
@@ -217,7 +196,7 @@ Expected: PASS. Planner, reviewer, and analyst task mutations remain controller-
 - [ ] **Step 5: Commit the action-policy correction**
 
 ```bash
-git add crew/child-actions.ts crew/index.ts tests/crew/router-status.test.ts
+git add crew/child-actions.ts tests/crew/router-status.test.ts
 git commit -m "fix: restore role-aware Crew child actions"
 ```
 
