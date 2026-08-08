@@ -15,6 +15,7 @@ import { logFeedEvent } from "../feed.ts";
 import {
   spawnWorkerForTask,
   getAvailableLobbyWorkers,
+  verifyLobbyWorkerAssignment,
   assignTaskToLobbyWorker,
 } from "./lobby.ts";
 
@@ -54,6 +55,7 @@ export function spawnWorkersForReadyTasks(
     const others = fresh.filter(t => t.id !== task.id);
     const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
 
+    if (!verifyLobbyWorkerAssignment(lw)) continue;
     mutated = true;
     store.updateTask(cwd, task.id, {
       status: "in_progress",

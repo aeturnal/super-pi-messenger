@@ -320,7 +320,9 @@ export function getAvailableLobbyWorkers(cwd: string): LobbyWorker[] {
   return registryGetAvailableLobbyWorkers(cwd);
 }
 
-function hasMatchingLobbyPlanWorkspace(worker: LobbyWorker): boolean {
+export function verifyLobbyWorkerAssignment(worker: LobbyWorker): boolean {
+  if (worker.assignedTaskId) return false;
+  if (worker.proc.exitCode !== null) return false;
   const workspace = verifyPlanWorkspace(worker.cwd);
   return hasMatchingWorkspaceIdentity(worker.workspace, workspace ?? undefined);
 }
@@ -331,9 +333,7 @@ export function assignTaskToLobbyWorker(
   taskPrompt: string,
   inboxDir: string,
 ): boolean {
-  if (worker.assignedTaskId) return false;
-  if (worker.proc.exitCode !== null) return false;
-  if (!hasMatchingLobbyPlanWorkspace(worker)) return false;
+  if (!verifyLobbyWorkerAssignment(worker)) return false;
 
   const targetInbox = path.join(inboxDir, worker.name);
   try { fs.mkdirSync(targetInbox, { recursive: true }); } catch {}

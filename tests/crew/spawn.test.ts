@@ -8,6 +8,7 @@ const lobbyMock = vi.hoisted(() => {
   let counter = 0;
   return {
     getAvailableLobbyWorkers: vi.fn(() => [] as Array<{ name: string; lobbyId: string }>),
+    verifyLobbyWorkerAssignment: vi.fn(() => true),
     assignTaskToLobbyWorker: vi.fn(() => true),
     spawnWorkerForTask: vi.fn<() => { name: string } | null>(() => {
       counter++;
@@ -24,6 +25,7 @@ vi.mock("node:os", async (importOriginal) => {
 
 vi.mock("../../crew/lobby.ts", () => ({
   getAvailableLobbyWorkers: lobbyMock.getAvailableLobbyWorkers,
+  verifyLobbyWorkerAssignment: lobbyMock.verifyLobbyWorkerAssignment,
   assignTaskToLobbyWorker: lobbyMock.assignTaskToLobbyWorker,
   spawnWorkerForTask: lobbyMock.spawnWorkerForTask,
 }));
@@ -52,6 +54,7 @@ describe("spawnWorkersForReadyTasks", () => {
     homedirMock.mockReturnValue(dirs.root);
     lobbyMock.reset();
     lobbyMock.getAvailableLobbyWorkers.mockReturnValue([]);
+    lobbyMock.verifyLobbyWorkerAssignment.mockReturnValue(true);
     lobbyMock.assignTaskToLobbyWorker.mockReturnValue(true);
     lobbyMock.spawnWorkerForTask.mockClear();
     lobbyMock.assignTaskToLobbyWorker.mockClear();
@@ -109,6 +112,33 @@ describe("spawnWorkersForReadyTasks", () => {
     expect(result.assigned).toBe(1);
     expect(lobbyMock.assignTaskToLobbyWorker).toHaveBeenCalledTimes(1);
     expect(lobbyMock.spawnWorkerForTask).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate a task when plan identity changes after lobby worker selection", () => {
+    const worker = { name: "Lobby1", lobbyId: "lb-1" };
+    lobbyMock.getAvailableLobbyWorkers.mockReturnValue([worker]);
+    lobbyMock.spawnWorkerForTask.mockReturnValue(null);
+    const task = store.getTasks(dirs.cwd)[0]!;
+    const taskPath = path.join(dirs.tasksDir, `${task.id}.json`);
+    const taskBefore = fs.readFileSync(taskPath);
+
+    lobbyMock.verifyLobbyWorkerAssignment.mockImplementationOnce(() => {
+      store.updatePlan(dirs.cwd, {
+        workspace: {
+          root: dirs.cwd,
+          gitDir: path.join(dirs.cwd, ".git", "worktrees", "changed"),
+          gitCommonDir: path.join(dirs.cwd, ".git"),
+        },
+      });
+      return false;
+    });
+
+    const result = spawn.spawnWorkersForReadyTasks(dirs.cwd, 1);
+
+    expect(fs.readFileSync(taskPath)).toEqual(taskBefore);
+    expect(store.getPlan(dirs.cwd)?.workspace?.gitDir).toContain("changed");
+    expect(lobbyMock.assignTaskToLobbyWorker).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ assigned: 0, mutated: false });
   });
 
   it("reports mutation when a failed lobby assignment retains task start metadata", () => {

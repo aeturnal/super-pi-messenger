@@ -18,7 +18,7 @@ import { reviewImplementation } from "./review.ts";
 import * as store from "../store.ts";
 import { getCrewDir } from "../store.ts";
 import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
-import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, waitForLobbyWorker, type LobbyCompatibility, type LobbyWorker } from "../lobby.ts";
+import { getAvailableLobbyWorkers, verifyLobbyWorkerAssignment, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, waitForLobbyWorker, type LobbyCompatibility, type LobbyWorker } from "../lobby.ts";
 import { verifyPlanWorkspace } from "../workspace.ts";
 import { hasActiveWorker, killWorkerByTask } from "../registry.ts";
 import { logFeedEvent } from "../../feed.ts";
@@ -269,6 +269,7 @@ export async function execute(
 
     const others = readyTasks.filter(t => t.id !== task.id);
     const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
+    if (!verifyLobbyWorkerAssignment(lobbyWorker)) continue;
     store.updateTask(cwd, task.id, {
       status: "in_progress",
       started_at: new Date().toISOString(),

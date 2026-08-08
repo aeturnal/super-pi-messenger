@@ -350,6 +350,22 @@ describe("lobby workers", () => {
     }
   });
 
+  it("rechecks the stored plan identity before assigning a selected lobby worker", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const workspace = resolveWorkspace(fixture.worktree, fixture.worktree);
+      const storeModule = await import("../../crew/store.ts");
+      vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md", workspace } as any);
+      const worker = lobby.spawnLobbyWorker(fixture.worktree)!;
+
+      vi.mocked(storeModule.getPlan).mockReturnValue({ prd: "docs/PRD.md" } as any);
+
+      expect(lobby.verifyLobbyWorkerAssignment(worker)).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("counts available lobby workers for a cwd", () => {
     expect(lobby.getLobbyWorkerCount("/test/cwd")).toBe(0);
     lobby.spawnLobbyWorker("/test/cwd");
