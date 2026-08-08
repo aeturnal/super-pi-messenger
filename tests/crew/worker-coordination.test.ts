@@ -579,6 +579,101 @@ describe("executeSend broadcast filtering", () => {
     );
   });
 
+  it("worker broadcast with no active peers does not report success, log a feed event, or consume budget", () => {
+    process.env.PI_CREW_ROLE = "worker";
+    process.env.PI_CREW_WORKER = "1";
+    writeJson(path.join(dirs.crewDir, "config.json"), {
+      coordination: "chatty",
+      messageBudgets: { none: 0, minimal: 2, moderate: 5, chatty: 1 },
+    });
+    vi.mocked(storeModule.getActiveAgents).mockReturnValue([]);
+
+    const noRecipients = executeSend(
+      state as any,
+      messageDirs as any,
+      dirs.cwd,
+      undefined,
+      true,
+      "No peers yet",
+    );
+
+    expect(noRecipients.details).toEqual({
+      mode: "send",
+      error: "no_recipients",
+    });
+    expect(storeModule.sendMessageToAgent).not.toHaveBeenCalled();
+    expect(feedModule.logFeedEvent).not.toHaveBeenCalled();
+
+    vi.mocked(storeModule.getActiveAgents).mockReturnValue([
+      { name: "OakBear" } as any,
+    ]);
+    const retry = executeSend(
+      state as any,
+      messageDirs as any,
+      dirs.cwd,
+      undefined,
+      true,
+      "Peer joined",
+    );
+
+    expect(retry.content[0]?.text).toBe(
+      "Message sent to OakBear. (0 messages remaining)",
+    );
+  });
+
+  it("worker broadcast with complete delivery failure does not report success, log a feed event, or consume budget", () => {
+    process.env.PI_CREW_ROLE = "worker";
+    process.env.PI_CREW_WORKER = "1";
+    writeJson(path.join(dirs.crewDir, "config.json"), {
+      coordination: "chatty",
+      messageBudgets: { none: 0, minimal: 2, moderate: 5, chatty: 1 },
+    });
+    vi.mocked(storeModule.getActiveAgents).mockReturnValue([
+      { name: "OakBear" } as any,
+    ]);
+    vi.mocked(storeModule.sendMessageToAgent).mockImplementation(() => {
+      throw new Error("disk full");
+    });
+
+    const failed = executeSend(
+      state as any,
+      messageDirs as any,
+      dirs.cwd,
+      undefined,
+      true,
+      "Cannot deliver",
+    );
+
+    expect(failed.details).toEqual({
+      mode: "send",
+      error: "all_failed",
+      sent: [],
+      failed: [{ name: "OakBear", error: "disk full" }],
+    });
+    expect(feedModule.logFeedEvent).not.toHaveBeenCalled();
+
+    vi.mocked(storeModule.sendMessageToAgent).mockImplementation(() => ({
+      id: "msg-id",
+      from: "EpicGrove",
+      to: "OakBear",
+      text: "placeholder",
+      timestamp: new Date().toISOString(),
+      replyTo: null,
+    }));
+    const retry = executeSend(
+      state as any,
+      messageDirs as any,
+      dirs.cwd,
+      undefined,
+      true,
+      "Retry delivery",
+    );
+
+    expect(retry.content[0]?.text).toBe(
+      "Message sent to OakBear. (0 messages remaining)",
+    );
+  });
+
   it("non-worker broadcast delivers to inbox recipients", () => {
     delete process.env.PI_CREW_WORKER;
 
