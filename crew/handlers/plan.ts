@@ -8,7 +8,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { CrewParams } from "../types.ts";
+import type { CrewParams, WorkspaceIdentity } from "../types.ts";
 import { result } from "../utils/result.ts";
 import { spawnAgents } from "../agents.ts";
 import { discoverCrewAgents, discoverCrewSkills, type CrewSkillInfo } from "../utils/discover.ts";
@@ -30,6 +30,7 @@ import * as store from "../store.ts";
 import * as teamStore from "../team/store.ts";
 import type { TeamProfile, TeamRoleDefinition } from "../team/types.ts";
 import { taskMetadataMarkers } from "../utils/task-format.ts";
+import { resolveContainedFile, resolveWorkspace, WorkspaceError } from "../workspace.ts";
 
 const PRD_PATTERNS = [
   "PRD.md", "prd.md",
@@ -119,6 +120,23 @@ function appendReviewToProgress(
   const progressPath = getProgressPath(cwd);
   const header = `### Review ${reviewNum} (${formatProgressTime()})\n`;
   fs.appendFileSync(progressPath, `\n${header}**Verdict: ${verdict}**\n${content}\n`);
+}
+
+function workspaceFailure(error: unknown, workspace: string) {
+  if (error instanceof WorkspaceError) {
+    return result(`Workspace validation failed: ${error.code}`, {
+      mode: "plan",
+      error: error.code,
+      ...(error.expected === undefined ? {} : { expected: error.expected }),
+      ...(error.observed === undefined ? {} : { observed: error.observed }),
+    });
+  }
+
+  return result("Workspace validation failed: workspace_invalid", {
+    mode: "plan",
+    error: "workspace_invalid",
+    observed: workspace,
+  });
 }
 
 function notify(ctx: ExtensionContext, message: string, type: "info" | "warning" | "error" = "info"): void {
@@ -212,6 +230,22 @@ export async function execute(
   const reportProgress = () => onProgress?.();
   resetPlanningCancellation();
 
+  if (params.workspace && !prd) {
+    return result("An explicit PRD is required when workspace is supplied.", {
+      mode: "plan",
+      error: "workspace_requires_prd",
+    });
+  }
+
+  let workspaceIdentity: WorkspaceIdentity | undefined;
+  if (params.workspace) {
+    try {
+      workspaceIdentity = resolveWorkspace(params.workspace, cwd);
+    } catch (error) {
+      return workspaceFailure(error, params.workspace);
+    }
+  }
+
   const existingPlan = store.getPlan(cwd);
   if (existingPlan) {
     const existingTasks = store.getTasks(cwd);
@@ -256,13 +290,23 @@ export async function execute(
 
   if (prd) {
     prdPath = prd;
-    const fullPath = path.isAbsolute(prd) ? prd : path.join(cwd, prd);
-    if (!fs.existsSync(fullPath)) {
+    const requestedPath = path.isAbsolute(prd)
+      ? prd
+      : path.join(workspaceIdentity?.root ?? cwd, prd);
+    if (!fs.existsSync(requestedPath)) {
       return result(`PRD file not found: ${prd}`, {
         mode: "plan",
         error: "prd_not_found",
         prd
       });
+    }
+    let fullPath = requestedPath;
+    if (workspaceIdentity) {
+      try {
+        fullPath = resolveContainedFile(workspaceIdentity, requestedPath);
+      } catch (error) {
+        return workspaceFailure(error, params.workspace!);
+      }
     }
     prdContent = fs.readFileSync(fullPath, "utf-8");
     if (prdContent.length > MAX_PRD_SIZE) {
@@ -314,7 +358,7 @@ export async function execute(
     ? (prompt!.length > 60 ? prompt!.slice(0, 57) + "..." : prompt!)
     : prdPath;
 
-  store.createPlan(cwd, prdPath, isPromptBased ? prompt : undefined);
+  store.createPlan(cwd, prdPath, isPromptBased ? prompt : undefined, workspaceIdentity);
   startRunInProgress(cwd, runLabel);
   if (prompt && !isPromptBased) injectSteeringPrompt(cwd, prompt);
   startPlanningRun(cwd, maxPasses);
@@ -344,7 +388,7 @@ export async function execute(
       task: plannerPrompt,
       modelOverride: config.models?.planner ?? sessionModel,
       taskId: "__planner__",
-    }], cwd);
+    }], workspaceIdentity?.root ?? cwd);
 
     if (isPlanningCancelled()) {
       return result("Planning cancelled.", { mode: "plan", error: "cancelled" });
@@ -397,7 +441,7 @@ export async function execute(
       task: reviewPrompt,
       modelOverride: config.models?.reviewer ?? sessionModel,
       taskId: "__reviewer__",
-    }], cwd);
+    }], workspaceIdentity?.root ?? cwd);
 
     if (isPlanningCancelled()) {
       return result("Planning cancelled.", { mode: "plan", error: "cancelled" });
