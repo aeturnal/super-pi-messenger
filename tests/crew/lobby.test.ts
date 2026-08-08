@@ -811,6 +811,49 @@ describe("lobby workers", () => {
     );
   });
 
+  it("uses one verified plan workspace snapshot for direct launch and publication", async () => {
+    const fixture = createGitWorktreeFixture();
+    try {
+      const storeModule = await import("../../crew/store.ts");
+      const registry = await import("../../crew/registry.ts");
+      const workspace = resolveWorkspace(fixture.worktree, fixture.worktree);
+      const task = {
+        id: "task-snapshot", title: "Snapshot task", status: "todo", attempt_count: 0,
+        depends_on: [], description: "", created_at: "", milestone: false,
+      } as any;
+      vi.mocked(storeModule.getTask).mockReturnValue(task);
+      vi.mocked(storeModule.getPlan)
+        .mockReturnValueOnce({ prd: "docs/PRD.md", workspace } as any)
+        .mockReturnValue({ prd: "docs/PRD.md" } as any);
+      vi.mocked(storeModule.updateTask).mockClear();
+      vi.mocked(spawn).mockClear();
+
+      const worker = lobby.spawnWorkerForTask(fixture.worktree, task.id, "# Task prompt");
+
+      expect(storeModule.getPlan).toHaveBeenCalledTimes(1);
+      expect(worker).toMatchObject({ assignedTaskId: task.id, workspace });
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(spawn).mock.calls[0]?.[2]?.cwd).toBe(workspace.root);
+      expect(fs.existsSync(worker!.aliveFile!)).toBe(false);
+      expect(registry.findWorkerByTask(fixture.worktree, task.id)).toBe(worker);
+      expect(fs.existsSync(worker!.promptTmpDir!)).toBe(true);
+      expect(storeModule.updateTask).toHaveBeenCalledTimes(1);
+      expect(storeModule.updateTask).toHaveBeenCalledWith(
+        fixture.worktree,
+        task.id,
+        expect.objectContaining({ status: "in_progress", assigned_to: worker!.name }),
+      );
+
+      const promptTmpDir = worker!.promptTmpDir!;
+      (worker!.proc as any)._handlers["close"](0);
+      expect(registry.findWorkerByTask(fixture.worktree, task.id)).toBeNull();
+      expect(fs.existsSync(promptTmpDir)).toBe(false);
+    } finally {
+      lobby.shutdownLobbyWorkers(fixture.worktree);
+      fixture.cleanup();
+    }
+  });
+
   it("spawnWorkerForTask verifies the plan workspace before starting a todo task", async () => {
     const fixture = createGitWorktreeFixture();
     try {

@@ -95,7 +95,22 @@ function lobbyTaskId(id: string): string {
 }
 
 export function spawnLobbyWorker(cwd: string, promptOverride?: string, sessionModel?: string, modelOverride?: string): LobbyWorker | null {
-  const workspace = verifyPlanWorkspace(cwd);
+  return spawnLobbyWorkerFromSnapshot(
+    cwd,
+    verifyPlanWorkspace(cwd),
+    promptOverride,
+    sessionModel,
+    modelOverride,
+  );
+}
+
+function spawnLobbyWorkerFromSnapshot(
+  cwd: string,
+  workspace: WorkspaceIdentity | null,
+  promptOverride?: string,
+  sessionModel?: string,
+  modelOverride?: string,
+): LobbyWorker | null {
   const launchCwd = workspace?.root ?? cwd;
   const agents = discoverCrewAgents(cwd);
   const workerConfig = agents.find(a => a.name === "crew-worker");
@@ -440,9 +455,8 @@ export function spawnWorkerForTask(
   const roleName = teamStore.resolveRoleName(cwd, task.role);
   const roleModel = roleName ? teamStore.resolveRoles(cwd)[roleName]?.model : undefined;
   const taskModel = resolveModel(task.model, requestModel, roleModel, config.models?.worker, sessionModel);
-  const worker = spawnLobbyWorker(cwd, taskPrompt, sessionModel, taskModel);
+  const worker = spawnLobbyWorkerFromSnapshot(cwd, workspace, taskPrompt, sessionModel, taskModel);
   if (!worker) return null;
-  if (!hasMatchingWorkspaceIdentity(worker.workspace, workspace ?? undefined)) return null;
 
   removeLiveWorker(cwd, lobbyTaskId(worker.lobbyId));
   worker.assignedTaskId = taskId;
