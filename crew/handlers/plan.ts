@@ -385,8 +385,6 @@ export async function execute(
   const teamRoles = activeTeam ? teamStore.resolveRoles(cwd) : {};
   const approvalLabels = activeTeam ? teamStore.activeApprovalLabels(cwd) : [];
 
-  const existingProgress = readProgressForPrompt(cwd);
-
   const runLabel = isPromptBased
     ? (prompt!.length > 60 ? prompt!.slice(0, 57) + "..." : prompt!)
     : prdPath;
@@ -394,6 +392,7 @@ export async function execute(
   store.createPlan(cwd, prdPath, isPromptBased ? prompt : undefined, workspaceIdentity);
   startRunInProgress(cwd, runLabel);
   if (prompt && !isPromptBased) injectSteeringPrompt(cwd, prompt);
+  const existingProgress = readProgressForPrompt(cwd);
   startPlanningRun(cwd, maxPasses);
   setPlanningPhase(cwd, "read-prd", 0);
   logFeedEvent(cwd, agentName, "plan.start", prdPath, `max passes ${maxPasses}`);

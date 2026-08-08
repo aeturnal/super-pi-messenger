@@ -104,6 +104,7 @@ describe("plan workspace handoff", () => {
     const plannerTask = spawnAgents.mock.calls[0][0][0].task;
     expect(plannerTask).toContain(`PRD: ${prd}`);
     expect(plannerTask).toContain("Distinctive plan content for workspace planning.");
+    expect(plannerTask).toContain("focus on the handoff boundary");
     expect(plannerTask).not.toContain("## Request\nfocus on the handoff boundary");
     expect(spawnAgents.mock.calls[0][1]).toBe(workspace.root);
     expect(fs.readFileSync(path.join(store.getCrewDir(fx.worktree), "planning-progress.md"), "utf8"))
