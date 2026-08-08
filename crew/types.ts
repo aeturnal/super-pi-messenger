@@ -12,6 +12,12 @@ import type { CrewAgentConfig } from "./utils/discover.ts";
 // Plan Types
 // =============================================================================
 
+export interface WorkspaceIdentity {
+  root: string;
+  gitDir: string;
+  gitCommonDir: string;
+}
+
 export interface Plan {
   prd: string;                   // Path to PRD file (relative to cwd)
   prompt?: string;               // Inline prompt text (when no PRD file)
