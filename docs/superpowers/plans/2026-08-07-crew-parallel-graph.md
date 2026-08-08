@@ -27,13 +27,13 @@
 
 ```text
 Task 1 ───────────────┐
-                      ├── Task 4
+                      ├── Task 4 ── Task 5
 Task 3 ───────────────┘
 
 Task 2 is independent and may run beside Tasks 1 and 3.
 ```
 
-Task 1 creates the pure graph interface. Task 3 adds format repair in `plan.ts`. Task 4 consumes both and adds structural validation plus linear-graph reconsideration. Task 2 changes only planner/policy instructions and their tests.
+Task 1 creates the pure graph interface. Task 3 adds format repair in `plan.ts`. Task 4 consumes both and enforces structural validity. Task 5 adds bounded linear-graph reconsideration. Task 2 changes only planner/policy instructions and their tests.
 
 ---
 
@@ -640,7 +640,7 @@ git commit -m "fix: repair malformed Crew planner output once"
 
 ---
 
-### Task 4: Validate task graphs and reconsider complete chains
+### Task 4: Reject invalid task graphs and map dependencies losslessly
 
 **Files:**
 
@@ -651,18 +651,9 @@ git commit -m "fix: repair malformed Crew planner output once"
 
 **Interfaces:**
 
-- Consumes: `validateTaskGraph()` and `TaskGraphValidation` from Task 1; `parsePlannerTasks()` and one-shot planner repair pattern from Task 3.
-- Produces:
-
-```ts
-function buildLinearGraphRepairPrompt(
-  prdPath: string,
-  prdContent: string,
-  previousOutput: string,
-): string;
-```
-
-- Behavior: validate before task files exist; make at most one `__planner_graph_repair__` launch for a structurally valid complete chain of at least four tasks; use `dependencyIndexes` for lossless title-to-ID mapping.
+- Consumes: `validateTaskGraph()` and `TaskGraphValidation` from Task 1; `parsePlannerTasks()` from Task 3.
+- Produces: a validated `graph.dependencyIndexes: number[][]` used for title-to-task-ID mapping before task files are created.
+- Behavior: reject duplicate titles, unresolved dependencies, self-dependencies, and cycles without creating task files; stop silently dropping unknown dependency names.
 - Dependencies: Tasks 1 and 3.
 
 - [ ] **Step 1: Add failing structural-validation tests**
@@ -687,6 +678,14 @@ ${JSON.stringify(tasks)}
 \`\`\``;
 
 it.each([
+  {
+    name: "duplicate titles",
+    tasks: [
+      { title: "A", description: "First", dependsOn: [] },
+      { title: "a", description: "Second", dependsOn: [] },
+    ],
+    code: "duplicate_title",
+  },
   {
     name: "unresolved dependencies",
     tasks: [{ title: "A", description: "A", dependsOn: ["Missing"] }],
@@ -722,11 +721,136 @@ it.each([
 });
 ```
 
-Update the existing circular-reference test in `tests/crew/plan-replan.test.ts` to expect safe rejection and no created tasks instead of “handles circular references without crashing.”
+Update the existing circular-reference test in `tests/crew/plan-replan.test.ts` to expect `{ error: "invalid_task_graph", graphError: "cycle" }` and no created tasks.
 
-- [ ] **Step 2: Add failing complete-chain reconsideration tests**
+- [ ] **Step 2: Run structural tests and verify RED**
 
-Add:
+Run:
+
+```bash
+npm test -- tests/crew/task-graph.test.ts tests/crew/plan-output-repair.test.ts tests/crew/plan-replan.test.ts
+```
+
+Expected: FAIL because `plan.ts` still silently drops unresolved dependencies, overwrites duplicate title aliases, and accepts cycles.
+
+- [ ] **Step 3: Validate parsed tasks before creating task files**
+
+Import the validator:
+
+```ts
+import { validateTaskGraph } from "../utils/task-graph.ts";
+```
+
+Immediately after format repair produces non-empty `tasks`, validate it:
+
+```ts
+const graph = validateTaskGraph(tasks);
+if (!graph.valid) {
+  store.setPlanSpec(cwd, lastPlannerOutput);
+  finishPlanningRun(cwd, "failed", passesCompleted);
+  reportProgress();
+  logFeedEvent(cwd, agentName, "plan.failed", prdPath, graph.message);
+  notify(ctx, `Planning failed: ${graph.message}`, "error");
+  return result(`Planning failed: ${graph.message}`, {
+    mode: "plan",
+    error: "invalid_task_graph",
+    graphError: graph.code,
+    prd: prdPath,
+  });
+}
+```
+
+Place this block before `store.createTask()` is called. Keep `graph` in scope for dependency mapping.
+
+- [ ] **Step 4: Use validated indexes instead of silently resolving titles after creation**
+
+Replace the old `titleToId` mapping loops with:
+
+```ts
+const createdTasks: Array<{ id: string; title: string; dependencyIndexes: number[] }> = [];
+
+for (let index = 0; index < tasks.length; index++) {
+  const task = tasks[index];
+  const role = teamStore.canonicalRoleForTask(cwd, task.role);
+  const riskLabels = teamStore.normalizeRiskLabels(task.riskLabels);
+  const approval = teamStore.approvalForTask(cwd, role, riskLabels);
+  const created = store.createTask(cwd, task.title, task.description, undefined, {
+    ...(role ? { role } : {}),
+    ...(riskLabels && riskLabels.length > 0 ? { risk_labels: riskLabels } : {}),
+    ...(approval ? { approval } : {}),
+    ...(task.skills && task.skills.length > 0 ? { skills: task.skills } : {}),
+  });
+  createdTasks.push({
+    id: created.id,
+    title: task.title,
+    dependencyIndexes: graph.dependencyIndexes[index],
+  });
+}
+
+for (const task of createdTasks) {
+  const resolvedDeps = task.dependencyIndexes.map(index => createdTasks[index].id);
+  if (resolvedDeps.length > 0) {
+    store.updateTask(cwd, task.id, { depends_on: resolvedDeps });
+  }
+}
+```
+
+Remove the old `titleToId` map and silent `if (depId)` drop. Keep `pruneTransitiveDeps()` after writing validated dependencies.
+
+- [ ] **Step 5: Run structural, mapping, and strict-dependency tests**
+
+Run:
+
+```bash
+npm test -- \
+  tests/crew/task-graph.test.ts \
+  tests/crew/plan-output-repair.test.ts \
+  tests/crew/plan-replan.test.ts \
+  tests/crew/task-actions.test.ts \
+  tests/crew/team-work.test.ts
+npx tsc --noEmit
+```
+
+Expected: PASS. Invalid graphs create no tasks, valid title and numbered aliases map to the correct task IDs, transitive pruning remains intact, and strict task readiness is unchanged.
+
+- [ ] **Step 6: Commit structural graph enforcement**
+
+```bash
+git add \
+  crew/handlers/plan.ts \
+  tests/crew/plan-output-repair.test.ts \
+  tests/crew/plan-replan.test.ts
+git commit -m "fix: reject invalid Crew task graphs"
+```
+
+---
+
+### Task 5: Reconsider complete linear graphs once
+
+**Files:**
+
+- Modify: `crew/handlers/plan.ts:203-563`
+- Modify: `tests/crew/plan-output-repair.test.ts`
+
+**Interfaces:**
+
+- Consumes: the validated `graph.completeChain: boolean` and `graph.dependencyIndexes` from Tasks 1 and 4; `parsePlannerTasks()` from Task 3.
+- Produces:
+
+```ts
+function buildLinearGraphRepairPrompt(
+  prdPath: string,
+  prdContent: string,
+  previousOutput: string,
+): string;
+```
+
+- Behavior: make at most one `__planner_graph_repair__` launch for a valid complete chain of four or more tasks; accept a valid retained chain after reconsideration; reject malformed or invalid repaired output before task creation.
+- Dependencies: Task 4.
+
+- [ ] **Step 1: Add failing complete-chain reconsideration tests**
+
+In `tests/crew/plan-output-repair.test.ts`, add:
 
 ```ts
 const linearTasks = [
@@ -776,19 +900,34 @@ it("accepts a still-linear graph after exactly one required reconsideration", as
   expect(spawnAgents).toHaveBeenCalledTimes(2);
   expect(store.getTasks(cwd)).toHaveLength(4);
 });
+
+it("fails without tasks when graph reconsideration returns invalid output", async () => {
+  spawnAgents
+    .mockResolvedValueOnce([plannerResult(outputFor(linearTasks))])
+    .mockResolvedValueOnce([plannerResult("Invalid repaired output")]);
+
+  const response = await planHandler.execute(
+    { action: "plan", prd: "docs/PRD.md", autoWork: false },
+    ctx,
+    "Lead",
+  );
+
+  expect(response.details.error).toBe("invalid_task_graph");
+  expect(store.getTasks(cwd)).toEqual([]);
+});
 ```
 
-- [ ] **Step 3: Run the focused tests and verify RED**
+- [ ] **Step 2: Run reconsideration tests and verify RED**
 
 Run:
 
 ```bash
-npm test -- tests/crew/task-graph.test.ts tests/crew/plan-output-repair.test.ts tests/crew/plan-replan.test.ts
+npm test -- tests/crew/plan-output-repair.test.ts -t "reconsider|still-linear|reconsideration returns invalid"
 ```
 
-Expected: FAIL because `plan.ts` still silently drops unresolved dependencies, accepts cycles, and never requests graph reconsideration.
+Expected: FAIL because a valid complete chain currently creates tasks after the first planner call and never launches `__planner_graph_repair__`.
 
-- [ ] **Step 4: Add the graph-reconsideration prompt**
+- [ ] **Step 3: Add the graph-reconsideration prompt**
 
 In `crew/handlers/plan.ts`, add:
 
@@ -818,32 +957,11 @@ ${previousOutput}`;
 }
 ```
 
-Import the validator:
+- [ ] **Step 4: Reconsider once and revalidate before task creation**
+
+Change Task 4's `const graph` binding to `let graph`, then insert this block after initial graph validation and before `store.createTask()`:
 
 ```ts
-import { validateTaskGraph } from "../utils/task-graph.ts";
-```
-
-- [ ] **Step 5: Validate and optionally reconsider before creating tasks**
-
-Immediately after format repair produces non-empty `tasks`, validate it:
-
-```ts
-let graph = validateTaskGraph(tasks);
-if (!graph.valid) {
-  store.setPlanSpec(cwd, lastPlannerOutput);
-  finishPlanningRun(cwd, "failed", passesCompleted);
-  reportProgress();
-  logFeedEvent(cwd, agentName, "plan.failed", prdPath, graph.message);
-  notify(ctx, `Planning failed: ${graph.message}`, "error");
-  return result(`Planning failed: ${graph.message}`, {
-    mode: "plan",
-    error: "invalid_task_graph",
-    graphError: graph.code,
-    prd: prdPath,
-  });
-}
-
 if (graph.completeChain) {
   const [repairResult] = await spawnAgents([{
     agent: PLANNER_AGENT,
@@ -855,19 +973,20 @@ if (graph.completeChain) {
   if (isPlanningCancelled()) {
     return result("Planning cancelled.", { mode: "plan", error: "cancelled" });
   }
-  if (repairResult.exitCode !== 0) {
-    return result("Planning failed while reconsidering a fully linear task graph.", {
-      mode: "plan",
-      error: "graph_repair_failed",
-      prd: prdPath,
-    });
+
+  if (repairResult.exitCode === 0) {
+    lastPlannerOutput = repairResult.output;
+    tasks = parsePlannerTasks(lastPlannerOutput);
+    graph = validateTaskGraph(tasks);
   }
 
-  lastPlannerOutput = repairResult.output;
-  tasks = parsePlannerTasks(lastPlannerOutput);
-  graph = validateTaskGraph(tasks);
-  if (tasks.length === 0 || !graph.valid) {
+  if (repairResult.exitCode !== 0 || tasks.length === 0 || !graph.valid) {
     const graphError = graph.valid ? "invalid_planner_output" : graph.code;
+    store.setPlanSpec(cwd, lastPlannerOutput);
+    finishPlanningRun(cwd, "failed", passesCompleted);
+    reportProgress();
+    logFeedEvent(cwd, agentName, "plan.failed", prdPath, "invalid graph reconsideration output");
+    notify(ctx, "Planning failed: graph reconsideration returned invalid tasks.", "error");
     return result("Planning failed: graph reconsideration returned invalid tasks.", {
       mode: "plan",
       error: "invalid_task_graph",
@@ -878,44 +997,9 @@ if (graph.completeChain) {
 }
 ```
 
-Before final code, route every early failure through the same existing planning cleanup operations: save final planner output, mark the planning run failed, report progress, log `plan.failed`, and notify once. Do not create task files on any failure.
+Do not loop when the repaired graph is still a complete chain. One valid reconsideration satisfies the requirement. Keep `extractPlanSections()`, outline construction, and `setPlanningOutline()` after this block so they use the final reconsidered `lastPlannerOutput`.
 
-- [ ] **Step 6: Use validated indexes instead of silently resolving titles after creation**
-
-When creating tasks, retain the planner index:
-
-```ts
-const createdTasks: Array<{ id: string; title: string; dependencyIndexes: number[] }> = [];
-
-for (let index = 0; index < tasks.length; index++) {
-  const task = tasks[index];
-  const role = teamStore.canonicalRoleForTask(cwd, task.role);
-  const riskLabels = teamStore.normalizeRiskLabels(task.riskLabels);
-  const approval = teamStore.approvalForTask(cwd, role, riskLabels);
-  const created = store.createTask(cwd, task.title, task.description, undefined, {
-    ...(role ? { role } : {}),
-    ...(riskLabels && riskLabels.length > 0 ? { risk_labels: riskLabels } : {}),
-    ...(approval ? { approval } : {}),
-    ...(task.skills && task.skills.length > 0 ? { skills: task.skills } : {}),
-  });
-  createdTasks.push({
-    id: created.id,
-    title: task.title,
-    dependencyIndexes: graph.dependencyIndexes[index],
-  });
-}
-
-for (const task of createdTasks) {
-  const resolvedDeps = task.dependencyIndexes.map(index => createdTasks[index].id);
-  if (resolvedDeps.length > 0) {
-    store.updateTask(cwd, task.id, { depends_on: resolvedDeps });
-  }
-}
-```
-
-Remove the old `titleToId` map and silent `if (depId)` drop. Keep `pruneTransitiveDeps()` after writing validated dependencies.
-
-- [ ] **Step 7: Run focused planning and scheduling tests**
+- [ ] **Step 5: Run planning and strict-scheduling tests**
 
 Run:
 
@@ -930,23 +1014,20 @@ npm test -- \
 npx tsc --noEmit
 ```
 
-Expected: PASS. Invalid graphs create no tasks, complete chains receive exactly one reconsideration, justified chains are accepted, branched roots remain ready in parallel, and strict scheduling behavior is unchanged.
+Expected: PASS. Every complete chain receives exactly one reconsideration, valid retained chains are accepted, repaired branches remain parallel-ready, invalid repair output creates no tasks, and strict scheduling is unchanged.
 
-- [ ] **Step 8: Commit graph integration**
+- [ ] **Step 6: Commit linear-graph reconsideration**
 
 ```bash
-git add \
-  crew/handlers/plan.ts \
-  tests/crew/plan-output-repair.test.ts \
-  tests/crew/plan-replan.test.ts
-git commit -m "fix: validate and parallelize Crew task graphs"
+git add crew/handlers/plan.ts tests/crew/plan-output-repair.test.ts
+git commit -m "fix: reconsider linear Crew task graphs"
 ```
 
 ---
 
 ## Final Verification
 
-After all four task commits are present, run:
+After all five task commits are present, run:
 
 ```bash
 npm test -- \
@@ -960,7 +1041,7 @@ npm test -- \
   tests/crew/team-task-approval.test.ts \
   tests/crew/auto-review.test.ts
 npx tsc --noEmit
-git diff --check HEAD~4..HEAD
+git diff --check HEAD~5..HEAD
 ```
 
 Then run the complete suite:
