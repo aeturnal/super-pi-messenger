@@ -13,13 +13,13 @@ function createState(agentName: string): MessengerState {
   return { agentName } as MessengerState;
 }
 
-async function callAs(cwd: string, agentName: string, op: "progress" | "done", id: string) {
-  return taskHandler.execute(
-    op,
-    op === "progress" ? { id, message: "Still working" } : { id, summary: "Finished" },
-    createState(agentName),
-    createMockContext(cwd),
-  );
+async function callAs(cwd: string, agentName: string, op: "progress" | "done" | "block", id: string) {
+  const params = op === "progress"
+    ? { id, message: "Still working" }
+    : op === "done"
+      ? { id, summary: "Finished" }
+      : { id, reason: "Waiting on API" };
+  return taskHandler.execute(op, params, createState(agentName), createMockContext(cwd));
 }
 
 function writeCrewDependenciesConfig(cwd: string, dependencies: "advisory" | "strict"): void {
@@ -350,11 +350,39 @@ describe("crew/task-actions", () => {
       expect(store.getTaskProgress(cwd, task.id)).toBeNull();
     });
 
+    it("rejects an unassigned child blocking an in-progress task", async () => {
+      const { cwd } = createTempCrewDirs();
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Task", "Desc");
+      store.startTask(cwd, task.id, "WorkerA");
+      vi.stubEnv("PI_CREW_WORKER", "1");
+
+      expect(await callAs(cwd, "WorkerB", "block", task.id)).toMatchObject({
+        details: { error: "not_owner" },
+      });
+      expect(store.getTask(cwd, task.id)?.status).toBe("in_progress");
+    });
+
+    it("allows the assigned child to block its in-progress task", async () => {
+      const { cwd } = createTempCrewDirs();
+      store.createPlan(cwd, "docs/PRD.md");
+      const task = store.createTask(cwd, "Task", "Desc");
+      store.startTask(cwd, task.id, "WorkerA");
+      vi.stubEnv("PI_CREW_WORKER", "1");
+
+      expect(await callAs(cwd, "WorkerA", "block", task.id)).toMatchObject({
+        details: { task: { status: "blocked" } },
+      });
+    });
+
     it("allows the controller to recover an assigned task", async () => {
       const { cwd } = createTempCrewDirs();
       store.createPlan(cwd, "docs/PRD.md");
       const task = store.createTask(cwd, "Task", "Desc");
       store.startTask(cwd, task.id, "WorkerA");
+      vi.stubEnv("PI_CREW_WORKER", "");
+      vi.stubEnv("PI_CREW_ROLE", "");
+      vi.stubEnv("PI_LOBBY_ID", "");
 
       expect(await callAs(cwd, "Controller", "done", task.id)).toMatchObject({
         details: { task: { status: "done" } },

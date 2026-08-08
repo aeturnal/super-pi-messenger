@@ -595,7 +595,21 @@ function taskBlock(cwd: string, params: CrewParams, state: MessengerState) {
     return result("Error: reason required for task.block", { mode: "task.block", error: "missing_reason" });
   }
 
-  const actionResult = executeTaskAction(cwd, "block", id, state.agentName || "unknown", params.reason);
+  const task = store.getTask(cwd, id);
+  if (!task) {
+    return result(`Error: Task ${id} not found`, { mode: "task.block", error: "not_found", id });
+  }
+
+  const agentName = state.agentName || "unknown";
+  if (!canMutateAssignedTask(task, agentName, isCrewChildProcess())) {
+    return result(`Error: ${task.id} is assigned to ${task.assigned_to ?? "another worker"}.`, {
+      mode: "task.block",
+      error: "not_owner",
+      id: task.id,
+    });
+  }
+
+  const actionResult = executeTaskAction(cwd, "block", id, agentName, params.reason);
   if (!actionResult.success || !actionResult.task) {
     return result(`Error: ${actionResult.message}`, {
       mode: "task.block",
