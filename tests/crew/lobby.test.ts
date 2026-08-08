@@ -26,14 +26,30 @@ vi.mock("node:child_process", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("../../crew/store.ts", () => ({
-  getPlan: vi.fn(() => ({ prd: "docs/PRD.md" })),
-  getCrewDir: vi.fn((cwd: string) => `${cwd}/.pi/messenger/crew`),
-  getTask: vi.fn(() => null),
-  getBaseCommit: vi.fn(() => "abc1234"),
-  updateTask: vi.fn(),
-  appendTaskProgress: vi.fn(),
-}));
+vi.mock("../../crew/store.ts", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const taskPath = (cwd: string, taskId: string) => path.join(cwd, ".pi", "messenger", "crew", "tasks", `${taskId}.json`);
+  const getTask = vi.fn((cwd: string, taskId: string) => {
+    try { return JSON.parse(fs.readFileSync(taskPath(cwd, taskId), "utf8")); } catch { return null; }
+  });
+  return {
+    getPlan: vi.fn(() => ({ prd: "docs/PRD.md" })),
+    getCrewDir: vi.fn((cwd: string) => `${cwd}/.pi/messenger/crew`),
+    getTask,
+    getBaseCommit: vi.fn(() => "abc1234"),
+    updateTask: vi.fn((cwd: string, taskId: string, updates: Record<string, unknown>) => {
+      const task = getTask(cwd, taskId);
+      if (!task) return null;
+      const updated = { ...task, ...updates, updated_at: new Date().toISOString() };
+      if (fs.existsSync(taskPath(cwd, taskId))) {
+        fs.writeFileSync(taskPath(cwd, taskId), JSON.stringify(updated, null, 2));
+      }
+      return updated;
+    }),
+    appendTaskProgress: vi.fn(),
+  };
+});
 
 vi.mock("../../feed.ts", () => ({
   logFeedEvent: vi.fn(),
@@ -63,6 +79,7 @@ vi.mock("../../crew/utils/discover.ts", () => ({
 }));
 
 vi.mock("../../crew/live-progress.ts", () => ({
+  getLiveWorkers: vi.fn(() => new Map()),
   updateLiveWorker: vi.fn(),
   removeLiveWorker: vi.fn(),
 }));
@@ -83,6 +100,20 @@ function createTestCwd(): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-messenger-lobby-test-"));
   fs.mkdirSync(path.join(cwd, ".pi", "messenger", "crew"), { recursive: true });
   return cwd;
+}
+
+function createAssignmentTask(cwd: string, taskId: string): void {
+  const taskPath = path.join(cwd, ".pi", "messenger", "crew", "tasks", `${taskId}.json`);
+  fs.mkdirSync(path.dirname(taskPath), { recursive: true });
+  fs.writeFileSync(taskPath, JSON.stringify({
+    id: taskId,
+    title: taskId,
+    status: "todo",
+    depends_on: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    attempt_count: 0,
+  }, null, 2));
 }
 
 describe("lobby workers", () => {
@@ -428,6 +459,7 @@ describe("lobby workers", () => {
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
     const worker = lobby.spawnLobbyWorker(cwd)!;
     expect(worker.assignedTaskId).toBeNull();
+    createAssignmentTask(cwd, "task-3");
 
     const assigned = lobby.assignTaskToLobbyWorker(worker, "task-3", "# Task 3\nDo stuff", inboxDir);
     expect(assigned).toBe(true);
@@ -454,6 +486,7 @@ describe("lobby workers", () => {
     const cwd = createTestCwd();
     const worker = lobby.spawnLobbyWorker(cwd)!;
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    createAssignmentTask(cwd, "task-complete");
     expect(lobby.assignTaskToLobbyWorker(worker, "task-complete", "# Task", inboxDir)).toBe(true);
 
     const resultPromise = lobby.waitForLobbyWorker(worker);
@@ -479,6 +512,7 @@ describe("lobby workers", () => {
     const cwd = createTestCwd();
     const worker = lobby.spawnLobbyWorker(cwd)!;
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    createAssignmentTask(cwd, "task-provider-error");
     expect(lobby.assignTaskToLobbyWorker(worker, "task-provider-error", "# Task", inboxDir)).toBe(true);
 
     const resultPromise = lobby.waitForLobbyWorker(worker);
@@ -511,6 +545,7 @@ describe("lobby workers", () => {
     const cwd = createTestCwd();
     const worker = lobby.spawnLobbyWorker(cwd)!;
     const inboxDir = path.join(cwd, ".pi", "messenger", "inbox");
+    createAssignmentTask(cwd, "task-temporary-error");
     expect(lobby.assignTaskToLobbyWorker(worker, "task-temporary-error", "# Task", inboxDir)).toBe(true);
 
     const proc = worker.proc as any;
@@ -535,6 +570,7 @@ describe("lobby workers", () => {
     const worker = lobby.spawnLobbyWorker(cwd)!;
     expect(worker.aliveFile).toBeTruthy();
     expect(fs.existsSync(worker.aliveFile!)).toBe(true);
+    createAssignmentTask(cwd, "task-keepalive");
 
     const assigned = lobby.assignTaskToLobbyWorker(worker, "task-keepalive", "# Task\nDo work", inboxDir);
     expect(assigned).toBe(true);

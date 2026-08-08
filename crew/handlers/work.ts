@@ -18,7 +18,7 @@ import { reviewImplementation } from "./review.ts";
 import * as store from "../store.ts";
 import { getCrewDir } from "../store.ts";
 import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
-import { getAvailableLobbyWorkers, verifyLobbyWorkerAssignment, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, waitForLobbyWorker, type LobbyCompatibility, type LobbyWorker } from "../lobby.ts";
+import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles, isLobbyWorkerCompatible, waitForLobbyWorker, type LobbyCompatibility, type LobbyWorker } from "../lobby.ts";
 import { verifyPlanWorkspace } from "../workspace.ts";
 import { hasActiveWorker, killWorkerByTask } from "../registry.ts";
 import { logFeedEvent } from "../../feed.ts";
@@ -269,18 +269,7 @@ export async function execute(
 
     const others = readyTasks.filter(t => t.id !== task.id);
     const prompt = buildWorkerPrompt(task, prdLabel, cwd, config, others, skills, teamStore.buildTeamPromptContext(cwd, task));
-    if (!verifyLobbyWorkerAssignment(lobbyWorker)) continue;
-    store.updateTask(cwd, task.id, {
-      status: "in_progress",
-      started_at: new Date().toISOString(),
-      base_commit: store.getBaseCommit(cwd),
-      assigned_to: lobbyWorker.name,
-      attempt_count: task.attempt_count + 1,
-    });
-    if (!assignTaskToLobbyWorker(lobbyWorker, task.id, prompt, dirs.inbox)) {
-      store.updateTask(cwd, task.id, { status: "todo", assigned_to: undefined });
-      continue;
-    }
+    if (!assignTaskToLobbyWorker(lobbyWorker, task.id, prompt, dirs.inbox)) continue;
     lobbyWorker.managedByWork = true;
     lobbyAssignments.push(lobbyWorker);
     store.appendTaskProgress(cwd, task.id, "system", `Assigned to lobby worker ${lobbyWorker.name} (attempt ${task.attempt_count + 1})`);

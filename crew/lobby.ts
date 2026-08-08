@@ -34,7 +34,7 @@ import {
   parseJsonlLine,
   updateProgress,
 } from "./utils/progress.ts";
-import { updateLiveWorker, removeLiveWorker } from "./live-progress.ts";
+import { getLiveWorkers, updateLiveWorker, removeLiveWorker } from "./live-progress.ts";
 import * as store from "./store.ts";
 import { logFeedEvent } from "../feed.ts";
 import {
@@ -350,8 +350,27 @@ export function assignTaskToLobbyWorker(
 ): boolean {
   if (!verifyLobbyWorkerAssignment(worker)) return false;
 
+  const task = store.getTask(worker.cwd, taskId);
+  if (!task || task.status !== "todo") return false;
+
+  const taskPath = path.join(store.getCrewDir(worker.cwd), "tasks", `${taskId}.json`);
+  let taskBytes: Buffer;
+  try {
+    taskBytes = fs.readFileSync(taskPath);
+  } catch {
+    return false;
+  }
+
   const targetInbox = path.join(inboxDir, worker.name);
-  try { fs.mkdirSync(targetInbox, { recursive: true }); } catch {}
+  const random = Math.random().toString(36).substring(2, 8);
+  const msgFile = path.join(targetInbox, `${Date.now()}-${random}.json`);
+  const aliveFile = worker.aliveFile;
+  const aliveBytes = aliveFile && fs.existsSync(aliveFile) ? fs.readFileSync(aliveFile) : null;
+  const lobbyId = lobbyTaskId(worker.lobbyId);
+  const previousLiveWorker = getLiveWorkers(worker.cwd).get(lobbyId);
+  const previousAssignedTaskId = worker.assignedTaskId;
+  let messageWritten = false;
+  let liveWorkerRemoved = false;
 
   const msg = {
     id: randomUUID(),
@@ -368,24 +387,39 @@ ${taskPrompt}`,
     replyTo: null,
   };
 
-  const random = Math.random().toString(36).substring(2, 8);
-  const msgFile = path.join(targetInbox, `${Date.now()}-${random}.json`);
-  const aliveFile = worker.aliveFile;
-  if (aliveFile) {
-    try { fs.unlinkSync(aliveFile); } catch {}
-  }
   try {
+    const updated = store.updateTask(worker.cwd, taskId, {
+      status: "in_progress",
+      started_at: new Date().toISOString(),
+      base_commit: store.getBaseCommit(worker.cwd),
+      assigned_to: worker.name,
+      attempt_count: task.attempt_count + 1,
+    });
+    if (!updated) throw new Error("task_update_failed");
+
+    fs.mkdirSync(targetInbox, { recursive: true });
+    if (aliveFile && aliveBytes) fs.unlinkSync(aliveFile);
+    messageWritten = true;
     fs.writeFileSync(msgFile, JSON.stringify(msg, null, 2));
+    liveWorkerRemoved = true;
+    removeLiveWorker(worker.cwd, lobbyId);
+    worker.assignedTaskId = taskId;
+    return true;
   } catch {
-    if (aliveFile) {
-      try { fs.writeFileSync(aliveFile, "", { mode: 0o600 }); } catch {}
+    try { fs.writeFileSync(taskPath, taskBytes); } catch {}
+    worker.assignedTaskId = previousAssignedTaskId;
+    if (messageWritten) {
+      try { fs.unlinkSync(msgFile); } catch {}
+    }
+    if (aliveFile && aliveBytes && !fs.existsSync(aliveFile)) {
+      try { fs.writeFileSync(aliveFile, aliveBytes, { mode: 0o600 }); } catch {}
+    }
+    if (liveWorkerRemoved && previousLiveWorker) {
+      const { cwd: _cwd, ...liveWorker } = previousLiveWorker;
+      try { updateLiveWorker(worker.cwd, lobbyId, liveWorker); } catch {}
     }
     return false;
   }
-
-  removeLiveWorker(worker.cwd, lobbyTaskId(worker.lobbyId));
-  worker.assignedTaskId = taskId;
-  return true;
 }
 
 export function killLobbyWorkerForTask(cwd: string, taskId: string): boolean {

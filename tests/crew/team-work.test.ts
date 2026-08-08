@@ -8,7 +8,6 @@ import { createProgress } from "../../crew/utils/progress.ts";
 
 const lobbyMock = vi.hoisted(() => ({
   getAvailableLobbyWorkers: vi.fn(() => [] as Array<{ name: string; lobbyId: string }>),
-  verifyLobbyWorkerAssignment: vi.fn(() => true),
   assignTaskToLobbyWorker: vi.fn((worker: { assignedTaskId: string | null }, taskId: string) => {
     worker.assignedTaskId = taskId;
     return true;
@@ -40,7 +39,6 @@ vi.mock("../../crew/agents.ts", () => ({
 
 vi.mock("../../crew/lobby.ts", () => ({
   getAvailableLobbyWorkers: lobbyMock.getAvailableLobbyWorkers,
-  verifyLobbyWorkerAssignment: lobbyMock.verifyLobbyWorkerAssignment,
   assignTaskToLobbyWorker: lobbyMock.assignTaskToLobbyWorker,
   cleanupUnassignedAliveFiles: lobbyMock.cleanupUnassignedAliveFiles,
   isLobbyWorkerCompatible: lobbyMock.isLobbyWorkerCompatible,
@@ -63,8 +61,16 @@ describe("work with Team approval", () => {
     teamStore = await import("../../crew/team/store.ts");
     vi.clearAllMocks();
     lobbyMock.getAvailableLobbyWorkers.mockReturnValue([]);
-    lobbyMock.verifyLobbyWorkerAssignment.mockReturnValue(true);
     lobbyMock.assignTaskToLobbyWorker.mockImplementation((worker, taskId) => {
+      const task = store.getTask(cwd, taskId);
+      if (!task || task.status !== "todo") return false;
+      store.updateTask(cwd, taskId, {
+        status: "in_progress",
+        started_at: new Date().toISOString(),
+        base_commit: store.getBaseCommit(cwd),
+        assigned_to: worker.name,
+        attempt_count: task.attempt_count + 1,
+      });
       worker.assignedTaskId = taskId;
       return true;
     });
@@ -125,7 +131,7 @@ describe("work with Team approval", () => {
     expect(freshAssignments).toHaveLength(concurrency - lobbyAssignments);
   });
 
-  it("does not mutate a task when plan identity changes after lobby worker selection", async () => {
+  it("does not mutate a task when lobby assignment fails", async () => {
     store.createPlan(cwd, "docs/PRD.md");
     const task = store.createTask(cwd, "Lobby work", "Do work");
     const taskPath = path.join(cwd, ".pi", "messenger", "crew", "tasks", `${task.id}.json`);
@@ -142,23 +148,13 @@ describe("work with Team approval", () => {
     };
     lobbyMock.getAvailableLobbyWorkers.mockReturnValue([lobbyWorker]);
     lobbyMock.isLobbyWorkerCompatible.mockReturnValue(true);
-    lobbyMock.verifyLobbyWorkerAssignment.mockImplementationOnce(() => {
-      store.updatePlan(cwd, {
-        workspace: {
-          root: cwd,
-          gitDir: path.join(cwd, ".git", "worktrees", "changed"),
-          gitCommonDir: path.join(cwd, ".git"),
-        },
-      });
-      return false;
-    });
+    lobbyMock.assignTaskToLobbyWorker.mockReturnValue(false);
     vi.mocked(agents.spawnAgents).mockResolvedValue([]);
 
     await workHandler.execute({ concurrency: 1 }, dirs, createMockContext(cwd), vi.fn());
 
     expect(fs.readFileSync(taskPath)).toEqual(taskBefore);
-    expect(store.getPlan(cwd)?.workspace?.gitDir).toContain("changed");
-    expect(lobbyMock.assignTaskToLobbyWorker).not.toHaveBeenCalled();
+    expect(lobbyMock.assignTaskToLobbyWorker).toHaveBeenCalledOnce();
     expect(lobbyWorker).toMatchObject({ assignedTaskId: null, managedByWork: false });
   });
 
